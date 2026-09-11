@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: aibpo
+    env: node
+    plan: free
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && npm run start
+    envVars:
+      # 跟 my-app 共用既有的 Render Postgres，這裡不用 fromDatabase 另外建資料庫。
+      # 手動貼上完整連線字串（建議用 Internal Database URL）並加上 ?schema=aibpo。
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPER_ADMIN_USERNAME
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NODE_VERSION
+        value: 22.17.0
