@@ -16,5 +16,7 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: NODE_VERSION
         value: 22.17.0

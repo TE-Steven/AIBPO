@@ -19,8 +19,12 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users     User[]
-  roleMenus RoleMenu[]
+  users      User[]
+  roleMenus  RoleMenu[]
+  tallies    Tally[]
+  dimensions Dimension[]
+  kmSources  KmSource[]
+  kmEntries  KmEntry[]
 
   @@map("aibpo_roles")
 }
@@ -71,4 +75,97 @@ model RoleMenu {
 
   @@id([roleId, menuId])
   @@map("aibpo_role_menus")
+}
+
+// 分類樹（大中小分類），最多三層，可以只用大分類、不用中小分類。
+model Tally {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?
+  order     Int      @default(0)
+  roleId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role      Role      @relation(fields: [roleId], references: [id])
+  parent    Tally?    @relation("TallyChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Tally[]   @relation("TallyChildren")
+  kmEntries KmEntry[]
+
+  @@index([roleId])
+  @@map("aibpo_tallies")
+}
+
+// 常用維度清單：分析時可重複勾選，也能在分析當下臨時加自由文字（不落地存這張表）。
+model Dimension {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  roleId      String
+  createdAt   DateTime @default(now())
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, name])
+  @@map("aibpo_dimensions")
+}
+
+// 上傳匯入 KM 的來源（PDF 或 URL）。
+model KmSource {
+  id           String   @id @default(cuid())
+  title        String
+  sourceType   String // "PDF" | "URL"
+  sourceName   String?
+  sourceUrl    String?
+  rawText      String?  @db.Text
+  status       String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
+  errorMessage String?
+  roleId       String
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role    Role      @relation(fields: [roleId], references: [id])
+  entries KmEntry[]
+
+  @@index([roleId])
+  @@map("aibpo_km_sources")
+}
+
+// AI 從來源分析出來的每一則 FAQ（題目/答案都可以再編輯）。
+model KmEntry {
+  id             String   @id @default(cuid())
+  sourceId       String
+  question       String   @db.Text
+  answer         String   @db.Text
+  tallyId        String?
+  dimensionsUsed Json?
+  roleId         String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  source KmSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  tally  Tally?   @relation(fields: [tallyId], references: [id], onDelete: SetNull)
+  role   Role     @relation(fields: [roleId], references: [id])
+
+  @@index([sourceId])
+  @@index([roleId])
+  @@map("aibpo_km_entries")
+}
+
+// 每次呼叫 Claude API 都記一筆，用來在儀表板統計「目前用了多少 token、預估花費多少」。
+// roleId 不設外鍵：純記錄用途，角色被刪除也不該連帶刪掉歷史用量紀錄；superadmin 觸發的呼叫沒有 roleId。
+model ApiUsageLog {
+  id                  String   @id @default(cuid())
+  model               String
+  purpose             String // 例如 "km_analysis"
+  inputTokens         Int
+  outputTokens        Int
+  cacheReadTokens     Int      @default(0)
+  cacheCreationTokens Int      @default(0)
+  roleId              String?
+  createdAt           DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("aibpo_api_usage_logs")
 }
