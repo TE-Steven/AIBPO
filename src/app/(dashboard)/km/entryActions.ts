@@ -24,6 +24,7 @@ export async function updateKmEntryAction(
   });
 
   revalidatePath(`/km/new/${entry.sourceId}`);
+  revalidatePath("/km/knowledge");
 }
 
 export async function deleteKmEntryAction(entryId: string): Promise<void> {
@@ -35,4 +36,21 @@ export async function deleteKmEntryAction(entryId: string): Promise<void> {
 
   await prisma.kmEntry.delete({ where: { id: entryId } });
   revalidatePath(`/km/new/${entry.sourceId}`);
+  revalidatePath("/km/knowledge");
+}
+
+/** 「新增KM」勾選確認後，把選定的題目納入知識列表；再點一次可以取消收錄。 */
+export async function setKmEntriesConfirmedAction(entryIds: string[], confirmed: boolean): Promise<void> {
+  const session = await requireSession();
+  if (entryIds.length === 0) return;
+
+  await prisma.kmEntry.updateMany({
+    where: {
+      id: { in: entryIds },
+      ...(session.kind === "superadmin" ? {} : { roleId: session.roleId }),
+    },
+    data: { confirmed },
+  });
+
+  revalidatePath("/km/knowledge");
 }
