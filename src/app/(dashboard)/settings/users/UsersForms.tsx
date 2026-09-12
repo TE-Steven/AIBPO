@@ -22,7 +22,7 @@ function Message({ state }: { state: UserActionState }) {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100";
+  "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100";
 
 export function CreateUserForm({ roles }: { roles: { id: string; name: string }[] }) {
   const [state, formAction, pending] = useActionState(createUserAction, initialState);
@@ -60,7 +60,7 @@ export function CreateUserForm({ roles }: { roles: { id: string; name: string }[
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/25 transition hover:from-violet-700 hover:to-indigo-600 disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
       >
         <IconPlus className="h-4 w-4" />
         {pending ? "建立中…" : "新增帳號"}
@@ -74,7 +74,7 @@ export function ResetPasswordForm({ userId }: { userId: string }) {
 
   return (
     <details className="group">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-slate-500 hover:text-violet-600">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-slate-500 hover:text-teal-600">
         <IconKey className="h-3.5 w-3.5" />
         重設密碼
       </summary>
@@ -86,7 +86,7 @@ export function ResetPasswordForm({ userId }: { userId: string }) {
           required
           minLength={6}
           placeholder="新密碼"
-          className="w-40 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs shadow-sm focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-40 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
         <button
           type="submit"

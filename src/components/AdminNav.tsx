@@ -47,7 +47,7 @@ function Leaf({ item, chipClassName }: { item: NavItem; chipClassName: string })
     <Link
       href={item.href}
       className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition ${
-        active ? "bg-violet-50 text-violet-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+        active ? "bg-teal-50 text-teal-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
       }`}
     >
       <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${chipClassName}`}>
@@ -70,7 +70,7 @@ function Group({ item, chipClassName }: { item: NavItem; chipClassName: string }
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition ${
-          active ? "text-violet-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+          active ? "text-teal-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
         }`}
       >
         <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${chipClassName}`}>
@@ -92,7 +92,7 @@ function Group({ item, chipClassName }: { item: NavItem; chipClassName: string }
 
 export function AdminNav({
   items,
-  chipClassName = "bg-violet-100 text-violet-600",
+  chipClassName = "bg-teal-100 text-teal-600",
 }: {
   items: NavItem[];
   chipClassName?: string;

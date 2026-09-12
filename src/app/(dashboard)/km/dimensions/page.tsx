@@ -39,7 +39,7 @@ export default async function DimensionsPage() {
             {dimensions.map((d) => (
               <tr key={d.id}>
                 <td className="flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-violet-600">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                     <IconShieldCheck className="h-3.5 w-3.5" />
                   </span>
                   {d.name}

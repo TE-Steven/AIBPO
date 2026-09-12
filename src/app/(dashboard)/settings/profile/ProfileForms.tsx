@@ -39,7 +39,7 @@ export function DisplayNameForm({ defaultValue }: { defaultValue: string }) {
           type="text"
           required
           defaultValue={defaultValue}
-          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
       </div>
       <Message state={state} />
@@ -65,7 +65,7 @@ export function ChangePasswordForm() {
           name="currentPassword"
           type="password"
           required
-          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
       </div>
       <div>
@@ -75,7 +75,7 @@ export function ChangePasswordForm() {
           type="password"
           required
           minLength={6}
-          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
       </div>
       <div>
@@ -85,7 +85,7 @@ export function ChangePasswordForm() {
           type="password"
           required
           minLength={6}
-          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-full max-w-sm rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
       </div>
       <Message state={state} />

@@ -47,7 +47,7 @@ export function KnowledgeList({
               setTallyFilter(e.target.value);
               setSelected(new Set());
             }}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
           >
             <option value="all">全部分類</option>
             <option value="none">未分類</option>
@@ -63,7 +63,7 @@ export function KnowledgeList({
             type="checkbox"
             checked={selected.size === filtered.length && filtered.length > 0}
             onChange={toggleAll}
-            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-400"
+            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
           />
           全選（已選 {selected.size} / {filtered.length}）
         </label>
@@ -72,7 +72,7 @@ export function KnowledgeList({
           aria-disabled={selected.size === 0}
           className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
             selected.size > 0
-              ? "bg-gradient-to-r from-violet-600 to-indigo-500 shadow-violet-500/25 hover:from-violet-700 hover:to-indigo-600"
+              ? "bg-gradient-to-r from-teal-600 to-cyan-500 shadow-teal-500/25 hover:from-teal-700 hover:to-cyan-600"
               : "cursor-not-allowed bg-slate-300"
           }`}
         >

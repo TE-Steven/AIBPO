@@ -37,7 +37,8 @@ export default async function NewKmPage() {
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-100 bg-slate-50 text-xs font-medium text-slate-500">
             <tr>
-              <th className="px-5 py-3">標題</th>
+              <th className="px-5 py-3">名稱</th>
+              <th className="px-5 py-3">來源</th>
               <th className="px-5 py-3">類型</th>
               <th className="px-5 py-3">狀態</th>
               <th className="px-5 py-3">KM 數量</th>
@@ -47,16 +48,18 @@ export default async function NewKmPage() {
           <tbody className="divide-y divide-slate-100">
             {sources.map((s) => {
               const status = STATUS_LABEL[s.status] ?? STATUS_LABEL.PENDING;
+              const sourceLabel = s.sourceType === "PDF" ? s.sourceName : s.sourceUrl;
               return (
                 <tr key={s.id} className="cursor-pointer hover:bg-slate-50">
                   <td className="px-5 py-3">
                     <Link href={`/km/new/${s.id}`} className="flex items-center gap-2.5 font-medium text-slate-800">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-600">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                         <IconSparkles className="h-3.5 w-3.5" />
                       </span>
                       <span className="truncate">{s.title}</span>
                     </Link>
                   </td>
+                  <td className="max-w-xs truncate px-5 py-3 text-slate-500">{sourceLabel}</td>
                   <td className="px-5 py-3 text-slate-500">{s.sourceType}</td>
                   <td className="px-5 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${status.className}`}>
@@ -72,7 +75,7 @@ export default async function NewKmPage() {
             })}
             {sources.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-400">
+                <td colSpan={6} className="px-5 py-8 text-center text-sm text-slate-400">
                   尚未上傳任何來源
                 </td>
               </tr>

@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AIBPO 後台管理",
-  description: "AIBPO 內部管理平台",
+  title: "營運工作台",
+  description: "營運工作台內部管理平台",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

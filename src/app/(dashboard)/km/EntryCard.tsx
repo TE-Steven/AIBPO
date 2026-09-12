@@ -45,7 +45,7 @@ export function EntryCard({
           type="checkbox"
           checked={checked}
           onChange={onToggle}
-          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-400"
+          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
         />
         <div className="flex-1 space-y-3">
           {badge}
@@ -56,7 +56,7 @@ export function EntryCard({
               onChange={(e) => setQuestion(e.target.value)}
               onBlur={() => question !== entry.question && save({ question })}
               rows={1}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
             />
           </div>
           <div>
@@ -66,7 +66,7 @@ export function EntryCard({
               onChange={(e) => setAnswer(e.target.value)}
               onBlur={() => answer !== entry.answer && save({ answer })}
               rows={3}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
             />
           </div>
           <div className="flex items-center gap-3">
@@ -77,7 +77,7 @@ export function EntryCard({
                 setTallyId(value);
                 save({ tallyId: value || null });
               }}
-              className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+              className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
             >
               <option value="">未分類</option>
               {tallyOptions.map((t) => (

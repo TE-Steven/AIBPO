@@ -62,7 +62,7 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
         className="flex w-full items-center justify-between gap-2 px-5 py-4 text-sm font-semibold text-slate-900"
       >
         <span className="flex items-center gap-2">
-          <IconSparkles className="h-4 w-4 text-violet-600" />
+          <IconSparkles className="h-4 w-4 text-teal-600" />
           問 AI：為什麼這樣回答？
         </span>
         <IconChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
@@ -78,7 +78,7 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
               <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
                 <span
                   className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-left text-sm ${
-                    m.role === "user" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-700"
+                    m.role === "user" ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-700"
                   }`}
                 >
                   {m.content || (sending && i === messages.length - 1 ? "思考中…" : "")}
@@ -94,13 +94,13 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
                 if (e.key === "Enter" && !e.nativeEvent.isComposing) send();
               }}
               placeholder="輸入問題…"
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
             />
             <button
               type="button"
               onClick={send}
               disabled={sending}
-              className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/25 transition hover:from-violet-700 hover:to-indigo-600 disabled:opacity-50"
+              className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
             >
               送出
             </button>

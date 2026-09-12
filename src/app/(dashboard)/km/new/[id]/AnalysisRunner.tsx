@@ -93,7 +93,7 @@ export function AnalysisRunner({
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
-          <span className="flex h-8 w-8 shrink-0 animate-pulse items-center justify-center rounded-lg bg-violet-100 text-violet-600">
+          <span className="flex h-8 w-8 shrink-0 animate-pulse items-center justify-center rounded-lg bg-teal-100 text-teal-600">
             <IconSparkles className="h-4 w-4" />
           </span>
           <h2 className="text-sm font-semibold text-slate-900">AI 分析中…</h2>
@@ -107,7 +107,7 @@ export function AnalysisRunner({
                 i < stageIndex
                   ? "bg-emerald-50 text-emerald-600"
                   : i === stageIndex
-                    ? "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200"
+                    ? "bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200"
                     : "bg-slate-50 text-slate-400"
               }`}
             >
@@ -151,7 +151,7 @@ export function AnalysisRunner({
                 onClick={() => toggleDimension(d.id)}
                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                   selectedDimensionIds.includes(d.id)
-                    ? "bg-violet-600 text-white"
+                    ? "bg-teal-600 text-white"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                 }`}
               >
@@ -169,7 +169,7 @@ export function AnalysisRunner({
           onChange={(e) => setFreeText(e.target.value)}
           rows={2}
           placeholder={"例如：\n活動日期\n商品價格"}
-          className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
       </div>
 
@@ -180,7 +180,7 @@ export function AnalysisRunner({
               type="checkbox"
               checked={useTally}
               onChange={(e) => setUseTally(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-400"
+              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
             />
             把 Tally 分類也當作維度依據
           </label>
@@ -211,7 +211,7 @@ export function AnalysisRunner({
           onChange={(e) => setAnswerStyle(e.target.value)}
           rows={2}
           placeholder={"例如：\n答案請控制在 100 字以內，語氣正式\n答案結尾要附上原文出處段落"}
-          className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+          className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
         />
         <p className="mt-1 text-xs text-slate-400">這段文字會直接告訴 AI 該怎麼寫答案，例如字數限制、語氣、格式要求等。</p>
       </div>
@@ -219,7 +219,7 @@ export function AnalysisRunner({
       <button
         type="button"
         onClick={startAnalysis}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/25 transition hover:from-violet-700 hover:to-indigo-600"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600"
       >
         <IconSparkles className="h-4 w-4" />
         開始分析

@@ -1,7 +1,7 @@
-import { requireSession } from "@/lib/session";
+import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { estimateUsdCost, USD_TO_TWD_RATE } from "@/lib/anthropic";
-import { IconDashboard, IconSparkles } from "@/components/icons";
+import { IconSparkles, IconCheckCircle, IconMenuList, IconShieldCheck } from "@/components/icons";
 
 function formatNumber(n: number) {
   return n.toLocaleString("zh-TW");
@@ -27,6 +27,21 @@ export default async function DashboardHomePage() {
   );
   const totalTwdCost = totalUsdCost * USD_TO_TWD_RATE;
 
+  const scope = roleScope(session);
+  const [sourceCount, knowledgeCount, tallyCount, dimensionCount] = await Promise.all([
+    prisma.kmSource.count({ where: scope }),
+    prisma.kmEntry.count({ where: { confirmed: true, ...scope } }),
+    prisma.tally.count({ where: scope }),
+    prisma.dimension.count({ where: scope }),
+  ]);
+
+  const statCards = [
+    { label: "資料來源數量", value: sourceCount, icon: IconSparkles },
+    { label: "知識數量", value: knowledgeCount, icon: IconCheckCircle },
+    { label: "分類數量", value: tallyCount, icon: IconMenuList },
+    { label: "維度數量", value: dimensionCount, icon: IconShieldCheck },
+  ];
+
   return (
     <div className="animate-fade-in space-y-6">
       <div>
@@ -36,7 +51,7 @@ export default async function DashboardHomePage() {
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
             <IconSparkles className="h-4 w-4" />
           </span>
           <h2 className="text-sm font-semibold text-slate-900">AI 用量統計（累積至今）</h2>
@@ -54,9 +69,9 @@ export default async function DashboardHomePage() {
             <p className="text-xs text-slate-500">預估花費（美金）</p>
             <p className="mt-1 text-lg font-semibold text-slate-900">${totalUsdCost.toFixed(2)}</p>
           </div>
-          <div className="rounded-lg bg-violet-50 p-4">
-            <p className="text-xs text-violet-500">預估花費（台幣）</p>
-            <p className="mt-1 text-lg font-semibold text-violet-700">NT${formatNumber(Math.round(totalTwdCost))}</p>
+          <div className="rounded-lg bg-teal-50 p-4">
+            <p className="text-xs text-teal-500">預估花費（台幣）</p>
+            <p className="mt-1 text-lg font-semibold text-teal-700">NT${formatNumber(Math.round(totalTwdCost))}</p>
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-400">
@@ -64,18 +79,18 @@ export default async function DashboardHomePage() {
         </p>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
-            <IconDashboard className="h-5 w-5" />
-          </span>
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">這是 AIBPO 後台首頁</h2>
-            <p className="mt-0.5 text-sm text-slate-500">
-              左側選單依你的角色權限顯示，可到「個人設定」修改密碼與顯示名稱。
-            </p>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {statCards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
+                <card.icon className="h-4 w-4" />
+              </span>
+              <p className="text-xs text-slate-500">{card.label}</p>
+            </div>
+            <p className="mt-3 text-2xl font-semibold text-slate-900">{formatNumber(card.value)}</p>
           </div>
-        </div>
+        ))}
       </div>
     </div>
   );

@@ -58,7 +58,7 @@ export default async function MenusPage() {
                     className={`flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800 ${isChild ? "pl-10" : ""}`}
                   >
                     {isChild && <span className="text-slate-300">└</span>}
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-violet-600">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                       <IconMenuList className="h-3.5 w-3.5" />
                     </span>
                     {m.label}

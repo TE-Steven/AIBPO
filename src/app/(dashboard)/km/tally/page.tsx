@@ -75,7 +75,7 @@ export default async function TallyPage() {
                     style={{ paddingLeft: `${1.25 + (t.depth - 1) * 1.5}rem` }}
                   >
                     {t.depth > 1 && <span className="text-slate-300">└</span>}
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-violet-600">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                       <IconMenuList className="h-3.5 w-3.5" />
                     </span>
                     {t.name}

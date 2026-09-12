@@ -50,7 +50,7 @@ export function ResultsEditor({
             type="checkbox"
             checked={selected.size === entries.length && entries.length > 0}
             onChange={toggleAll}
-            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-400"
+            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
           />
           全選（已選 {selected.size} / {entries.length}）
         </label>
@@ -67,7 +67,7 @@ export function ResultsEditor({
             disabled={selected.size === 0 || isPending}
             className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
               selected.size > 0 && !isPending
-                ? "bg-gradient-to-r from-violet-600 to-indigo-500 shadow-violet-500/25 hover:from-violet-700 hover:to-indigo-600"
+                ? "bg-gradient-to-r from-teal-600 to-cyan-500 shadow-teal-500/25 hover:from-teal-700 hover:to-cyan-600"
                 : "cursor-not-allowed bg-slate-300"
             }`}
           >

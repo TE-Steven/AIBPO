@@ -41,7 +41,7 @@ export default async function UsersPage() {
             {users.map((u) => (
               <tr key={u.id}>
                 <td className="flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-violet-600">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                     <IconUsers className="h-3.5 w-3.5" />
                   </span>
                   {u.displayName}

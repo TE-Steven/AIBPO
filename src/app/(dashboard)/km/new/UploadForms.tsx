@@ -7,7 +7,7 @@ import { IconAlertTriangle } from "@/components/icons";
 const initialState: CreateSourceState = {};
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100";
+  "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100";
 
 function ErrorMessage({ error }: { error?: string }) {
   if (!error) return null;
@@ -47,7 +47,7 @@ export function UploadWizard() {
             type="button"
             onClick={() => setSourceType("PDF")}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
-              sourceType === "PDF" ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"
+              sourceType === "PDF" ? "bg-white text-teal-700 shadow-sm" : "text-slate-500"
             }`}
           >
             上傳 PDF
@@ -56,7 +56,7 @@ export function UploadWizard() {
             type="button"
             onClick={() => setSourceType("URL")}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
-              sourceType === "URL" ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"
+              sourceType === "URL" ? "bg-white text-teal-700 shadow-sm" : "text-slate-500"
             }`}
           >
             貼上網址
@@ -71,7 +71,7 @@ export function UploadWizard() {
             <button
               type="submit"
               disabled={!canSubmit || pdfPending}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/25 transition hover:from-violet-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pdfPending ? "上傳中…" : "上傳並建立來源"}
             </button>
@@ -84,7 +84,7 @@ export function UploadWizard() {
             <button
               type="submit"
               disabled={!canSubmit || urlPending}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-violet-500/25 transition hover:from-violet-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {urlPending ? "建立中…" : "建立來源"}
             </button>

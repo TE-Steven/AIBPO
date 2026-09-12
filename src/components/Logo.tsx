@@ -14,13 +14,13 @@ export function Logo({
   return (
     <div className="flex items-center gap-2.5">
       <span
-        className={`flex ${iconBox} shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-500 text-white`}
+        className={`flex ${iconBox} shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-teal-600 to-cyan-500 text-white`}
       >
         <IconSparkles className={iconSize} strokeWidth={2} />
       </span>
       <span className="leading-tight">
         <span className={`block font-semibold tracking-tight text-slate-900 ${titleSize}`}>
-          AIBPO
+          營運工作台
         </span>
         {subtitle && <span className="block text-xs text-slate-500">{subtitle}</span>}
       </span>

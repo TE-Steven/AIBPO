@@ -34,7 +34,7 @@ export default async function LoginPage({
                 type="text"
                 required
                 autoFocus
-                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
               />
             </div>
             <div>
@@ -43,12 +43,12 @@ export default async function LoginPage({
                 name="password"
                 type="password"
                 required
-                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
               />
             </div>
             <button
               type="submit"
-              className="w-full rounded-lg bg-gradient-to-r from-violet-600 to-indigo-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-violet-500/25 transition hover:from-violet-700 hover:to-indigo-600"
+              className="w-full rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600"
             >
               登入
             </button>
