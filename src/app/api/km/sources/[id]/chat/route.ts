@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildChatSystemPrompt, buildUserContent } from "@/lib/kmAnalysis";
+import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     orderBy: { createdAt: "asc" },
   });
 
-  const system = buildChatSystemPrompt(entries);
+  const guidelines = await getSystemSetting(KM_OUTPUT_GUIDELINES_KEY);
+  const system = buildChatSystemPrompt(entries, guidelines);
 
   // 第一則使用者訊息前面帶上原始文件/網址內容；後續輪次只需要純文字對話，不用每次都重附文件內容，
   // 因為同一個 API 請求裡已經包含了完整歷史，Claude 一次就能看到最前面附的文件。

@@ -3,6 +3,7 @@ import { getSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildSystemPrompt, buildUserContent, parseFaqDrafts } from "@/lib/kmAnalysis";
+import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         await prisma.kmSource.update({ where: { id }, data: { status: "PROCESSING", errorMessage: null } });
         send("status", { status: "PROCESSING" });
 
-        const system = buildSystemPrompt({ dimensions, tallies, countMin, countMax, answerStyle });
+        const guidelines = await getSystemSetting(KM_OUTPUT_GUIDELINES_KEY);
+        const system = buildSystemPrompt({ dimensions, tallies, countMin, countMax, answerStyle, guidelines });
         const content = buildUserContent(source);
 
         const apiStream = anthropic.messages.stream({

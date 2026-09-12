@@ -172,3 +172,12 @@ model ApiUsageLog {
   @@index([createdAt])
   @@map("aibpo_api_usage_logs")
 }
+
+// 系統層級設定，key-value 存放，目前用來放超級管理員定義的「輸出最高準則」，之後有其他全域設定也能沿用。
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("aibpo_system_settings")
+}

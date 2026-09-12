@@ -4,7 +4,7 @@ import { SESSION_COOKIE_NAME, SUPER_ADMIN_SUBJECT, verifySessionToken } from "@/
 import { getAllowedPathsForUserId } from "@/lib/session";
 
 // 一般使用者不管選單權限勾了什麼，這幾頁一律進不去（帳號/角色/選單管理是超級管理員專屬功能）。
-const SUPER_ADMIN_ONLY_PREFIXES = ["/settings/users", "/settings/roles", "/settings/menus"];
+const SUPER_ADMIN_ONLY_PREFIXES = ["/settings/users", "/settings/roles", "/settings/menus", "/settings/prompts"];
 // 任何已登入的人都看得到，不受選單權限矩陣影響。
 const ALWAYS_ALLOWED_PATHS = ["/settings/profile"];
 
