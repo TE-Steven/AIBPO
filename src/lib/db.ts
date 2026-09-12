@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
-import { resolveSsl } from "@/lib/dbSsl";
+import { resolveConnection } from "@/lib/dbSsl";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -11,11 +11,8 @@ function createPrismaClient() {
   // 收集所有路由（含動態渲染的路由）的設定，若在此拋錯會讓整個 build 失敗，
   // 即使該路由其實不需要在 build 時連資料庫。真正連線失敗時，Prisma 會在
   // 實際查詢當下才報錯，錯誤仍然清楚可追蹤。
-  const connectionString = process.env.DATABASE_URL ?? "";
-  const adapter = new PrismaPg(
-    { connectionString, ssl: resolveSsl(connectionString) },
-    { schema: "aibpo" },
-  );
+  const { connectionString, ssl } = resolveConnection(process.env.DATABASE_URL ?? "");
+  const adapter = new PrismaPg({ connectionString, ssl }, { schema: "aibpo" });
   return new PrismaClient({ adapter });
 }
 

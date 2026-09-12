@@ -1,13 +1,13 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import { resolveSsl } from "../src/lib/dbSsl";
+import { resolveConnection } from "../src/lib/dbSsl";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is not set");
 }
-const connectionString = process.env.DATABASE_URL;
-const adapter = new PrismaPg({ connectionString, ssl: resolveSsl(connectionString) }, { schema: "aibpo" });
+const { connectionString, ssl } = resolveConnection(process.env.DATABASE_URL);
+const adapter = new PrismaPg({ connectionString, ssl }, { schema: "aibpo" });
 const prisma = new PrismaClient({ adapter });
 
 const DEFAULT_MENUS = [
