@@ -17,13 +17,18 @@ export async function createMenuAction(
   const path = String(formData.get("path") ?? "").trim();
   const icon = String(formData.get("icon") ?? "") || null;
   const order = Number(formData.get("order") ?? 0) || 0;
+  const parentId = String(formData.get("parentId") ?? "") || null;
 
-  if (!key || !label || !path.startsWith("/")) {
-    return { error: "識別碼、名稱必填，路徑必須以「/」開頭。" };
+  if (!key || !label) {
+    return { error: "識別碼、名稱都必填。" };
+  }
+  // 頂層群組（例如「KM管理」）可以不填路徑，純粹當展開用的標題；有填就一定要是 / 開頭的路徑。
+  if (path && !path.startsWith("/")) {
+    return { error: "路徑必須以「/」開頭，或留空做成純標題群組。" };
   }
 
   try {
-    await prisma.menu.create({ data: { key, label, path, icon, order } });
+    await prisma.menu.create({ data: { key, label, path, icon, order, parentId } });
   } catch {
     return { error: "建立失敗，識別碼可能已經存在。" };
   }

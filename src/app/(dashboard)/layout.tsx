@@ -12,15 +12,32 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const session = await requireSession();
 
   const allMenus = await prisma.menu.findMany({ orderBy: { order: "asc" } });
-  const visibleMenus =
-    session.menuKeys === null ? allMenus : allMenus.filter((m) => session.menuKeys!.includes(m.key));
+  const isVisible = (key: string) => session.menuKeys === null || session.menuKeys.includes(key);
 
-  const navItems: NavItem[] = visibleMenus.map((m) => ({
-    href: m.path,
-    label: m.label,
-    icon: m.icon,
-    exact: m.path === "/",
-  }));
+  const childrenByParent = new Map<string, typeof allMenus>();
+  for (const m of allMenus) {
+    if (!m.parentId) continue;
+    const arr = childrenByParent.get(m.parentId) ?? [];
+    arr.push(m);
+    childrenByParent.set(m.parentId, arr);
+  }
+
+  // 父層群組本身不需要單獨的選單權限：只要底下任一子選單這個角色看得到，群組就顯示。
+  const navItems: NavItem[] = allMenus
+    .filter((m) => !m.parentId)
+    .map((m): NavItem | null => {
+      const children = childrenByParent.get(m.id) ?? [];
+      if (children.length > 0) {
+        const visibleChildren = children
+          .filter((c) => isVisible(c.key))
+          .map((c) => ({ href: c.path, label: c.label, icon: c.icon, exact: c.path === "/" }));
+        if (visibleChildren.length === 0) return null;
+        return { href: m.path, label: m.label, icon: m.icon, children: visibleChildren };
+      }
+      if (!isVisible(m.key)) return null;
+      return { href: m.path, label: m.label, icon: m.icon, exact: m.path === "/" };
+    })
+    .filter((item): item is NavItem => item !== null);
 
   const systemItems: NavItem[] =
     session.kind === "superadmin"

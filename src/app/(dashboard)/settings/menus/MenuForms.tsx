@@ -12,12 +12,13 @@ const ICON_OPTIONS = [
   { value: "user-circle", label: "個人" },
   { value: "shield-check", label: "盾牌勾勾" },
   { value: "menu-list", label: "清單" },
+  { value: "sparkles", label: "AI 星芒" },
 ];
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100";
 
-export function CreateMenuForm() {
+export function CreateMenuForm({ parentOptions }: { parentOptions: { id: string; label: string }[] }) {
   const [state, formAction, pending] = useActionState(createMenuAction, initialState);
 
   return (
@@ -25,15 +26,15 @@ export function CreateMenuForm() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">識別碼（key）</label>
-          <input name="key" type="text" required placeholder="例如 documents" className={inputClass} />
+          <input name="key" type="text" required placeholder="例如 km-new" className={inputClass} />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">顯示名稱</label>
-          <input name="label" type="text" required placeholder="例如 文件轉換" className={inputClass} />
+          <input name="label" type="text" required placeholder="例如 新增KM" className={inputClass} />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">路徑</label>
-          <input name="path" type="text" required placeholder="/documents" className={inputClass} />
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">路徑（群組標題可留空）</label>
+          <input name="path" type="text" placeholder="/km/new" className={inputClass} />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">圖示</label>
@@ -46,9 +47,22 @@ export function CreateMenuForm() {
           </select>
         </div>
       </div>
-      <div className="w-32">
-        <label className="mb-1.5 block text-sm font-medium text-slate-700">排序</label>
-        <input name="order" type="number" defaultValue={0} className={inputClass} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:w-1/2">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">上層選單</label>
+          <select name="parentId" className={inputClass} defaultValue="">
+            <option value="">無（頂層）</option>
+            {parentOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">排序</label>
+          <input name="order" type="number" defaultValue={0} className={inputClass} />
+        </div>
       </div>
       {(state.success || state.error) && (
         <p
