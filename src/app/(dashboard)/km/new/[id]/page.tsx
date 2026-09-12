@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { AnalysisRunner } from "./AnalysisRunner";
 import { ResultsEditor } from "./ResultsEditor";
 import { ChatPanel } from "./ChatPanel";
+import { EditableTitle } from "./EditableTitle";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
 function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name: string } | null } | null }): string {
@@ -43,7 +44,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           <IconArrowLeft className="h-4 w-4" />
           回到來源列表
         </Link>
-        <h1 className="truncate text-xl font-semibold text-slate-900">{source.title}</h1>
+        <EditableTitle sourceId={source.id} initialTitle={source.title} />
         <p className="mt-1 text-sm text-slate-500">
           {source.sourceType === "PDF" ? `PDF：${source.sourceName}` : `URL：${source.sourceUrl}`}
         </p>
