@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { UploadPdfForm, UploadUrlForm } from "./UploadForms";
+import { UploadWizard } from "./UploadForms";
 import { IconSparkles } from "@/components/icons";
 import { LocalTime } from "@/components/LocalTime";
 
@@ -28,16 +28,7 @@ export default async function NewKmPage() {
         <p className="mt-1 text-sm text-slate-500">上傳 PDF 或貼上網址，AI 會依你指定的維度分析出 FAQ 知識庫。</p>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-slate-900">上傳 PDF</h2>
-          <UploadPdfForm />
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-slate-900">貼上網址</h2>
-          <UploadUrlForm />
-        </div>
-      </div>
+      <UploadWizard />
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-4">

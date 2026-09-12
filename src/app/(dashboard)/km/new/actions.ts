@@ -19,8 +19,12 @@ export async function createPdfSourceAction(
   formData: FormData,
 ): Promise<CreateSourceState> {
   const session = await requireSession();
+  const title = String(formData.get("title") ?? "").trim();
   const file = formData.get("file") as File | null;
 
+  if (!title) {
+    return { error: "請先輸入名稱。" };
+  }
   if (!file || file.size === 0) {
     return { error: "請選擇一個 PDF 檔案。" };
   }
@@ -44,7 +48,7 @@ export async function createPdfSourceAction(
 
   const source = await prisma.kmSource.create({
     data: {
-      title: file.name.replace(/\.pdf$/i, ""),
+      title,
       sourceType: "PDF",
       sourceName: file.name,
       sourceFileId: uploadedFileId,
@@ -63,8 +67,12 @@ export async function createUrlSourceAction(
   formData: FormData,
 ): Promise<CreateSourceState> {
   const session = await requireSession();
+  const title = String(formData.get("title") ?? "").trim();
   const url = String(formData.get("url") ?? "").trim();
 
+  if (!title) {
+    return { error: "請先輸入名稱。" };
+  }
   if (!url || !/^https?:\/\//i.test(url)) {
     return { error: "請輸入正確的網址（要以 http:// 或 https:// 開頭）。" };
   }
@@ -74,7 +82,7 @@ export async function createUrlSourceAction(
 
   const source = await prisma.kmSource.create({
     data: {
-      title: url,
+      title,
       sourceType: "URL",
       sourceUrl: url,
       status: "PENDING",
