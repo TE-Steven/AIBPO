@@ -23,6 +23,7 @@ export function AnalysisRunner({
   const [useTally, setUseTally] = useState(hasTallies);
   const [countMin, setCountMin] = useState(10);
   const [countMax, setCountMax] = useState(30);
+  const [answerStyle, setAnswerStyle] = useState("");
 
   const [running, setRunning] = useState(false);
   const [stageIndex, setStageIndex] = useState(0);
@@ -55,6 +56,7 @@ export function AnalysisRunner({
       useTally: useTally ? "1" : "0",
       countMin: String(countMin),
       countMax: String(countMax),
+      answerStyle,
     });
 
     const es = new EventSource(`/api/km/sources/${sourceId}/analyze?${qs.toString()}`);
@@ -200,6 +202,18 @@ export function AnalysisRunner({
           />
           題
         </div>
+      </div>
+
+      <div className="mb-4">
+        <label className="mb-1.5 block text-sm font-medium text-slate-700">答案輸出風格（選填）</label>
+        <textarea
+          value={answerStyle}
+          onChange={(e) => setAnswerStyle(e.target.value)}
+          rows={2}
+          placeholder={"例如：\n答案請控制在 100 字以內，語氣正式\n答案結尾要附上原文出處段落"}
+          className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
+        />
+        <p className="mt-1 text-xs text-slate-400">這段文字會直接告訴 AI 該怎麼寫答案，例如字數限制、語氣、格式要求等。</p>
       </div>
 
       <button

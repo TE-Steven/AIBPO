@@ -27,6 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const useTally = url.searchParams.get("useTally") === "1";
   const countMin = Math.max(1, Number(url.searchParams.get("countMin") ?? "10") || 10);
   const countMax = Math.max(countMin, Number(url.searchParams.get("countMax") ?? "30") || 30);
+  const answerStyle = url.searchParams.get("answerStyle") ?? "";
 
   const tallies = useTally ? await prisma.tally.findMany({ where: roleScope(session), orderBy: { order: "asc" } }) : [];
 
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         await prisma.kmSource.update({ where: { id }, data: { status: "PROCESSING", errorMessage: null } });
         send("status", { status: "PROCESSING" });
 
-        const system = buildSystemPrompt({ dimensions, tallies, countMin, countMax });
+        const system = buildSystemPrompt({ dimensions, tallies, countMin, countMax, answerStyle });
         const content = buildUserContent(source);
 
         const apiStream = anthropic.messages.stream({

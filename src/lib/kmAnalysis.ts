@@ -8,8 +8,9 @@ export function buildSystemPrompt(params: {
   tallies: Tally[];
   countMin: number;
   countMax: number;
+  answerStyle?: string;
 }): string {
-  const { dimensions, tallies, countMin, countMax } = params;
+  const { dimensions, tallies, countMin, countMax, answerStyle } = params;
 
   const dimensionsText =
     dimensions.length > 0
@@ -23,11 +24,17 @@ export function buildSystemPrompt(params: {
           .join("\n")}\n`
       : "";
 
+  const answerStyleText = answerStyle?.trim()
+    ? `\n使用者對「答案」的輸出風格有以下額外要求，請務必遵守：\n${answerStyle.trim()}\n`
+    : "";
+
   return `你是知識庫建置助手（Knowledge Management）。使用者會提供一份文件或一個網頁，你要仔細閱讀全文內容，根據下面指定的「分析維度」，找出所有適合整理成 FAQ（常見問題集）的題目與答案組合。
+
+請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。
 
 分析維度：
 ${dimensionsText}
-${tallyText}
+${tallyText}${answerStyleText}
 請產出介於 ${countMin} 到 ${countMax} 題之間的 FAQ，每一題必須：
 - 題目要像真實使用者會問的問題，具體、口語化
 - 答案要根據文件內容回答，不要虛構或超出文件範圍的內容
@@ -59,7 +66,7 @@ export function buildUserContent(source: KmSource): Anthropic.MessageParam["cont
 export function buildChatSystemPrompt(entries: Pick<KmEntry, "question" | "answer">[]): string {
   const faqList = entries.map((e, i) => `${i + 1}. Q: ${e.question}\n   A: ${e.answer}`).join("\n");
 
-  return `你是知識庫問答助手。使用者針對「這份來源文件」已經產出以下 FAQ 清單：
+  return `你是知識庫問答助手。請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。使用者針對「這份來源文件」已經產出以下 FAQ 清單：
 
 ${faqList}
 

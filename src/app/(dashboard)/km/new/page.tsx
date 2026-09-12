@@ -3,6 +3,7 @@ import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { UploadPdfForm, UploadUrlForm } from "./UploadForms";
 import { IconSparkles } from "@/components/icons";
+import { LocalTime } from "@/components/LocalTime";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   PENDING: { label: "待設定", className: "bg-slate-100 text-slate-500" },
@@ -72,7 +73,9 @@ export default async function NewKmPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-slate-500">{s._count.entries}</td>
-                  <td className="px-5 py-3 text-slate-500">{s.createdAt.toLocaleString("zh-TW")}</td>
+                  <td className="px-5 py-3 text-slate-500">
+                    <LocalTime iso={s.createdAt.toISOString()} />
+                  </td>
                 </tr>
               );
             })}
