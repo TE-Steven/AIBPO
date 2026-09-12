@@ -4,6 +4,7 @@ import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { AnalysisRunner } from "./AnalysisRunner";
 import { ResultsEditor } from "./ResultsEditor";
+import { ChatPanel } from "./ChatPanel";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
 function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name: string } | null } | null }): string {
@@ -63,7 +64,12 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
         />
       )}
 
-      {source.status === "DONE" && <ResultsEditor entries={entries} tallyOptions={tallyOptions} />}
+      {source.status === "DONE" && (
+        <>
+          <ChatPanel sourceId={source.id} />
+          <ResultsEditor entries={entries} tallyOptions={tallyOptions} />
+        </>
+      )}
     </div>
   );
 }

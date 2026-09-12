@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { KmSource, Tally } from "@/generated/prisma/client";
+import type { KmEntry, KmSource, Tally } from "@/generated/prisma/client";
 
 export type FaqDraft = { question: string; answer: string; suggestedTally: string | null };
 
@@ -54,6 +54,16 @@ export function buildUserContent(source: KmSource): Anthropic.MessageParam["cont
       text: `請抓取並分析這個網址的內容，依照系統指示產出 FAQ：${source.sourceUrl}`,
     },
   ];
+}
+
+export function buildChatSystemPrompt(entries: Pick<KmEntry, "question" | "answer">[]): string {
+  const faqList = entries.map((e, i) => `${i + 1}. Q: ${e.question}\n   A: ${e.answer}`).join("\n");
+
+  return `你是知識庫問答助手。使用者針對「這份來源文件」已經產出以下 FAQ 清單：
+
+${faqList}
+
+使用者接下來會問你關於這些題目的追問，例如「為什麼第3題會這樣回答」「這個答案的依據是文件哪一段」。你手上同時附有原始文件/網頁內容，請根據原始內容回答使用者的追問，解釋答案的依據。如果使用者問的內容在原始文件裡找不到根據，要誠實說明，不要虛構。`;
 }
 
 export function parseFaqDrafts(text: string): FaqDraft[] {
