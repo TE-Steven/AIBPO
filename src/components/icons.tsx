@@ -169,6 +169,14 @@ export function IconChevronDown(props: IconProps) {
   );
 }
 
+export function IconArrowLeft(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+    </svg>
+  );
+}
+
 export function IconSparkles(props: IconProps) {
   return (
     <svg {...base(props)}>

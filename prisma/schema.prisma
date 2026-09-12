@@ -117,6 +117,7 @@ model KmSource {
   sourceType   String // "PDF" | "URL"
   sourceName   String?
   sourceUrl    String?
+  sourceFileId String? // Anthropic Files API 的 file_id（PDF 用，上傳後直接引用，不落地存檔案本體）
   rawText      String?  @db.Text
   status       String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
   errorMessage String?
