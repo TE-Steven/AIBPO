@@ -52,7 +52,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const roleLabel = session.kind === "superadmin" ? "超級管理員" : session.roleName;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between bg-gradient-to-r from-teal-800 to-cyan-500 px-4 py-3 lg:px-6">
         <Logo size="sm" variant="light" />
         <div className="flex items-center gap-4">
@@ -73,7 +73,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white pt-4 lg:flex">
+        {/* 側欄固定不隨右側內容捲動；自己的選單太長時用自己的 overflow-y-auto 捲，不是整頁一起滾。 */}
+        <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white pt-4 lg:flex">
           <AdminNav items={navItems} />
 
           {systemItems.length > 0 && (
@@ -86,7 +87,9 @@ export default async function DashboardLayout({ children }: { children: ReactNod
           )}
         </aside>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto px-6 py-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-6xl px-6 py-6 lg:px-8 lg:py-8">{children}</div>
+        </main>
       </div>
     </div>
   );
