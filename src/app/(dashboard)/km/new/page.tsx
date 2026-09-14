@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { UploadWizard } from "./UploadForms";
 import { IconSparkles } from "@/components/icons";
 import { LocalTime } from "@/components/LocalTime";
+import { ClickableRow } from "@/components/ClickableRow";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   PENDING: { label: "待設定", className: "bg-slate-100 text-slate-500" },
@@ -50,7 +51,7 @@ export default async function NewKmPage() {
               const status = STATUS_LABEL[s.status] ?? STATUS_LABEL.PENDING;
               const sourceLabel = s.sourceType === "PDF" ? s.sourceName : s.sourceUrl;
               return (
-                <tr key={s.id} className="cursor-pointer hover:bg-slate-50">
+                <ClickableRow key={s.id} href={`/km/new/${s.id}`} className="cursor-pointer hover:bg-slate-50">
                   <td className="px-5 py-3">
                     <Link href={`/km/new/${s.id}`} className="flex items-center gap-2.5 font-medium text-slate-800">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-600">
@@ -70,7 +71,7 @@ export default async function NewKmPage() {
                   <td className="px-5 py-3 text-slate-500">
                     <LocalTime iso={s.createdAt.toISOString()} />
                   </td>
-                </tr>
+                </ClickableRow>
               );
             })}
             {sources.length === 0 && (
