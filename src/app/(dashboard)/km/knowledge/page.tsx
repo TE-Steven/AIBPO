@@ -13,7 +13,7 @@ export default async function KnowledgePage() {
   const [entries, tallies] = await Promise.all([
     prisma.kmEntry.findMany({
       where: { confirmed: true, ...roleScope(session) },
-      include: { source: { select: { title: true } } },
+      include: { source: { select: { id: true, title: true } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.tally.findMany({
@@ -29,8 +29,12 @@ export default async function KnowledgePage() {
     question: e.question,
     answer: e.answer,
     tallyId: e.tallyId,
+    sourceId: e.source.id,
     sourceTitle: e.source.title,
   }));
+  const sourceOptions = Array.from(new Map(listEntries.map((e) => [e.sourceId, e.sourceTitle])).entries())
+    .map(([id, title]) => ({ id, title }))
+    .sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -41,7 +45,7 @@ export default async function KnowledgePage() {
         </p>
       </div>
 
-      <KnowledgeList entries={listEntries} tallyOptions={tallyOptions} />
+      <KnowledgeList entries={listEntries} tallyOptions={tallyOptions} sourceOptions={sourceOptions} />
     </div>
   );
 }

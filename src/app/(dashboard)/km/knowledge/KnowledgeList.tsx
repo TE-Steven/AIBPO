@@ -3,23 +3,29 @@
 import { useMemo, useState } from "react";
 import { EntryCard, type KmEntryLike } from "../EntryCard";
 
-type Entry = KmEntryLike & { tallyId: string | null; sourceTitle: string };
+type Entry = KmEntryLike & { tallyId: string | null; sourceId: string; sourceTitle: string };
 
 export function KnowledgeList({
   entries,
   tallyOptions,
+  sourceOptions,
 }: {
   entries: Entry[];
   tallyOptions: { id: string; label: string }[];
+  sourceOptions: { id: string; title: string }[];
 }) {
   const [tallyFilter, setTallyFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
-    if (tallyFilter === "all") return entries;
-    if (tallyFilter === "none") return entries.filter((e) => !e.tallyId);
-    return entries.filter((e) => e.tallyId === tallyFilter);
-  }, [entries, tallyFilter]);
+    return entries.filter((e) => {
+      if (tallyFilter === "none" && e.tallyId) return false;
+      if (tallyFilter !== "all" && tallyFilter !== "none" && e.tallyId !== tallyFilter) return false;
+      if (sourceFilter !== "all" && e.sourceId !== sourceFilter) return false;
+      return true;
+    });
+  }, [entries, tallyFilter, sourceFilter]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -39,7 +45,7 @@ export function KnowledgeList({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm font-medium text-slate-700">依分類篩選</label>
           <select
             value={tallyFilter}
@@ -54,6 +60,23 @@ export function KnowledgeList({
             {tallyOptions.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.label}
+              </option>
+            ))}
+          </select>
+
+          <label className="text-sm font-medium text-slate-700">依來源篩選</label>
+          <select
+            value={sourceFilter}
+            onChange={(e) => {
+              setSourceFilter(e.target.value);
+              setSelected(new Set());
+            }}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+          >
+            <option value="all">全部來源</option>
+            {sourceOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.title}
               </option>
             ))}
           </select>
