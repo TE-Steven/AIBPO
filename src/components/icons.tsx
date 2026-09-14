@@ -185,6 +185,18 @@ export function IconX(props: IconProps) {
   );
 }
 
+export function IconMicrophone(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 15.75a3 3 0 0 0 3-3V4.5a3 3 0 1 0-6 0v8.25a3 3 0 0 0 3 3Zm6-3.75a6 6 0 0 1-12 0M12 18.75v3m-3.75 0h7.5"
+      />
+    </svg>
+  );
+}
+
 export function IconSparkles(props: IconProps) {
   return (
     <svg {...base(props)}>

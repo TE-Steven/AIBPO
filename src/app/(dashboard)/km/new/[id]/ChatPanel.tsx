@@ -2,9 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { IconSparkles, IconX } from "@/components/icons";
+import { IconMicrophone, IconSparkles, IconX } from "@/components/icons";
 
 type Msg = { role: "user" | "assistant"; content: string };
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+};
+
+function getSpeechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
 function TypingDots() {
   return (
@@ -22,13 +42,52 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, open]);
+
+  useEffect(() => {
+    setVoiceSupported(getSpeechRecognitionCtor() !== null);
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  function toggleVoice() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return;
+
+    const recognition = new Ctor();
+    recognition.lang = "zh-TW";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(transcript);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }
 
   async function send() {
     const question = input.trim();
@@ -113,10 +172,19 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
 
         <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
           {messages.length === 0 && (
-            <p className="text-sm text-slate-400">
-              可以問問題，例如「第一題為什麼會這樣回答？」；也可以直接下指令，例如「把所有提到 XXX 的地方改成
-              YYY」「幫我新增10題關於活動的」「把價格相關的題目歸到商品資訊分類」「刪掉關於舊活動的題目」。
-            </p>
+            <div className="space-y-2 text-sm text-slate-400">
+              <p>可以問問題，例如：</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li>「第一題為什麼會這樣回答？」</li>
+              </ul>
+              <p>也可以直接下指令，例如：</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li>「把所有提到 XXX 的地方改成 YYY」</li>
+                <li>「幫我新增10題關於活動的」</li>
+                <li>「把價格相關的題目歸到商品資訊分類」</li>
+                <li>「刪掉關於舊活動的題目」</li>
+              </ul>
+            </div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
@@ -141,6 +209,22 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
             placeholder="輸入問題…"
             className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
           />
+          {voiceSupported && (
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={sending}
+              aria-label={listening ? "停止語音輸入" : "語音輸入"}
+              className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-50 ${
+                listening
+                  ? "border-red-300 bg-red-50 text-red-600"
+                  : "border-slate-300 text-slate-500 hover:border-teal-400 hover:text-teal-600"
+              }`}
+            >
+              {listening && <span className="absolute inset-0 -z-10 animate-ping rounded-lg bg-red-400/30" />}
+              <IconMicrophone className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={send}
