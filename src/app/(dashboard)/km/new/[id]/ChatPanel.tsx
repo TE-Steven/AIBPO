@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { IconSparkles, IconX } from "@/components/icons";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -16,6 +17,7 @@ function TypingDots() {
 }
 
 export function ChatPanel({ sourceId }: { sourceId: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -68,6 +70,8 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
       });
     } finally {
       setSending(false);
+      // AI 可能在這輪對話裡改了資料（找替換、新增題組、重新歸類、刪除），重新整理頁面資料讓下面的列表同步。
+      router.refresh();
     }
   }
 
@@ -77,7 +81,7 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="問 AI"
+        aria-label="AI 知識庫助手"
         className={`fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-cyan-500 text-white shadow-lg shadow-teal-900/20 transition-all duration-300 hover:scale-105 ${
           open ? "pointer-events-none scale-0 opacity-0" : "scale-100 opacity-100"
         }`}
@@ -95,7 +99,7 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
         <div className="flex shrink-0 items-center justify-between bg-gradient-to-r from-teal-800 to-cyan-500 px-4 py-3">
           <span className="flex items-center gap-2 text-sm font-semibold text-white">
             <IconSparkles className="h-4 w-4" />
-            問 AI：為什麼這樣回答？
+            AI 知識庫助手
           </span>
           <button
             type="button"
@@ -110,7 +114,8 @@ export function ChatPanel({ sourceId }: { sourceId: string }) {
         <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
           {messages.length === 0 && (
             <p className="text-sm text-slate-400">
-              可以問，例如：「第一題為什麼會這樣回答？」「這個答案的依據是文件哪一段？」
+              可以問問題，例如「第一題為什麼會這樣回答？」；也可以直接下指令，例如「把所有提到 XXX 的地方改成
+              YYY」「幫我新增10題關於活動的」「把價格相關的題目歸到商品資訊分類」「刪掉關於舊活動的題目」。
             </p>
           )}
           {messages.map((m, i) => (
