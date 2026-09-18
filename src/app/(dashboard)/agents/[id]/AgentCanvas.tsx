@@ -1,0 +1,272 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  Handle,
+  Position,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  type Node,
+  type Edge,
+  type NodeProps,
+  type ReactFlowInstance,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { saveAgentCanvasAction } from "./canvasActions";
+import { IconSparkles, IconWrench, IconX, IconCheckCircle, IconAlertTriangle } from "@/components/icons";
+
+type AvailableSkill = { id: string; name: string; description: string };
+type InitialAgentSkill = { skillId: string; name: string; description: string; positionX: number; positionY: number };
+
+const centeredHandleStyle = { opacity: 0, top: "50%", left: "50%", transform: "translate(-50%, -50%)" } as const;
+
+function AgentNodeView({ data }: NodeProps<Node<{ name: string }>>) {
+  return (
+    <div className="w-44 rounded-2xl border-2 border-teal-500 bg-white px-4 py-3 text-center shadow-md">
+      <Handle type="source" position={Position.Right} style={centeredHandleStyle} />
+      <div className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+        <IconSparkles className="h-4 w-4" />
+      </div>
+      <p className="truncate text-sm font-semibold text-slate-800">{data.name || "Agent"}</p>
+    </div>
+  );
+}
+
+function SkillNodeView({ data }: NodeProps<Node<{ name: string; description: string; onRemove: () => void }>>) {
+  return (
+    <div className="group relative w-40 rounded-xl border border-slate-300 bg-white px-3 py-2.5 shadow-sm">
+      <Handle type="target" position={Position.Left} style={centeredHandleStyle} />
+      <button
+        type="button"
+        onClick={data.onRemove}
+        className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white group-hover:flex"
+        title="從這個 Agent 移除"
+      >
+        <IconX className="h-3 w-3" />
+      </button>
+      <div className="flex items-center gap-2">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+          <IconWrench className="h-3 w-3" />
+        </span>
+        <p className="truncate text-xs font-medium text-slate-700">{data.name}</p>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { agentNode: AgentNodeView, skillNode: SkillNodeView };
+
+const AGENT_NODE_ID = "agent";
+const AGENT_POSITION = { x: 380, y: 220 };
+
+function skillNodeId(skillId: string) {
+  return `skill-${skillId}`;
+}
+
+function CanvasInner({
+  agentId,
+  initialName,
+  initialSystemPrompt,
+  availableSkills,
+  initialAgentSkills,
+}: {
+  agentId: string;
+  initialName: string;
+  initialSystemPrompt: string;
+  availableSkills: AvailableSkill[];
+  initialAgentSkills: InitialAgentSkill[];
+}) {
+  const [name, setName] = useState(initialName);
+  const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt);
+  const [status, setStatus] = useState<{ success?: string; error?: string }>({});
+  const [saving, setSaving] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([
+    { id: AGENT_NODE_ID, type: "agentNode", position: AGENT_POSITION, data: { name: initialName }, draggable: false },
+    ...initialAgentSkills.map((s) => ({
+      id: skillNodeId(s.skillId),
+      type: "skillNode",
+      position: { x: s.positionX, y: s.positionY },
+      data: { name: s.name, description: s.description, onRemove: () => removeSkill(s.skillId) },
+    })),
+  ]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
+    initialAgentSkills.map((s) => ({
+      id: `e-${s.skillId}`,
+      source: AGENT_NODE_ID,
+      target: skillNodeId(s.skillId),
+      type: "straight",
+    })),
+  );
+
+  const removeSkill = useCallback(
+    (skillId: string) => {
+      setNodes((nds) => nds.filter((n) => n.id !== skillNodeId(skillId)));
+      setEdges((eds) => eds.filter((e) => e.target !== skillNodeId(skillId)));
+    },
+    [setNodes, setEdges],
+  );
+
+  const placedSkillIds = new Set(nodes.filter((n) => n.type === "skillNode").map((n) => n.id.replace(/^skill-/, "")));
+  const paletteSkills = availableSkills.filter((s) => !placedSkillIds.has(s.id));
+
+  function addSkillNode(skill: AvailableSkill, position: { x: number; y: number }) {
+    setNodes((nds) => {
+      if (nds.some((n) => n.id === skillNodeId(skill.id))) return nds;
+      return [
+        ...nds,
+        {
+          id: skillNodeId(skill.id),
+          type: "skillNode",
+          position,
+          data: { name: skill.name, description: skill.description, onRemove: () => removeSkill(skill.id) },
+        },
+      ];
+    });
+    setEdges((eds) => {
+      if (eds.some((e) => e.target === skillNodeId(skill.id))) return eds;
+      return [...eds, { id: `e-${skill.id}`, source: AGENT_NODE_ID, target: skillNodeId(skill.id), type: "straight" }];
+    });
+  }
+
+  function handleDragStart(e: React.DragEvent, skill: AvailableSkill) {
+    e.dataTransfer.setData("application/json", JSON.stringify(skill));
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData("application/json");
+    if (!raw || !rfInstance) return;
+    const skill = JSON.parse(raw) as AvailableSkill;
+    const position = rfInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    addSkillNode(skill, position);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setStatus({});
+    const skills = nodes
+      .filter((n) => n.type === "skillNode")
+      .map((n) => ({ skillId: n.id.replace(/^skill-/, ""), positionX: n.position.x, positionY: n.position.y }));
+    const result = await saveAgentCanvasAction(agentId, { name, systemPrompt, skills });
+    setStatus(result);
+    setSaving(false);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">名稱</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">系統提示詞</label>
+            <textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              rows={1}
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-slate-900">可用 Skill</h3>
+          <p className="mb-3 text-xs text-slate-400">拖曳到右邊畫布，連到 Agent 節點</p>
+          <div className="space-y-2">
+            {paletteSkills.map((s) => (
+              <div
+                key={s.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, s)}
+                className="cursor-grab rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 active:cursor-grabbing"
+                title={s.description}
+              >
+                <span className="flex items-center gap-1.5">
+                  <IconWrench className="h-3 w-3 text-slate-400" />
+                  {s.name}
+                </span>
+              </div>
+            ))}
+            {paletteSkills.length === 0 && <p className="text-xs text-slate-400">沒有可用的 Skill 了</p>}
+          </div>
+        </div>
+
+        <div
+          ref={wrapperRef}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={handleDrop}
+          className="h-[420px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm"
+        >
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            onInit={setRfInstance}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
+        >
+          {saving ? "儲存中…" : "儲存"}
+        </button>
+        {(status.success || status.error) && (
+          <p
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ring-1 ring-inset ${
+              status.error ? "bg-rose-50 text-rose-600 ring-rose-100" : "bg-emerald-50 text-emerald-600 ring-emerald-100"
+            }`}
+          >
+            {status.error ? <IconAlertTriangle className="h-4 w-4 shrink-0" /> : <IconCheckCircle className="h-4 w-4 shrink-0" />}
+            {status.error ?? status.success}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function AgentCanvas(props: {
+  agentId: string;
+  initialName: string;
+  initialSystemPrompt: string;
+  availableSkills: AvailableSkill[];
+  initialAgentSkills: InitialAgentSkill[];
+}) {
+  return (
+    <ReactFlowProvider>
+      <CanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}

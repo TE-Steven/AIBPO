@@ -25,9 +25,12 @@ const KM_CHILDREN = [
   { key: "km-dimensions", label: "維度管理", path: "/km/dimensions", icon: "shield-check", order: 4 },
 ];
 
-// AI Agent 也是兩層選單：目前只有「Skill 管理」上線，「Agent 管理」等畫布功能做完（Phase 2）再補上。
+// AI Agent 也是兩層選單：Skill 管理定義可重用工具，Agent 管理是拖曳畫布把工具組成具名助手。
 const AGENT_PARENT = { key: "agent", label: "AI Agent", path: "", icon: "wrench", order: 5 };
-const AGENT_CHILDREN = [{ key: "agent-skills", label: "Skill 管理", path: "/skills", icon: "wrench", order: 1 }];
+const AGENT_CHILDREN = [
+  { key: "agent-skills", label: "Skill 管理", path: "/skills", icon: "wrench", order: 1 },
+  { key: "agent-list", label: "Agent 管理", path: "/agents", icon: "sparkles", order: 2 },
+];
 
 async function main() {
   const defaultRole = await prisma.role.upsert({

@@ -26,6 +26,7 @@ model Role {
   kmSources  KmSource[]
   kmEntries  KmEntry[]
   skills     Skill[]
+  agents     Agent[]
 
   @@map("aibpo_roles")
 }
@@ -191,10 +192,48 @@ model Skill {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  role Role @relation(fields: [roleId], references: [id])
+  role        Role         @relation(fields: [roleId], references: [id])
+  agentSkills AgentSkill[]
 
   @@index([roleId])
   @@map("aibpo_skills")
+}
+
+// AI Agent：星狀拓樸畫布的中心節點，name/systemPrompt 定義這個 Agent 的角色，實際能力來自掛載的 Skill。
+model Agent {
+  id           String   @id @default(cuid())
+  name         String
+  systemPrompt String   @db.Text
+  status       String   @default("DRAFT") // "DRAFT" | "ACTIVE"
+  roleId       String
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role        Role         @relation(fields: [roleId], references: [id])
+  agentSkills AgentSkill[]
+
+  @@index([roleId])
+  @@map("aibpo_agents")
+}
+
+// Agent-Skill 多對多關聯：連線只代表「這個 Skill 在這個 Agent 的工具箱裡」，不代表執行順序。
+// positionX/positionY 存畫布上 Skill 衛星節點的座標（Agent 節點本身位置固定寫死在前端，不用存）。
+model AgentSkill {
+  id        String   @id @default(cuid())
+  agentId   String
+  skillId   String
+  positionX Float    @default(0)
+  positionY Float    @default(0)
+  createdAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, skillId])
+  @@index([agentId])
+  @@index([skillId])
+  @@map("aibpo_agent_skills")
 }
 
 // 系統層級設定，key-value 存放，目前用來放超級管理員定義的「輸出最高準則」，之後有其他全域設定也能沿用。
