@@ -2,8 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { AgentCanvas } from "./AgentCanvas";
-import { AgentChatPanel } from "./AgentChatPanel";
+import { AgentWorkspace } from "./AgentWorkspace";
 import { IconArrowLeft } from "@/components/icons";
 
 export default async function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,7 +32,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
         <p className="mt-1 text-sm text-slate-500">把左側的 Skill 拖到畫布上連到 Agent 節點，存檔後右下角就能開始對話。</p>
       </div>
 
-      <AgentCanvas
+      <AgentWorkspace
         agentId={agent.id}
         initialName={agent.name}
         initialSystemPrompt={agent.systemPrompt}
@@ -46,8 +45,6 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
           positionY: as.positionY,
         }))}
       />
-
-      <AgentChatPanel agentId={agent.id} />
     </div>
   );
 }

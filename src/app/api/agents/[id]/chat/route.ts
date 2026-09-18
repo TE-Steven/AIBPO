@@ -39,6 +39,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;
+      function send(event: string, data: unknown) {
+        if (closed) return;
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      }
+
       try {
         for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
           const apiStream = anthropic.messages.stream({
@@ -52,7 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
           for await (const event of apiStream) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-              controller.enqueue(encoder.encode(event.delta.text));
+              send("text", { text: event.delta.text });
             }
           }
 
@@ -77,21 +83,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const toolResults: Anthropic.ToolResultBlockParam[] = [];
           for (const block of toolUseBlocks) {
             const skill = skillsById.get(block.name);
+            send("tool_start", { skillId: block.name, skillName: skill?.name ?? null });
+
             const result = skill
               ? await executeSkill(skill, block.input as Record<string, unknown>)
               : { error: `找不到對應的 Skill（id: ${block.name}）。` };
+
+            send("tool_end", { skillId: block.name, success: !(result && typeof result === "object" && "error" in result) });
             toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) });
           }
 
           messages = [...messages, { role: "user", content: toolResults }];
         }
+
+        send("done", {});
       } catch (err) {
-        controller.enqueue(encoder.encode(`\n\n[錯誤：${err instanceof Error ? err.message : "未知錯誤"}]`));
+        send("error", { message: err instanceof Error ? err.message : "未知錯誤" });
       } finally {
+        closed = true;
         controller.close();
       }
     },
   });
 
-  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" },
+  });
 }

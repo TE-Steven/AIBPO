@@ -35,7 +35,15 @@ function TypingDots() {
   );
 }
 
-export function AgentChatPanel({ agentId }: { agentId: string }) {
+export function AgentChatPanel({
+  agentId,
+  onToolStart,
+  onToolEnd,
+}: {
+  agentId: string;
+  onToolStart?: (skillId: string) => void;
+  onToolEnd?: (skillId: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -107,17 +115,56 @@ export function AgentChatPanel({ agentId }: { agentId: string }) {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
       let acc = "";
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        const text = acc;
-        setMessages((prev) => {
-          const copy = [...prev];
-          copy[copy.length - 1] = { role: "assistant", content: text };
-          return copy;
-        });
+        buffer += decoder.decode(value, { stream: true });
+
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+
+        for (const frame of frames) {
+          const eventMatch = frame.match(/^event: (.+)$/m);
+          const dataMatch = frame.match(/^data: (.+)$/m);
+          if (!eventMatch || !dataMatch) continue;
+
+          let data: Record<string, unknown>;
+          try {
+            data = JSON.parse(dataMatch[1]);
+          } catch {
+            continue;
+          }
+
+          switch (eventMatch[1]) {
+            case "text": {
+              acc += String(data.text ?? "");
+              const text = acc;
+              setMessages((prev) => {
+                const copy = [...prev];
+                copy[copy.length - 1] = { role: "assistant", content: text };
+                return copy;
+              });
+              break;
+            }
+            case "tool_start":
+              if (typeof data.skillId === "string") onToolStart?.(data.skillId);
+              break;
+            case "tool_end":
+              if (typeof data.skillId === "string") onToolEnd?.(data.skillId);
+              break;
+            case "error": {
+              const message = typeof data.message === "string" ? data.message : "發生錯誤";
+              setMessages((prev) => {
+                const copy = [...prev];
+                copy[copy.length - 1] = { role: "assistant", content: `${acc}\n\n[錯誤：${message}]`.trim() };
+                return copy;
+              });
+              break;
+            }
+          }
+        }
       }
     } catch {
       setMessages((prev) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -25,36 +25,52 @@ type InitialAgentSkill = { skillId: string; name: string; description: string; p
 
 const centeredHandleStyle = { opacity: 0, top: "50%", left: "50%", transform: "translate(-50%, -50%)" } as const;
 
-function AgentNodeView({ data }: NodeProps<Node<{ name: string }>>) {
+function AgentNodeView({ data }: NodeProps<Node<{ name: string; active?: boolean }>>) {
   return (
-    <div className="w-44 rounded-2xl border-2 border-teal-500 bg-white px-4 py-3 text-center shadow-md">
+    <div
+      className={`w-28 rounded-xl border-2 bg-white px-2.5 py-2 text-center shadow-md transition-all duration-300 ${
+        data.active ? "animate-pulse border-cyan-400 shadow-lg shadow-cyan-300/60" : "border-teal-500"
+      }`}
+    >
       <Handle type="source" position={Position.Right} style={centeredHandleStyle} />
-      <div className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-teal-100 text-teal-600">
-        <IconSparkles className="h-4 w-4" />
+      <div className="mx-auto mb-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+        <IconSparkles className="h-3 w-3" />
       </div>
-      <p className="truncate text-sm font-semibold text-slate-800">{data.name || "Agent"}</p>
+      <p className="truncate text-xs font-semibold text-slate-800">{data.name || "Agent"}</p>
+      {data.active && <p className="mt-0.5 text-[9px] font-medium text-cyan-600">思考中…</p>}
     </div>
   );
 }
 
-function SkillNodeView({ data }: NodeProps<Node<{ name: string; description: string; onRemove: () => void }>>) {
+function SkillNodeView({
+  data,
+}: NodeProps<Node<{ name: string; description: string; active?: boolean; onRemove: () => void }>>) {
   return (
-    <div className="group relative w-40 rounded-xl border border-slate-300 bg-white px-3 py-2.5 shadow-sm">
+    <div
+      className={`group relative w-24 rounded-lg border bg-white px-2 py-1.5 shadow-sm transition-all duration-300 ${
+        data.active ? "border-cyan-400 shadow-lg shadow-cyan-300/60 ring-2 ring-cyan-200" : "border-slate-300"
+      }`}
+    >
       <Handle type="target" position={Position.Left} style={centeredHandleStyle} />
       <button
         type="button"
         onClick={data.onRemove}
-        className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white group-hover:flex"
+        className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white group-hover:flex"
         title="從這個 Agent 移除"
       >
-        <IconX className="h-3 w-3" />
+        <IconX className="h-2.5 w-2.5" />
       </button>
-      <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-          <IconWrench className="h-3 w-3" />
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+            data.active ? "bg-cyan-100 text-cyan-600" : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          <IconWrench className="h-2.5 w-2.5" />
         </span>
-        <p className="truncate text-xs font-medium text-slate-700">{data.name}</p>
+        <p className="truncate text-[11px] font-medium text-slate-700">{data.name}</p>
       </div>
+      {data.active && <p className="mt-0.5 text-[9px] font-medium text-cyan-600">執行中…</p>}
     </div>
   );
 }
@@ -74,12 +90,14 @@ function CanvasInner({
   initialSystemPrompt,
   availableSkills,
   initialAgentSkills,
+  activeSkillId,
 }: {
   agentId: string;
   initialName: string;
   initialSystemPrompt: string;
   availableSkills: AvailableSkill[];
   initialAgentSkills: InitialAgentSkill[];
+  activeSkillId: string | null;
 }) {
   const [name, setName] = useState(initialName);
   const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt);
@@ -113,6 +131,24 @@ function CanvasInner({
     },
     [setNodes, setEdges],
   );
+
+  useEffect(() => {
+    const activeNodeId = activeSkillId ? skillNodeId(activeSkillId) : null;
+    setNodes((nds) =>
+      nds.map((n) => {
+        const isActive = n.id === AGENT_NODE_ID ? activeSkillId !== null : n.id === activeNodeId;
+        if (n.data.active === isActive) return n;
+        return { ...n, data: { ...n.data, active: isActive } };
+      }),
+    );
+    setEdges((eds) =>
+      eds.map((e) => {
+        const isActive = e.target === activeNodeId;
+        if (e.animated === isActive) return e;
+        return { ...e, animated: isActive, style: isActive ? { stroke: "#22d3ee", strokeWidth: 2.5 } : undefined };
+      }),
+    );
+  }, [activeSkillId, setNodes, setEdges]);
 
   const placedSkillIds = new Set(nodes.filter((n) => n.type === "skillNode").map((n) => n.id.replace(/^skill-/, "")));
   const paletteSkills = availableSkills.filter((s) => !placedSkillIds.has(s.id));
@@ -225,6 +261,7 @@ function CanvasInner({
             nodeTypes={nodeTypes}
             onInit={setRfInstance}
             fitView
+            fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
             proOptions={{ hideAttribution: true }}
           >
             <Background />
@@ -263,6 +300,7 @@ export function AgentCanvas(props: {
   initialSystemPrompt: string;
   availableSkills: AvailableSkill[];
   initialAgentSkills: InitialAgentSkill[];
+  activeSkillId: string | null;
 }) {
   return (
     <ReactFlowProvider>
