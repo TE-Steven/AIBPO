@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { deleteSkillAction } from "./actions";
-import { SkillForm } from "./SkillForm";
+import { SkillCreatePanel } from "./SkillCreatePanel";
 import { IconWrench, IconTrash, IconPencil } from "@/components/icons";
 
 const AUTH_LABEL: Record<string, string> = {
@@ -31,7 +31,7 @@ export default async function SkillsPage() {
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-4 text-sm font-semibold text-slate-900">新增 Skill</h2>
-        <SkillForm />
+        <SkillCreatePanel />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
