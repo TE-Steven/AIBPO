@@ -12,6 +12,7 @@ import {
   IconMenuList,
   IconChevronDown,
   IconSparkles,
+  IconWrench,
 } from "@/components/icons";
 
 const ICONS: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
@@ -21,6 +22,7 @@ const ICONS: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   "shield-check": IconShieldCheck,
   "menu-list": IconMenuList,
   sparkles: IconSparkles,
+  wrench: IconWrench,
 };
 
 export type NavItem = {

@@ -25,6 +25,10 @@ const KM_CHILDREN = [
   { key: "km-dimensions", label: "維度管理", path: "/km/dimensions", icon: "shield-check", order: 4 },
 ];
 
+// AI Agent 也是兩層選單：目前只有「Skill 管理」上線，「Agent 管理」等畫布功能做完（Phase 2）再補上。
+const AGENT_PARENT = { key: "agent", label: "AI Agent", path: "", icon: "wrench", order: 5 };
+const AGENT_CHILDREN = [{ key: "agent-skills", label: "Skill 管理", path: "/skills", icon: "wrench", order: 1 }];
+
 async function main() {
   const defaultRole = await prisma.role.upsert({
     where: { name: "一般使用者" },
@@ -60,6 +64,26 @@ async function main() {
     });
 
     // KM 子選單預設就開放給預設角色使用（跟其他預設選單一致）。
+    await prisma.roleMenu.upsert({
+      where: { roleId_menuId: { roleId: defaultRole.id, menuId: menu.id } },
+      update: {},
+      create: { roleId: defaultRole.id, menuId: menu.id },
+    });
+  }
+
+  const agentParentMenu = await prisma.menu.upsert({
+    where: { key: AGENT_PARENT.key },
+    update: { label: AGENT_PARENT.label, path: AGENT_PARENT.path, icon: AGENT_PARENT.icon, order: AGENT_PARENT.order },
+    create: AGENT_PARENT,
+  });
+
+  for (const m of AGENT_CHILDREN) {
+    const menu = await prisma.menu.upsert({
+      where: { key: m.key },
+      update: { label: m.label, path: m.path, icon: m.icon, order: m.order, parentId: agentParentMenu.id },
+      create: { ...m, parentId: agentParentMenu.id },
+    });
+
     await prisma.roleMenu.upsert({
       where: { roleId_menuId: { roleId: defaultRole.id, menuId: menu.id } },
       update: {},

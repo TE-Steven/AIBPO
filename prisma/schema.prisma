@@ -25,6 +25,7 @@ model Role {
   dimensions Dimension[]
   kmSources  KmSource[]
   kmEntries  KmEntry[]
+  skills     Skill[]
 
   @@map("aibpo_roles")
 }
@@ -171,6 +172,29 @@ model ApiUsageLog {
 
   @@index([createdAt])
   @@map("aibpo_api_usage_logs")
+}
+
+// 使用者自訂的可重用工具（目前只做 API 呼叫型）：給 AI Agent 對話時當作 tool-use 的工具來源。
+model Skill {
+  id           String   @id @default(cuid())
+  name         String
+  description  String   @db.Text // 同時是 UI 標籤與 Anthropic Tool 的 description，AI 靠這個判斷何時該用
+  method       String // "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+  urlTemplate  String   @db.Text // 支援 {{param}} 佔位符
+  authType     String   @default("NONE") // "NONE" | "BEARER" | "API_KEY_HEADER" | "BASIC"
+  authConfig   Json? // 依 authType 存對應欄位，例如 { token } 或 { headerName, value } 或 { username, password }
+  headers      Json? // [{ key, value }]，value 也支援 {{param}}
+  bodyTemplate String?  @db.Text // JSON 字串樣板，支援 {{param}}，僅 POST/PUT/PATCH 用
+  paramsSchema Json // [{ name, type, description, required }]，同時驅動 Anthropic tool 的 input_schema 與樣板替換
+  roleId       String
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@index([roleId])
+  @@map("aibpo_skills")
 }
 
 // 系統層級設定，key-value 存放，目前用來放超級管理員定義的「輸出最高準則」，之後有其他全域設定也能沿用。

@@ -13,6 +13,7 @@ const ICON_OPTIONS = [
   { value: "shield-check", label: "盾牌勾勾" },
   { value: "menu-list", label: "清單" },
   { value: "sparkles", label: "AI 星芒" },
+  { value: "wrench", label: "扳手" },
 ];
 
 const inputClass =
