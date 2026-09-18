@@ -6,6 +6,7 @@ import { AnalysisRunner } from "./AnalysisRunner";
 import { ResultsEditor } from "./ResultsEditor";
 import { ChatPanel } from "./ChatPanel";
 import { EditableTitle } from "./EditableTitle";
+import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
 function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name: string } | null } | null }): string {
@@ -30,10 +31,12 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
     }),
   ]);
 
-  const entries =
+  const [entries, draftCount] = await Promise.all([
     source.status === "DONE"
-      ? await prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } })
-      : [];
+      ? prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } })
+      : Promise.resolve([]),
+    prisma.agentDraft.count({ where: { sourceId: id, confirmed: false } }),
+  ]);
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
 
@@ -68,6 +71,15 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
       {source.status === "DONE" && (
         <>
           <ChatPanel sourceId={source.id} />
+          <ExtraOutputsPanel
+            sourceId={source.id}
+            ragStatus={source.ragStatus}
+            ragContent={source.ragContent}
+            ragErrorMessage={source.ragErrorMessage}
+            workflowStatus={source.workflowStatus}
+            workflowErrorMessage={source.workflowErrorMessage}
+            draftCount={draftCount}
+          />
           <ResultsEditor entries={entries} tallyOptions={tallyOptions} />
         </>
       )}

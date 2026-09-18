@@ -30,6 +30,7 @@ const AGENT_PARENT = { key: "agent", label: "AI Agent", path: "", icon: "wrench"
 const AGENT_CHILDREN = [
   { key: "agent-skills", label: "Skill 管理", path: "/skills", icon: "wrench", order: 1 },
   { key: "agent-list", label: "Agent 管理", path: "/agents", icon: "sparkles", order: 2 },
+  { key: "agent-drafts", label: "Workflow 草稿", path: "/agents/drafts", icon: "sparkles", order: 3 },
 ];
 
 async function main() {

@@ -25,8 +25,9 @@ model Role {
   dimensions Dimension[]
   kmSources  KmSource[]
   kmEntries  KmEntry[]
-  skills     Skill[]
-  agents     Agent[]
+  skills       Skill[]
+  agents       Agent[]
+  agentDrafts  AgentDraft[]
 
   @@map("aibpo_roles")
 }
@@ -123,13 +124,21 @@ model KmSource {
   rawText      String?  @db.Text
   status       String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
   errorMessage String?
+  // RAG 內容：把原文重排清理成乾淨版文件（不是 Q&A 抽取），跟 FAQ 分析各自獨立觸發、各自失敗。
+  ragContent      String? @db.Text
+  ragStatus       String  @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
+  ragErrorMessage String?
+  // Workflow：辨識文件中的客服情境，從既有 Skill 挑選匹配工具，產出待審核的 AgentDraft。
+  workflowStatus       String  @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
+  workflowErrorMessage String?
   roleId       String
   createdById  String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  role    Role      @relation(fields: [roleId], references: [id])
+  role    Role         @relation(fields: [roleId], references: [id])
   entries KmEntry[]
+  drafts  AgentDraft[]
 
   @@index([roleId])
   @@map("aibpo_km_sources")
@@ -212,6 +221,7 @@ model Agent {
 
   role        Role         @relation(fields: [roleId], references: [id])
   agentSkills AgentSkill[]
+  drafts      AgentDraft[]
 
   @@index([roleId])
   @@map("aibpo_agents")
@@ -234,6 +244,30 @@ model AgentSkill {
   @@index([agentId])
   @@index([skillId])
   @@map("aibpo_agent_skills")
+}
+
+// Workflow 產出的待審核草稿：一份 KmSource 可能同時拆出多個情境、產出多筆草稿，確認後才畢業成正式 Agent。
+model AgentDraft {
+  id                String   @id @default(cuid())
+  sourceId          String
+  suggestedName     String
+  suggestedPrompt   String   @db.Text
+  suggestedSkillIds Json // string[]，AI 從既有 Skill 清單裡精確比對出來的 id，可為空陣列
+  unmatchedNote     String?  @db.Text // 這個情境找不到匹配 Skill 時，AI 說明缺什麼樣的工具
+  confirmed         Boolean  @default(false)
+  confirmedAgentId  String?
+  roleId            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  source         KmSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  role           Role     @relation(fields: [roleId], references: [id])
+  confirmedAgent Agent?   @relation(fields: [confirmedAgentId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([roleId])
+  @@index([confirmed])
+  @@map("aibpo_agent_drafts")
 }
 
 // 系統層級設定，key-value 存放，目前用來放超級管理員定義的「輸出最高準則」，之後有其他全域設定也能沿用。
