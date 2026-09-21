@@ -14,6 +14,8 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   FAILED: { label: "失敗", className: "bg-rose-50 text-rose-600" },
 };
 
+const SOURCE_TYPE_LABEL: Record<string, string> = { PDF: "PDF", URL: "URL", MIXED: "PDF + URL" };
+
 export default async function NewKmPage() {
   const session = await requireSession();
 
@@ -62,7 +64,7 @@ export default async function NewKmPage() {
                     </Link>
                   </td>
                   <td className="max-w-xs truncate px-5 py-3 text-slate-500">{sourceLabel(s)}</td>
-                  <td className="px-5 py-3 text-slate-500">{s.sourceType}</td>
+                  <td className="px-5 py-3 text-slate-500">{SOURCE_TYPE_LABEL[s.sourceType] ?? s.sourceType}</td>
                   <td className="px-5 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${status.className}`}>
                       {status.label}

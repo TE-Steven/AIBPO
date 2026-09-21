@@ -49,10 +49,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           回到來源列表
         </Link>
         <EditableTitle sourceId={source.id} initialTitle={source.title} />
-        <p className="mt-1 text-sm text-slate-500">
-          {source.sourceType === "PDF" ? "PDF：" : "URL："}
-          {sourceLabel(source)}
-        </p>
+        <p className="mt-1 text-sm text-slate-500">{sourceLabel(source)}</p>
       </div>
 
       {source.status === "FAILED" && source.errorMessage && (

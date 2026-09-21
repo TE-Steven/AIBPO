@@ -14,22 +14,29 @@ async function firstRoleId(): Promise<string> {
   return role.id;
 }
 
-export async function createPdfSourceAction(
+export async function createSourceAction(
   _prevState: CreateSourceState,
   formData: FormData,
 ): Promise<CreateSourceState> {
   const session = await requireSession();
   const title = String(formData.get("title") ?? "").trim();
   const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  const urls = formData
+    .getAll("url")
+    .map((u) => String(u).trim())
+    .filter(Boolean);
 
   if (!title) {
     return { error: "請先輸入名稱。" };
   }
-  if (files.length === 0) {
-    return { error: "請選擇至少一個 PDF 檔案。" };
+  if (files.length === 0 && urls.length === 0) {
+    return { error: "請至少上傳一個 PDF 檔案或輸入一個網址。" };
   }
   if (files.some((f) => f.type !== "application/pdf")) {
     return { error: "只接受 PDF 檔案。" };
+  }
+  if (urls.some((u) => !/^https?:\/\//i.test(u))) {
+    return { error: "網址要以 http:// 或 https:// 開頭。" };
   }
 
   const roleId = session.kind === "superadmin" ? await firstRoleId() : session.roleId;
@@ -48,50 +55,14 @@ export async function createPdfSourceAction(
     return { error: `上傳到 Claude 失敗：${err instanceof Anthropic.APIError ? err.message : "未知錯誤"}` };
   }
 
-  const source = await prisma.kmSource.create({
-    data: {
-      title,
-      sourceType: "PDF",
-      sourceFileIds: fileRefs,
-      status: "PENDING",
-      roleId,
-      createdById,
-    },
-  });
-
-  revalidatePath("/km/new");
-  redirect(`/km/new/${source.id}`);
-}
-
-export async function createUrlSourceAction(
-  _prevState: CreateSourceState,
-  formData: FormData,
-): Promise<CreateSourceState> {
-  const session = await requireSession();
-  const title = String(formData.get("title") ?? "").trim();
-  const urls = formData
-    .getAll("url")
-    .map((u) => String(u).trim())
-    .filter(Boolean);
-
-  if (!title) {
-    return { error: "請先輸入名稱。" };
-  }
-  if (urls.length === 0) {
-    return { error: "請輸入至少一個網址。" };
-  }
-  if (urls.some((u) => !/^https?:\/\//i.test(u))) {
-    return { error: "網址要以 http:// 或 https:// 開頭。" };
-  }
-
-  const roleId = session.kind === "superadmin" ? await firstRoleId() : session.roleId;
-  const createdById = session.kind === "superadmin" ? "SUPERADMIN" : session.id;
+  const sourceType = fileRefs.length > 0 && urls.length > 0 ? "MIXED" : fileRefs.length > 0 ? "PDF" : "URL";
 
   const source = await prisma.kmSource.create({
     data: {
       title,
-      sourceType: "URL",
-      sourceUrls: urls,
+      sourceType,
+      sourceFileIds: fileRefs.length > 0 ? fileRefs : undefined,
+      sourceUrls: urls.length > 0 ? urls : undefined,
       status: "PENDING",
       roleId,
       createdById,

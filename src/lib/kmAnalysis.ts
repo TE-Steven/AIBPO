@@ -83,48 +83,59 @@ export function getSourceUrls(source: KmSource): string[] {
   return [];
 }
 
-/** 來源紀錄列表/詳情頁要顯示的簡短標籤，多檔案/多網址時顯示第一個 + 總數。 */
+/** 來源紀錄列表/詳情頁要顯示的簡短標籤，混合來源時檔案跟網址都會列出總數。 */
 export function sourceLabel(source: KmSource): string {
-  if (source.sourceType === "PDF") {
-    const files = getSourceFiles(source);
-    if (files.length === 0) return "—";
-    return files.length === 1 ? files[0].fileName : `${files[0].fileName} 等 ${files.length} 個檔案`;
-  }
+  const files = getSourceFiles(source);
   const urls = getSourceUrls(source);
-  if (urls.length === 0) return "—";
-  return urls.length === 1 ? urls[0] : `${urls[0]} 等 ${urls.length} 個網址`;
+  const parts: string[] = [];
+  if (files.length > 0) {
+    parts.push(files.length === 1 ? files[0].fileName : `${files[0].fileName} 等 ${files.length} 個檔案`);
+  }
+  if (urls.length > 0) {
+    parts.push(urls.length === 1 ? urls[0] : `${urls[0]} 等 ${urls.length} 個網址`);
+  }
+  return parts.length > 0 ? parts.join("　+　") : "—";
 }
 
-/** web_fetch 工具的 max_uses 要跟著網址數量走，避免多網址來源抓不完。 */
+/** web_fetch 工具的 max_uses 要跟著網址數量走，避免多網址來源抓不完；沒有網址就不需要這個工具。 */
 export function webFetchMaxUses(source: KmSource): number {
   return Math.max(3, getSourceUrls(source).length + 1);
 }
 
-export function buildUserContent(source: KmSource): Anthropic.MessageParam["content"] {
-  if (source.sourceType === "PDF") {
-    const files = getSourceFiles(source);
-    return [
-      ...files.map((f) => ({ type: "document" as const, source: { type: "file" as const, file_id: f.fileId } })),
-      {
-        type: "text" as const,
-        text:
-          files.length > 1
-            ? `請分析以上這 ${files.length} 份 PDF 文件（視為同一個知識來源），依照系統指示產出 FAQ。`
-            : "請分析這份 PDF 文件，依照系統指示產出 FAQ。",
-      },
-    ];
-  }
+/** 這個來源是否包含網址（混合來源也算），用來判斷要不要掛 web_fetch 工具。 */
+export function hasSourceUrls(source: KmSource): boolean {
+  return getSourceUrls(source).length > 0;
+}
 
+export function buildUserContent(source: KmSource): Anthropic.MessageParam["content"] {
+  const files = getSourceFiles(source);
   const urls = getSourceUrls(source);
-  return [
-    {
-      type: "text",
-      text:
-        urls.length > 1
-          ? `請抓取並分析以下這幾個網址的內容（視為同一個知識來源），依照系統指示產出 FAQ：\n${urls.map((u) => `- ${u}`).join("\n")}`
-          : `請抓取並分析這個網址的內容，依照系統指示產出 FAQ：${urls[0] ?? ""}`,
-    },
-  ];
+
+  const documentBlocks = files.map((f) => ({
+    type: "document" as const,
+    source: { type: "file" as const, file_id: f.fileId },
+  }));
+
+  const instructions: string[] = [];
+  if (files.length > 0) {
+    instructions.push(
+      files.length > 1 ? `以上附了 ${files.length} 份 PDF 文件` : "以上附了一份 PDF 文件",
+    );
+  }
+  if (urls.length > 0) {
+    instructions.push(
+      urls.length > 1
+        ? `請抓取並分析以下這幾個網址的內容：\n${urls.map((u) => `- ${u}`).join("\n")}`
+        : `請抓取並分析這個網址的內容：${urls[0]}`,
+    );
+  }
+  instructions.push(
+    files.length + urls.length > 1
+      ? "以上這些請視為同一個知識來源合併分析，依照系統指示產出 FAQ。"
+      : "請依照系統指示產出 FAQ。",
+  );
+
+  return [...documentBlocks, { type: "text" as const, text: instructions.join("\n\n") }];
 }
 
 export function buildChatSystemPrompt(entries: Pick<KmEntry, "question" | "answer">[], guidelines?: string): string {
@@ -147,11 +158,22 @@ ${faqList}
 export function buildRagSystemPrompt(): string {
   return `你是文件重排整理助手。使用者會提供一份文件或一個網頁，這份內容原本可能因為 PDF 分頁、排版等因素，導致段落被硬生生切斷、表格斷裂、或夾雜頁首頁尾雜訊。
 
-請全程使用繁體中文思考與作答。你的任務**不是**把內容拆解成問答，而是把整份文件的原始資訊重新排版成一份乾淨、連貫、易讀的 markdown 文件：
+請全程使用繁體中文思考與作答。你的任務**不是**把內容拆解成問答，而是把整份文件的原始資訊重新排版成一份乾淨、連貫、易讀、對下游系統友善的 markdown 文件。**請假設下游的 RAG 系統完全沒有智能**——不會幫內容補情境、不會做語意理解，就是最陽春的固定長度切塊加關鍵字/向量搜尋，所以本來該由檢索系統做的事，你都要預先寫進文件本身：
+
+**結構**
 - 把被分頁切斷的段落、表格重新接回去，恢復完整的語意單位
-- 移除頁首、頁尾、頁碼這類跟內容本身無關的雜訊
-- 保留文件原本的資訊與用詞，不要摘要、不要省略、不要改寫語意，只整理格式與結構
-- 用適當的 markdown 標題、清單、表格呈現原本的結構層次
+- 一個標題（不管 H1 或 H2）只講一個主題，標題本身要能單獨看懂，不能只靠上一層標題才理解在講什麼
+- 段落要自足，禁止「如上所述」「同前條」「詳見前頁」這種依賴上下文才成立的指代寫法
+- 移除頁首、頁尾、頁碼這類跟內容本身無關的雜訊；如果原始內容是網頁，額外要濾掉導覽列、相關文章推薦、留言區、cookie 同意條這類非正文的爬蟲雜訊
+- 保留文件原本的資訊與用詞，不要摘要、不要省略、不要改寫語意，只整理格式、結構與寫法
+
+**內容要能被單獨切出來也看得懂（最關鍵的一條）**
+- 每個標題底下的內容一開始，都要有一句肉眼可見的完整句子，明講「這段在講哪個品牌/文件/主題」，例如「以下說明追覓吹風機的保固與維修政策」。不是隱藏的 metadata，是正常寫在內文裡的一句話——這樣即使下游系統把文件切成任意大小的片段，不管切到哪一塊，只要涵蓋到段落開頭附近，都能看出這段在講什麼
+- 時間、金額寫絕對值：原文有給明確日期就換算寫死，不要保留「即日起」「目前」這種相對說法；原文沒給日期就照實保留，不要自己編一個日期
+- 適用範圍與例外要跟結論寫在同一段裡，不要拆到別段或省略（例如「僅限 A、B 機種，C 機種不適用」要跟前面的結論放在一起）
+
+**表格**
+- 保留成 markdown table 的同時，額外在旁邊補一段把表格內容攤平成完整句子的敘述（例如「A方案月租299元，含10GB流量」），因為下游系統可能連表格的欄位對應語意都解析不好
 
 直接輸出整理後的 markdown 全文，不要加開場白或結語，也不要用 json 區塊包起來。即使你需要先用工具讀取網頁內容，讀取完成後也要直接接著輸出整理後的 markdown 本文，不要加「好的」「以下是」「整理完成」這類過渡句或任何說明你正在做什麼的句子——你的完整回應從第一個字開始就必須是文件本身的內容（例如一個標題），不能是任何其他文字。`;
 }
