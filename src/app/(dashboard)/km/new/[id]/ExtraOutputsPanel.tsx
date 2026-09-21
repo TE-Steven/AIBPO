@@ -119,7 +119,14 @@ export function ExtraOutputsPanel({
             </button>
             {ragContentOpen && (
               <div className="mt-1.5">
-                <div className="mb-1.5 flex justify-end">
+                <div className="mb-1.5 flex justify-end gap-3">
+                  <a
+                    href={`/api/km/sources/${sourceId}/rag-pdf`}
+                    download
+                    className="text-xs font-medium text-teal-600 hover:text-teal-700"
+                  >
+                    下載 PDF
+                  </a>
                   <button type="button" onClick={copyRagContent} className="text-xs font-medium text-teal-600 hover:text-teal-700">
                     {copied ? "已複製" : "複製"}
                   </button>
