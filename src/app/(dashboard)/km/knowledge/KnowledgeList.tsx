@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { EntryCard, type KmEntryLike } from "../EntryCard";
+import { IconChevronDown } from "@/components/icons";
 
 type Entry = KmEntryLike & { tallyId: string | null; sourceId: string; sourceTitle: string };
 
@@ -17,6 +18,13 @@ export function KnowledgeList({
   const [tallyFilter, setTallyFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandVersion, setExpandVersion] = useState(0);
+
+  function toggleExpandAll() {
+    setAllExpanded((prev) => !prev);
+    setExpandVersion((v) => v + 1);
+  }
 
   const filtered = useMemo(() => {
     return entries.filter((e) => {
@@ -90,6 +98,14 @@ export function KnowledgeList({
           />
           全選（已選 {selected.size} / {filtered.length}）
         </label>
+        <button
+          type="button"
+          onClick={toggleExpandAll}
+          className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-700"
+        >
+          <IconChevronDown className={`h-4 w-4 transition-transform ${allExpanded ? "rotate-180" : ""}`} />
+          {allExpanded ? "全部收合" : "全部展開"}
+        </button>
         <a
           href={selected.size > 0 ? exportHref : undefined}
           aria-disabled={selected.size === 0}
@@ -105,12 +121,14 @@ export function KnowledgeList({
 
       {filtered.map((entry) => (
         <EntryCard
-          key={entry.id}
+          key={`${entry.id}-${expandVersion}`}
           entry={entry}
           tallyOptions={tallyOptions}
           checked={selected.has(entry.id)}
           onToggle={() => toggle(entry.id)}
           badge={<span className="block text-xs text-slate-400">來源：{entry.sourceTitle}</span>}
+          collapsible
+          defaultExpanded={allExpanded}
         />
       ))}
 

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateKmEntryAction, deleteKmEntryAction } from "./entryActions";
-import { IconTrash, IconCheckCircle } from "@/components/icons";
+import { IconTrash, IconCheckCircle, IconChevronDown } from "@/components/icons";
 
 export type KmEntryLike = {
   id: string;
@@ -17,18 +17,23 @@ export function EntryCard({
   checked,
   onToggle,
   badge,
+  collapsible = false,
+  defaultExpanded = true,
 }: {
   entry: KmEntryLike;
   tallyOptions: { id: string; label: string }[];
   checked: boolean;
   onToggle: () => void;
   badge?: React.ReactNode;
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
 }) {
   const [question, setQuestion] = useState(entry.question);
   const [answer, setAnswer] = useState(entry.answer);
   const [tallyId, setTallyId] = useState(entry.tallyId ?? "");
   const [isPending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   function save(patch: Partial<{ question: string; answer: string; tallyId: string | null }>) {
     startTransition(async () => {
@@ -36,6 +41,34 @@ export function EntryCard({
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     });
+  }
+
+  if (collapsible && !expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="flex w-full items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-teal-200 hover:bg-teal-50/30"
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
+        />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{question}</span>
+        {tallyId && (
+          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+            {tallyOptions.find((t) => t.id === tallyId)?.label ?? "已分類"}
+          </span>
+        )}
+        <IconChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+      </button>
+    );
   }
 
   return (
@@ -48,7 +81,19 @@ export function EntryCard({
           className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
         />
         <div className="flex-1 space-y-3">
-          {badge}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">{badge}</div>
+            {collapsible && (
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="flex shrink-0 items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
+              >
+                收合
+                <IconChevronDown className="h-3.5 w-3.5 rotate-180" />
+              </button>
+            )}
+          </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">題目</label>
             <textarea
