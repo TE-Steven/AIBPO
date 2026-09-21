@@ -61,18 +61,68 @@ ${tallyText}${answerStyleText}
 \`\`\``;
 }
 
+export type SourceFileRef = { fileId: string; fileName: string };
+
+/** 多檔案優先讀新欄位 sourceFileIds；沒有就退回舊資料的單一 sourceFileId，維持舊來源可用。 */
+export function getSourceFiles(source: KmSource): SourceFileRef[] {
+  if (Array.isArray(source.sourceFileIds) && source.sourceFileIds.length > 0) {
+    return source.sourceFileIds as unknown as SourceFileRef[];
+  }
+  if (source.sourceFileId) {
+    return [{ fileId: source.sourceFileId, fileName: source.sourceName ?? "文件" }];
+  }
+  return [];
+}
+
+/** 多網址優先讀新欄位 sourceUrls；沒有就退回舊資料的單一 sourceUrl。 */
+export function getSourceUrls(source: KmSource): string[] {
+  if (Array.isArray(source.sourceUrls) && source.sourceUrls.length > 0) {
+    return source.sourceUrls as unknown as string[];
+  }
+  if (source.sourceUrl) return [source.sourceUrl];
+  return [];
+}
+
+/** 來源紀錄列表/詳情頁要顯示的簡短標籤，多檔案/多網址時顯示第一個 + 總數。 */
+export function sourceLabel(source: KmSource): string {
+  if (source.sourceType === "PDF") {
+    const files = getSourceFiles(source);
+    if (files.length === 0) return "—";
+    return files.length === 1 ? files[0].fileName : `${files[0].fileName} 等 ${files.length} 個檔案`;
+  }
+  const urls = getSourceUrls(source);
+  if (urls.length === 0) return "—";
+  return urls.length === 1 ? urls[0] : `${urls[0]} 等 ${urls.length} 個網址`;
+}
+
+/** web_fetch 工具的 max_uses 要跟著網址數量走，避免多網址來源抓不完。 */
+export function webFetchMaxUses(source: KmSource): number {
+  return Math.max(3, getSourceUrls(source).length + 1);
+}
+
 export function buildUserContent(source: KmSource): Anthropic.MessageParam["content"] {
-  if (source.sourceType === "PDF" && source.sourceFileId) {
+  if (source.sourceType === "PDF") {
+    const files = getSourceFiles(source);
     return [
-      { type: "document", source: { type: "file", file_id: source.sourceFileId } },
-      { type: "text", text: "請分析這份 PDF 文件，依照系統指示產出 FAQ。" },
+      ...files.map((f) => ({ type: "document" as const, source: { type: "file" as const, file_id: f.fileId } })),
+      {
+        type: "text" as const,
+        text:
+          files.length > 1
+            ? `請分析以上這 ${files.length} 份 PDF 文件（視為同一個知識來源），依照系統指示產出 FAQ。`
+            : "請分析這份 PDF 文件，依照系統指示產出 FAQ。",
+      },
     ];
   }
 
+  const urls = getSourceUrls(source);
   return [
     {
       type: "text",
-      text: `請抓取並分析這個網址的內容，依照系統指示產出 FAQ：${source.sourceUrl}`,
+      text:
+        urls.length > 1
+          ? `請抓取並分析以下這幾個網址的內容（視為同一個知識來源），依照系統指示產出 FAQ：\n${urls.map((u) => `- ${u}`).join("\n")}`
+          : `請抓取並分析這個網址的內容，依照系統指示產出 FAQ：${urls[0] ?? ""}`,
     },
   ];
 }

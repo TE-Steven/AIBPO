@@ -7,6 +7,7 @@ import { ResultsEditor } from "./ResultsEditor";
 import { ChatPanel } from "./ChatPanel";
 import { EditableTitle } from "./EditableTitle";
 import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
+import { sourceLabel } from "@/lib/kmAnalysis";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
 function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name: string } | null } | null }): string {
@@ -49,7 +50,8 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
         </Link>
         <EditableTitle sourceId={source.id} initialTitle={source.title} />
         <p className="mt-1 text-sm text-slate-500">
-          {source.sourceType === "PDF" ? `PDF：${source.sourceName}` : `URL：${source.sourceUrl}`}
+          {source.sourceType === "PDF" ? "PDF：" : "URL："}
+          {sourceLabel(source)}
         </p>
       </div>
 

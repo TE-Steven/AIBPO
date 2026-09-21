@@ -3,7 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildChatSystemPrompt, buildUserContent } from "@/lib/kmAnalysis";
+import { buildChatSystemPrompt, buildUserContent, webFetchMaxUses } from "@/lib/kmAnalysis";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { KM_TOOLS, executeKmTool } from "@/lib/kmTools";
 
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const tools: Anthropic.Tool[] = [
     ...KM_TOOLS,
     ...(source.sourceType === "URL"
-      ? ([{ type: "web_fetch_20260318", name: "web_fetch", max_uses: 2 }] as unknown as Anthropic.Tool[])
+      ? ([{ type: "web_fetch_20260318", name: "web_fetch", max_uses: webFetchMaxUses(source) }] as unknown as Anthropic.Tool[])
       : []),
   ];
 

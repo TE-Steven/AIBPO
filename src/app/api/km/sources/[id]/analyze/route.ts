@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { getSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildSystemPrompt, buildUserContent, parseFaqDrafts } from "@/lib/kmAnalysis";
+import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses } from "@/lib/kmAnalysis";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           thinking: { type: "adaptive", display: "summarized" },
           system,
           ...(source.sourceType === "URL"
-            ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: 3 }] }
+            ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
             : {}),
           messages: [{ role: "user", content }],
         });

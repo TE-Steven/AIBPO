@@ -17,7 +17,7 @@ export default async function DimensionsPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">維度管理</h1>
         <p className="mt-1 text-sm text-slate-500">
-          常用的分析維度，之後在「新增KM」分析文件時可以重複勾選，也能臨時加自由文字。
+          常用的分析維度，之後在「來源管理」分析文件時可以重複勾選，也能臨時加自由文字。
         </p>
       </div>
 

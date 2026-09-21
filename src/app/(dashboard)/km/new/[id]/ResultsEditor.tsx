@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { setKmEntriesConfirmedAction } from "../../entryActions";
 import { EntryCard, type KmEntryLike } from "../../EntryCard";
-import { IconCheckCircle } from "@/components/icons";
+import { IconCheckCircle, IconChevronDown } from "@/components/icons";
 
 type Entry = KmEntryLike & { confirmed: boolean };
 
@@ -18,6 +18,13 @@ export function ResultsEditor({
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set(entries.filter((e) => e.confirmed).map((e) => e.id)));
   const [isPending, startTransition] = useTransition();
   const [justConfirmed, setJustConfirmed] = useState(false);
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandVersion, setExpandVersion] = useState(0);
+
+  function toggleExpandAll() {
+    setAllExpanded((prev) => !prev);
+    setExpandVersion((v) => v + 1);
+  }
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -54,6 +61,14 @@ export function ResultsEditor({
           />
           全選（已選 {selected.size} / {entries.length}）
         </label>
+        <button
+          type="button"
+          onClick={toggleExpandAll}
+          className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-700"
+        >
+          <IconChevronDown className={`h-4 w-4 transition-transform ${allExpanded ? "rotate-180" : ""}`} />
+          {allExpanded ? "全部收合" : "全部展開"}
+        </button>
         <div className="flex items-center gap-3">
           {justConfirmed && (
             <span className="flex items-center gap-1 text-xs text-emerald-600">
@@ -78,11 +93,13 @@ export function ResultsEditor({
 
       {entries.map((entry) => (
         <EntryCard
-          key={entry.id}
+          key={`${entry.id}-${expandVersion}`}
           entry={entry}
           tallyOptions={tallyOptions}
           checked={selected.has(entry.id)}
           onToggle={() => toggle(entry.id)}
+          collapsible
+          defaultExpanded={allExpanded}
           badge={
             confirmedIds.has(entry.id) ? (
               <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600">

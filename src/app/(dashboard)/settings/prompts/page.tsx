@@ -12,7 +12,7 @@ export default async function PromptsPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Prompt 管理</h1>
         <p className="mt-1 text-sm text-slate-500">
-          在這裡定義的準則，優先於任何使用者在「新增KM」自訂的分析參數，會套用在所有 KM 分析與問答上。
+          在這裡定義的準則，優先於任何使用者在「來源管理」自訂的分析參數，會套用在所有 KM 分析與問答上。
         </p>
       </div>
 

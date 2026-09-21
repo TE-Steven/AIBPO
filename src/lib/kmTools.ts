@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildSystemPrompt, buildUserContent, parseFaqDrafts } from "@/lib/kmAnalysis";
+import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses } from "@/lib/kmAnalysis";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 
 type Field = "question" | "answer" | "both";
@@ -164,7 +164,7 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
     thinking: { type: "adaptive" },
     system,
     ...(source.sourceType === "URL"
-      ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: 3 }] }
+      ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
       : {}),
     messages: [{ role: "user", content }],
   });

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { UploadWizard } from "./UploadForms";
+import { NewSourceButton } from "./NewSourceButton";
+import { sourceLabel } from "@/lib/kmAnalysis";
 import { IconSparkles } from "@/components/icons";
 import { LocalTime } from "@/components/LocalTime";
 import { ClickableRow } from "@/components/ClickableRow";
@@ -24,12 +25,13 @@ export default async function NewKmPage() {
 
   return (
     <div className="animate-fade-in space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">新增 KM</h1>
-        <p className="mt-1 text-sm text-slate-500">上傳 PDF 或貼上網址，AI 會依你指定的維度分析出 FAQ 知識庫。</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">來源管理</h1>
+          <p className="mt-1 text-sm text-slate-500">上傳 PDF 或貼上網址，AI 會依你指定的維度分析出 FAQ 知識庫。</p>
+        </div>
+        <NewSourceButton />
       </div>
-
-      <UploadWizard />
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-4">
@@ -49,7 +51,6 @@ export default async function NewKmPage() {
           <tbody className="divide-y divide-slate-100">
             {sources.map((s) => {
               const status = STATUS_LABEL[s.status] ?? STATUS_LABEL.PENDING;
-              const sourceLabel = s.sourceType === "PDF" ? s.sourceName : s.sourceUrl;
               return (
                 <ClickableRow key={s.id} href={`/km/new/${s.id}`} className="cursor-pointer hover:bg-slate-50">
                   <td className="px-5 py-3">
@@ -60,7 +61,7 @@ export default async function NewKmPage() {
                       <span className="truncate">{s.title}</span>
                     </Link>
                   </td>
-                  <td className="max-w-xs truncate px-5 py-3 text-slate-500">{sourceLabel}</td>
+                  <td className="max-w-xs truncate px-5 py-3 text-slate-500">{sourceLabel(s)}</td>
                   <td className="px-5 py-3 text-slate-500">{s.sourceType}</td>
                   <td className="px-5 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${status.className}`}>

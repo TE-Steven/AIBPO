@@ -19,7 +19,7 @@ const DEFAULT_MENUS = [
 // KM 管理是兩層選單：「KM管理」是純標題群組（path 留空，不能直接點），底下三個子選單才是真正的頁面。
 const KM_PARENT = { key: "km", label: "KM管理", path: "", icon: "sparkles", order: 4 };
 const KM_CHILDREN = [
-  { key: "km-new", label: "新增KM", path: "/km/new", icon: "sparkles", order: 1 },
+  { key: "km-new", label: "來源管理", path: "/km/new", icon: "sparkles", order: 1 },
   { key: "km-knowledge", label: "知識列表", path: "/km/knowledge", icon: "menu-list", order: 2 },
   { key: "km-tally", label: "分類管理", path: "/km/tally", icon: "menu-list", order: 3 },
   { key: "km-dimensions", label: "維度管理", path: "/km/dimensions", icon: "shield-check", order: 4 },

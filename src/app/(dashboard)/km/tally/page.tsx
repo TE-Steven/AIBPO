@@ -46,7 +46,7 @@ export default async function TallyPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">分類管理（Tally）</h1>
         <p className="mt-1 text-sm text-slate-500">
-          大中小分類，最多三層，也可以只用大分類。分類可以在「新增KM」時當作分析維度使用。
+          大中小分類，最多三層，也可以只用大分類。分類可以在「來源管理」時當作分析維度使用。
         </p>
       </div>
 

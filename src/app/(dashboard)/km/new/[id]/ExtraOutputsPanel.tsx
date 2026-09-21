@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { generateRagContentAction } from "./ragActions";
 import { generateWorkflowDraftsAction } from "./workflowActions";
-import { IconCheckCircle, IconAlertTriangle, IconSparkles } from "@/components/icons";
+import { IconCheckCircle, IconAlertTriangle, IconSparkles, IconChevronDown } from "@/components/icons";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   NONE: { label: "尚未產生", className: "bg-slate-100 text-slate-500" },
@@ -43,6 +43,7 @@ export function ExtraOutputsPanel({
   const [ragMessage, setRagMessage] = useState<{ success?: string; error?: string }>({});
   const [workflowMessage, setWorkflowMessage] = useState<{ success?: string; error?: string }>({});
   const [copied, setCopied] = useState(false);
+  const [ragContentOpen, setRagContentOpen] = useState(false);
 
   function runRag() {
     setRagMessage({});
@@ -108,15 +109,26 @@ export function ExtraOutputsPanel({
 
         {ragContent && (
           <div className="mt-3">
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-500">結果</span>
-              <button type="button" onClick={copyRagContent} className="text-xs font-medium text-teal-600 hover:text-teal-700">
-                {copied ? "已複製" : "複製"}
-              </button>
-            </div>
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-700">
-              {ragContent}
-            </pre>
+            <button
+              type="button"
+              onClick={() => setRagContentOpen((v) => !v)}
+              className="flex w-full items-center justify-between text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              <span>結果（{ragContent.length.toLocaleString()} 字）</span>
+              <IconChevronDown className={`h-3.5 w-3.5 transition-transform ${ragContentOpen ? "rotate-180" : ""}`} />
+            </button>
+            {ragContentOpen && (
+              <div className="mt-1.5">
+                <div className="mb-1.5 flex justify-end">
+                  <button type="button" onClick={copyRagContent} className="text-xs font-medium text-teal-600 hover:text-teal-700">
+                    {copied ? "已複製" : "複製"}
+                  </button>
+                </div>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-700">
+                  {ragContent}
+                </pre>
+              </div>
+            )}
           </div>
         )}
       </div>

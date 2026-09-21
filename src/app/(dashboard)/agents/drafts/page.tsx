@@ -42,7 +42,7 @@ export default async function AgentDraftsPage() {
         ))}
         {drafts.length === 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
-            目前沒有待審核的草稿，到「新增KM」的來源頁面按「產生 Workflow 草稿」試試。
+            目前沒有待審核的草稿，到「來源管理」的來源頁面按「產生 Workflow 草稿」試試。
           </div>
         )}
       </div>

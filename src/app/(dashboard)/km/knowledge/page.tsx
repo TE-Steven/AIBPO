@@ -41,7 +41,7 @@ export default async function KnowledgePage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">知識列表</h1>
         <p className="mt-1 text-sm text-slate-500">
-          在「新增KM」勾選確認過的 FAQ 都會出現在這裡，可以依分類篩選，勾選後匯出成 .md。
+          在「來源管理」勾選確認過的 FAQ 都會出現在這裡，可以依分類篩選，勾選後匯出成 .md。
         </p>
       </div>
 

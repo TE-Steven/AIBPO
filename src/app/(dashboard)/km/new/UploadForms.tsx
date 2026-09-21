@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { createPdfSourceAction, createUrlSourceAction, type CreateSourceState } from "./actions";
-import { IconAlertTriangle } from "@/components/icons";
+import { IconAlertTriangle, IconPlus, IconTrash } from "@/components/icons";
 
 const initialState: CreateSourceState = {};
 
@@ -22,13 +22,14 @@ function ErrorMessage({ error }: { error?: string }) {
 export function UploadWizard() {
   const [title, setTitle] = useState("");
   const [sourceType, setSourceType] = useState<"PDF" | "URL">("PDF");
+  const [urlRows, setUrlRows] = useState<string[]>([""]);
   const [pdfState, pdfAction, pdfPending] = useActionState(createPdfSourceAction, initialState);
   const [urlState, urlAction, urlPending] = useActionState(createUrlSourceAction, initialState);
 
   const canSubmit = title.trim().length > 0;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div>
       <div className="mb-6">
         <label className="mb-1.5 block text-sm font-medium text-slate-700">步驟 1：輸入名稱</label>
         <input
@@ -66,7 +67,8 @@ export function UploadWizard() {
         {sourceType === "PDF" ? (
           <form action={pdfAction} className="space-y-3">
             <input type="hidden" name="title" value={title} />
-            <input name="file" type="file" accept="application/pdf" required className={inputClass} />
+            <input name="file" type="file" accept="application/pdf" multiple required className={inputClass} />
+            <p className="text-xs text-slate-400">可以一次選取多個 PDF，會合併成同一個知識來源一起分析。</p>
             <ErrorMessage error={pdfState.error} />
             <button
               type="submit"
@@ -79,7 +81,39 @@ export function UploadWizard() {
         ) : (
           <form action={urlAction} className="space-y-3">
             <input type="hidden" name="title" value={title} />
-            <input name="url" type="url" placeholder="https://example.com/article" required className={inputClass} />
+            <div className="space-y-2">
+              {urlRows.map((url, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    name="url"
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrlRows((prev) => prev.map((u, idx) => (idx === i ? e.target.value : u)))}
+                    placeholder="https://example.com/article"
+                    required
+                    className={inputClass}
+                  />
+                  {urlRows.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setUrlRows((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="shrink-0 rounded-lg p-2 text-rose-500 hover:bg-rose-50"
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setUrlRows((prev) => [...prev, ""])}
+              className="inline-flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-700"
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+              新增一個網址
+            </button>
+            <p className="text-xs text-slate-400">可以貼多個網址，會合併成同一個知識來源一起分析。</p>
             <ErrorMessage error={urlState.error} />
             <button
               type="submit"

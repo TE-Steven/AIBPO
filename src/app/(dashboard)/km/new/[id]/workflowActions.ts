@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildUserContent, buildWorkflowSystemPrompt, parseWorkflowDrafts } from "@/lib/kmAnalysis";
+import { buildUserContent, buildWorkflowSystemPrompt, parseWorkflowDrafts, webFetchMaxUses } from "@/lib/kmAnalysis";
 import type Anthropic from "@anthropic-ai/sdk";
 
 export type WorkflowActionState = { success?: string; error?: string };
@@ -31,7 +31,7 @@ export async function generateWorkflowDraftsAction(sourceId: string): Promise<Wo
       thinking: { type: "adaptive" },
       system,
       ...(source.sourceType === "URL"
-        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: 3 }] }
+        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
         : {}),
       messages: [{ role: "user", content }],
     });

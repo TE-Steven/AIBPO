@@ -118,9 +118,11 @@ model KmSource {
   id           String   @id @default(cuid())
   title        String
   sourceType   String // "PDF" | "URL"
-  sourceName   String?
-  sourceUrl    String?
-  sourceFileId String? // Anthropic Files API 的 file_id（PDF 用，上傳後直接引用，不落地存檔案本體）
+  sourceName   String? // legacy 單檔案名稱，舊資料用；新資料看 sourceFileIds
+  sourceUrl    String? // legacy 單網址，舊資料用；新資料看 sourceUrls
+  sourceFileId String? // legacy 單一 Anthropic Files API file_id，舊資料用；新資料看 sourceFileIds
+  sourceFileIds Json? // 新：多檔案時的 [{ fileId, fileName }][]，同一包視為同一個知識來源
+  sourceUrls    Json? // 新：多網址時的 string[]，同一包視為同一個知識來源
   rawText      String?  @db.Text
   status       String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
   errorMessage String?
