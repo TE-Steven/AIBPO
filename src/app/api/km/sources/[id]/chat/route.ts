@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildChatSystemPrompt, buildUserContent, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
+import { companyIdForRole } from "@/lib/company";
 import { KM_TOOLS, executeKmTool } from "@/lib/kmTools";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +57,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           select: { question: true, answer: true },
           orderBy: { createdAt: "asc" },
         });
-        const guidelines = await getSystemSetting(KM_OUTPUT_GUIDELINES_KEY);
+        const companyId = await companyIdForRole(roleId);
+        const guidelines = await getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY);
         const system = buildChatSystemPrompt(entries, guidelines);
 
         for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {

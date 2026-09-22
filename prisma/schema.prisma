@@ -10,15 +10,30 @@ datasource db {
   provider = "postgresql"
 }
 
-// 角色：決定選單可視範圍與資料可視範圍（同角色互相看得到彼此的資料）。
+// 租戶根節點：SaaS 化之後每間自助註冊的公司對應一筆。
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles Role[]
+  users User[]
+
+  @@map("aibpo_companies")
+}
+
+// 角色：決定選單可視範圍與資料可視範圍（同公司下、同角色互相看得到彼此的資料）。
 model Role {
   id          String   @id @default(cuid())
-  name        String   @unique
+  companyId   String
+  name        String
   description String?
   isSystem    Boolean  @default(false) // 系統預設角色，禁止刪除
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  company    Company     @relation(fields: [companyId], references: [id])
   users      User[]
   roleMenus  RoleMenu[]
   tallies    Tally[]
@@ -29,23 +44,29 @@ model Role {
   agents       Agent[]
   agentDrafts  AgentDraft[]
 
+  @@unique([companyId, name])
+  @@index([companyId])
   @@map("aibpo_roles")
 }
 
 // 一般使用者帳號。超級管理員不在這張表裡，帳密另外用 Render 環境變數管理。
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  passwordHash String
-  displayName  String
-  isActive     Boolean  @default(true)
-  roleId       String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(cuid())
+  companyId      String // 冗餘存放 role.companyId：公司管理員要查「全公司跨角色」的使用者清單，不想每次都 join Role
+  username       String   @unique // 維持全站唯一，登入不用先選公司
+  passwordHash   String
+  displayName    String
+  isActive       Boolean  @default(true)
+  roleId         String
+  isCompanyAdmin Boolean  @default(false) // 公司管理員：只能管自己公司的帳號/角色/Prompt 準則
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  role Role @relation(fields: [roleId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+  role    Role    @relation(fields: [roleId], references: [id])
 
   @@index([roleId])
+  @@index([companyId])
   @@map("aibpo_users")
 }
 
@@ -170,7 +191,7 @@ model KmEntry {
 }
 
 // 每次呼叫 Claude API 都記一筆，用來在儀表板統計「目前用了多少 token、預估花費多少」。
-// roleId 不設外鍵：純記錄用途，角色被刪除也不該連帶刪掉歷史用量紀錄；superadmin 觸發的呼叫沒有 roleId。
+// roleId/companyId 不設外鍵：純記錄用途，角色或公司被刪除也不該連帶刪掉歷史用量紀錄；superadmin 觸發的呼叫兩者皆為 null。
 model ApiUsageLog {
   id                  String   @id @default(cuid())
   model               String
@@ -180,9 +201,11 @@ model ApiUsageLog {
   cacheReadTokens     Int      @default(0)
   cacheCreationTokens Int      @default(0)
   roleId              String?
+  companyId           String?
   createdAt           DateTime @default(now())
 
   @@index([createdAt])
+  @@index([companyId])
   @@map("aibpo_api_usage_logs")
 }
 
@@ -272,11 +295,13 @@ model AgentDraft {
   @@map("aibpo_agent_drafts")
 }
 
-// 系統層級設定，key-value 存放，目前用來放超級管理員定義的「輸出最高準則」，之後有其他全域設定也能沿用。
+// 系統層級設定，key-value 存放，每公司各自一份，目前用來放公司管理員定義的「輸出最高準則」，之後有其他設定也能沿用。
 model SystemSetting {
-  key       String   @id
+  companyId String
+  key       String
   value     String   @db.Text
   updatedAt DateTime @updatedAt
 
+  @@id([companyId, key])
   @@map("aibpo_system_settings")
 }

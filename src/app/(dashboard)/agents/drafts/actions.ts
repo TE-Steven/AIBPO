@@ -1,15 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/session";
+import { requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
 export type DraftActionState = { success?: string; error?: string };
-
-async function firstRoleId(): Promise<string> {
-  const role = await prisma.role.findFirstOrThrow({ orderBy: { createdAt: "asc" } });
-  return role.id;
-}
 
 const AGENT_CENTER = { x: 380, y: 220 };
 const SATELLITE_RADIUS = 220;
@@ -26,11 +21,11 @@ export async function confirmAgentDraftAction(
   draftId: string,
   data: { name: string; systemPrompt: string; skillIds: string[] },
 ): Promise<DraftActionState> {
-  const session = await requireSession();
+  const session = await requireCompanyUser();
 
   const draft = await prisma.agentDraft.findUnique({ where: { id: draftId } });
   if (!draft) return { error: "找不到這筆草稿。" };
-  if (session.kind !== "superadmin" && draft.roleId !== session.roleId) {
+  if (draft.roleId !== session.roleId) {
     return { error: "沒有權限操作這筆草稿。" };
   }
 
@@ -39,12 +34,9 @@ export async function confirmAgentDraftAction(
   if (!name) return { error: "名稱不能是空的。" };
   if (!systemPrompt) return { error: "系統提示詞不能是空的。" };
 
-  const roleId = session.kind === "superadmin" ? await firstRoleId() : session.roleId;
-  const createdById = session.kind === "superadmin" ? "superadmin" : session.id;
-
   const agent = await prisma.$transaction(async (tx) => {
     const created = await tx.agent.create({
-      data: { name, systemPrompt, status: "ACTIVE", roleId, createdById },
+      data: { name, systemPrompt, status: "ACTIVE", roleId: session.roleId, createdById: session.id },
     });
     if (data.skillIds.length > 0) {
       await tx.agentSkill.createMany({
@@ -64,11 +56,11 @@ export async function confirmAgentDraftAction(
 }
 
 export async function rejectAgentDraftAction(draftId: string): Promise<void> {
-  const session = await requireSession();
+  const session = await requireCompanyUser();
 
   const draft = await prisma.agentDraft.findUnique({ where: { id: draftId } });
   if (!draft) return;
-  if (session.kind !== "superadmin" && draft.roleId !== session.roleId) return;
+  if (draft.roleId !== session.roleId) return;
 
   await prisma.agentDraft.delete({ where: { id: draftId } });
   revalidatePath("/agents/drafts");

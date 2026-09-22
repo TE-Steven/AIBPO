@@ -34,10 +34,16 @@ const AGENT_CHILDREN = [
 ];
 
 async function main() {
-  const defaultRole = await prisma.role.upsert({
-    where: { name: "一般使用者" },
+  const defaultCompany = await prisma.company.upsert({
+    where: { id: "seed-default-company" },
     update: {},
-    create: { name: "一般使用者", description: "系統預設角色", isSystem: true },
+    create: { id: "seed-default-company", name: "預設公司（原單一租戶，可之後改名）" },
+  });
+
+  const defaultRole = await prisma.role.upsert({
+    where: { companyId_name: { companyId: defaultCompany.id, name: "一般使用者" } },
+    update: {},
+    create: { companyId: defaultCompany.id, name: "一般使用者", description: "系統預設角色", isSystem: true },
   });
 
   for (const m of DEFAULT_MENUS) {

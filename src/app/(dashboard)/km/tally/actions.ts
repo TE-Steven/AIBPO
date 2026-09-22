@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession, roleScope } from "@/lib/session";
+import { requireSession, requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
 export type TallyActionState = { success?: string; error?: string };
@@ -22,7 +22,7 @@ export async function createTallyAction(
   _prevState: TallyActionState,
   formData: FormData,
 ): Promise<TallyActionState> {
-  const session = await requireSession();
+  const session = await requireCompanyUser();
 
   const name = String(formData.get("name") ?? "").trim();
   const parentId = String(formData.get("parentId") ?? "") || null;
@@ -38,17 +38,11 @@ export async function createTallyAction(
   }
 
   await prisma.tally.create({
-    data: { name, parentId, roleId: session.kind === "superadmin" ? (await firstRoleId()) : session.roleId },
+    data: { name, parentId, roleId: session.roleId },
   });
 
   revalidatePath("/km/tally");
   return { success: `分類「${name}」已建立。` };
-}
-
-// superadmin 沒有自己的 roleId，建立分類時掛在第一個角色底下，避免 roleId 是 null 造成資料權限失效。
-async function firstRoleId(): Promise<string> {
-  const role = await prisma.role.findFirstOrThrow({ orderBy: { createdAt: "asc" } });
-  return role.id;
 }
 
 export async function deleteTallyAction(tallyId: string): Promise<void> {

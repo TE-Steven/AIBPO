@@ -20,6 +20,11 @@ export async function recordApiUsage(params: {
   usage: Anthropic.Usage;
   roleId?: string | null;
 }): Promise<void> {
+  // companyId 從 roleId 反查，不要求呼叫端額外傳——一個 roleId 現在一定只屬於一間公司。
+  const companyId = params.roleId
+    ? ((await prisma.role.findUnique({ where: { id: params.roleId }, select: { companyId: true } }))?.companyId ?? null)
+    : null;
+
   await prisma.apiUsageLog.create({
     data: {
       model: params.model,
@@ -29,6 +34,7 @@ export async function recordApiUsage(params: {
       cacheReadTokens: params.usage.cache_read_input_tokens ?? 0,
       cacheCreationTokens: params.usage.cache_creation_input_tokens ?? 0,
       roleId: params.roleId ?? null,
+      companyId,
     },
   });
 }

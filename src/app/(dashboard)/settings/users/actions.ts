@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSuperAdmin } from "@/lib/session";
+import { requireCompanyAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 
@@ -11,7 +11,7 @@ export async function createUserAction(
   _prevState: UserActionState,
   formData: FormData,
 ): Promise<UserActionState> {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
   const username = String(formData.get("username") ?? "").trim();
   const displayName = String(formData.get("displayName") ?? "").trim();
@@ -25,11 +25,16 @@ export async function createUserAction(
     return { error: "密碼至少需要 6 個字元。" };
   }
 
+  const role = await prisma.role.findUnique({ where: { id: roleId } });
+  if (!role || role.companyId !== session.companyId) {
+    return { error: "角色不存在。" };
+  }
+
   const passwordHash = await hashPassword(password);
 
   try {
     await prisma.user.create({
-      data: { username, displayName, passwordHash, roleId },
+      data: { username, displayName, passwordHash, roleId, companyId: session.companyId },
     });
   } catch {
     return { error: "建立失敗，帳號可能已經存在。" };
@@ -41,8 +46,10 @@ export async function createUserAction(
 }
 
 export async function toggleUserActiveAction(userId: string): Promise<void> {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  if (user.companyId !== session.companyId) return;
+
   await prisma.user.update({ where: { id: userId }, data: { isActive: !user.isActive } });
   revalidatePath("/settings/users");
   revalidatePath("/team");
@@ -52,12 +59,17 @@ export async function resetUserPasswordAction(
   _prevState: UserActionState,
   formData: FormData,
 ): Promise<UserActionState> {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
   const userId = String(formData.get("userId") ?? "");
   const newPassword = String(formData.get("newPassword") ?? "");
   if (newPassword.length < 6) {
     return { error: "新密碼至少需要 6 個字元。" };
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.companyId !== session.companyId) {
+    return { error: "找不到這個帳號。" };
   }
 
   const passwordHash = await hashPassword(newPassword);

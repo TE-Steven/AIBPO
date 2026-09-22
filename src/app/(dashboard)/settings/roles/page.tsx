@@ -1,13 +1,14 @@
-import { requireSuperAdmin } from "@/lib/session";
+import { requireCompanyAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { deleteRoleAction } from "./actions";
 import { CreateRoleForm } from "./RoleForms";
 import { IconShieldCheck, IconTrash } from "@/components/icons";
 
 export default async function RolesPage() {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
   const roles = await prisma.role.findMany({
+    where: { companyId: session.companyId },
     include: { _count: { select: { users: true } } },
     orderBy: { createdAt: "asc" },
   });

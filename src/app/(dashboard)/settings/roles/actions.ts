@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSuperAdmin } from "@/lib/session";
+import { requireCompanyAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
 export type RoleActionState = { success?: string; error?: string };
@@ -10,7 +10,7 @@ export async function createRoleAction(
   _prevState: RoleActionState,
   formData: FormData,
 ): Promise<RoleActionState> {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
@@ -19,7 +19,7 @@ export async function createRoleAction(
   }
 
   try {
-    await prisma.role.create({ data: { name, description: description || null } });
+    await prisma.role.create({ data: { companyId: session.companyId, name, description: description || null } });
   } catch {
     return { error: "建立失敗，角色名稱可能已經存在。" };
   }
@@ -31,9 +31,10 @@ export async function createRoleAction(
 }
 
 export async function deleteRoleAction(roleId: string): Promise<void> {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
   const role = await prisma.role.findUniqueOrThrow({ where: { id: roleId } });
+  if (role.companyId !== session.companyId) return;
   if (role.isSystem) return;
 
   const userCount = await prisma.user.count({ where: { roleId } });

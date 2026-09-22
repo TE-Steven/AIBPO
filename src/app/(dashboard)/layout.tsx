@@ -23,31 +23,40 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   }
 
   // 父層群組本身不需要單獨的選單權限：只要底下任一子選單這個角色看得到，群組就顯示。
-  const navItems: NavItem[] = allMenus
-    .filter((m) => !m.parentId)
-    .map((m): NavItem | null => {
-      const children = childrenByParent.get(m.id) ?? [];
-      if (children.length > 0) {
-        const visibleChildren = children
-          .filter((c) => isVisible(c.key))
-          .map((c) => ({ href: c.path, label: c.label, icon: c.icon, exact: c.path === "/" }));
-        if (visibleChildren.length === 0) return null;
-        return { href: m.path, label: m.label, icon: m.icon, children: visibleChildren };
-      }
-      if (!isVisible(m.key)) return null;
-      return { href: m.path, label: m.label, icon: m.icon, exact: m.path === "/" };
-    })
-    .filter((item): item is NavItem => item !== null);
+  // 超級管理員不碰任何租戶業務資料（proxy.ts 也會擋），側欄不顯示這些連結，避免點了又被彈回去。
+  const navItems: NavItem[] =
+    session.kind === "superadmin"
+      ? []
+      : allMenus
+          .filter((m) => !m.parentId)
+          .map((m): NavItem | null => {
+            const children = childrenByParent.get(m.id) ?? [];
+            if (children.length > 0) {
+              const visibleChildren = children
+                .filter((c) => isVisible(c.key))
+                .map((c) => ({ href: c.path, label: c.label, icon: c.icon, exact: c.path === "/" }));
+              if (visibleChildren.length === 0) return null;
+              return { href: m.path, label: m.label, icon: m.icon, children: visibleChildren };
+            }
+            if (!isVisible(m.key)) return null;
+            return { href: m.path, label: m.label, icon: m.icon, exact: m.path === "/" };
+          })
+          .filter((item): item is NavItem => item !== null);
 
+  // 超級管理員是平台維運角色，不碰租戶業務資料，側欄只留平台總覽跟全站共用的選單管理。
   const systemItems: NavItem[] =
     session.kind === "superadmin"
       ? [
-          { href: "/settings/users", label: "帳號管理", icon: "users" },
-          { href: "/settings/roles", label: "角色管理", icon: "shield-check" },
+          { href: "/platform/companies", label: "平台總覽", icon: "menu-list" },
           { href: "/settings/menus", label: "選單管理", icon: "menu-list" },
-          { href: "/settings/prompts", label: "Prompt管理", icon: "sparkles" },
         ]
-      : [];
+      : session.isCompanyAdmin
+        ? [
+            { href: "/settings/users", label: "帳號管理", icon: "users" },
+            { href: "/settings/roles", label: "角色管理", icon: "shield-check" },
+            { href: "/settings/prompts", label: "Prompt管理", icon: "sparkles" },
+          ]
+        : [];
 
   const roleLabel = session.kind === "superadmin" ? "超級管理員" : session.roleName;
 

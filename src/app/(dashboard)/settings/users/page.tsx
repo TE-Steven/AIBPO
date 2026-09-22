@@ -1,15 +1,15 @@
-import { requireSuperAdmin } from "@/lib/session";
+import { requireCompanyAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { toggleUserActiveAction } from "./actions";
 import { CreateUserForm, ResetPasswordForm } from "./UsersForms";
 import { IconUsers } from "@/components/icons";
 
 export default async function UsersPage() {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
   const [users, roles] = await Promise.all([
-    prisma.user.findMany({ include: { role: true }, orderBy: { createdAt: "asc" } }),
-    prisma.role.findMany({ orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { companyId: session.companyId }, include: { role: true }, orderBy: { createdAt: "asc" } }),
+    prisma.role.findMany({ where: { companyId: session.companyId }, orderBy: { name: "asc" } }),
   ]);
 
   return (
@@ -17,7 +17,7 @@ export default async function UsersPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">帳號管理</h1>
         <p className="mt-1 text-sm text-slate-500">
-          只有超級管理員能新增帳號。一般使用者登入後可以自己改密碼與顯示名稱。
+          只有公司管理員能新增帳號。一般使用者登入後可以自己改密碼與顯示名稱。
         </p>
       </div>
 

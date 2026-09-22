@@ -1,11 +1,11 @@
-import { requireSuperAdmin } from "@/lib/session";
+import { requireCompanyAdmin } from "@/lib/session";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { PromptForm } from "./PromptForm";
 
 export default async function PromptsPage() {
-  await requireSuperAdmin();
+  const session = await requireCompanyAdmin();
 
-  const guidelines = await getSystemSetting(KM_OUTPUT_GUIDELINES_KEY);
+  const guidelines = await getSystemSetting(session.companyId, KM_OUTPUT_GUIDELINES_KEY);
 
   return (
     <div className="animate-fade-in space-y-6">

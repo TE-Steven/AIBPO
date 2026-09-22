@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
+import { companyIdForRole } from "@/lib/company";
 
 type Field = "question" | "answer" | "both";
 
@@ -76,22 +77,27 @@ export async function executeKmTool(
 ): Promise<unknown> {
   switch (toolName) {
     case "find_replace_in_entries":
-      return findReplaceInEntries(ctx.sourceId, input as { find: string; replace: string; field: Field });
+      return findReplaceInEntries(ctx.sourceId, ctx.roleId, input as { find: string; replace: string; field: Field });
     case "generate_more_entries":
       return generateMoreEntries(ctx.sourceId, ctx.roleId, input as { dimensions: string[]; count: number });
     case "reclassify_entries":
       return reclassifyEntries(ctx.sourceId, ctx.roleId, input as { matchText: string; matchField: Field; tallyName: string });
     case "delete_entries":
-      return deleteEntries(ctx.sourceId, input as { matchText: string; matchField: Field });
+      return deleteEntries(ctx.sourceId, ctx.roleId, input as { matchText: string; matchField: Field });
     default:
       return { error: `未知的工具：${toolName}` };
   }
 }
 
-async function findReplaceInEntries(sourceId: string, input: { find: string; replace: string; field: Field }) {
+async function findReplaceInEntries(
+  sourceId: string,
+  roleId: string,
+  input: { find: string; replace: string; field: Field },
+) {
   if (!input.find) return { error: "find 不能是空字串。" };
 
-  const entries = await prisma.kmEntry.findMany({ where: { sourceId } });
+  // 防禦性補強：多加 roleId 過濾，即使呼叫端沒先驗證 source 擁有權，這裡也不會動到別間公司的資料。
+  const entries = await prisma.kmEntry.findMany({ where: { sourceId, roleId } });
   const matched = entries.filter((e) => isMatch(e, input.find, input.field));
 
   for (const e of matched) {
@@ -133,12 +139,13 @@ async function reclassifyEntries(
   return { count: matched.length, affectedQuestions: matched.map((e) => e.question) };
 }
 
-async function deleteEntries(sourceId: string, input: { matchText: string; matchField: Field }) {
+async function deleteEntries(sourceId: string, roleId: string, input: { matchText: string; matchField: Field }) {
   if (!input.matchText || input.matchText.trim().length < 2) {
     return { error: "篩選文字太短或是空的，為了安全不會執行刪除，請提供更明確的關鍵字。" };
   }
 
-  const entries = await prisma.kmEntry.findMany({ where: { sourceId } });
+  // 防禦性補強：多加 roleId 過濾，即使呼叫端沒先驗證 source 擁有權，這裡也不會刪到別間公司的資料。
+  const entries = await prisma.kmEntry.findMany({ where: { sourceId, roleId } });
   const matched = entries.filter((e) => isMatch(e, input.matchText, input.matchField));
 
   await prisma.kmEntry.deleteMany({ where: { id: { in: matched.map((e) => e.id) } } });
@@ -153,7 +160,8 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
   const count = Math.min(Math.max(1, input.count || 5), 50);
   const dimensions = Array.isArray(input.dimensions) ? input.dimensions : [];
   const tallies = await prisma.tally.findMany({ where: { roleId }, orderBy: { order: "asc" } });
-  const guidelines = await getSystemSetting(KM_OUTPUT_GUIDELINES_KEY);
+  const companyId = await companyIdForRole(roleId);
+  const guidelines = await getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY);
 
   const system = buildSystemPrompt({ dimensions, tallies, countMin: count, countMax: count, guidelines });
   const content = buildUserContent(source);

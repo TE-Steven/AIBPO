@@ -3,22 +3,17 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
-import { requireSession } from "@/lib/session";
+import { requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic } from "@/lib/anthropic";
 
 export type CreateSourceState = { error?: string };
 
-async function firstRoleId(): Promise<string> {
-  const role = await prisma.role.findFirstOrThrow({ orderBy: { createdAt: "asc" } });
-  return role.id;
-}
-
 export async function createSourceAction(
   _prevState: CreateSourceState,
   formData: FormData,
 ): Promise<CreateSourceState> {
-  const session = await requireSession();
+  const session = await requireCompanyUser();
   const title = String(formData.get("title") ?? "").trim();
   const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
   const urls = formData
@@ -39,8 +34,8 @@ export async function createSourceAction(
     return { error: "網址要以 http:// 或 https:// 開頭。" };
   }
 
-  const roleId = session.kind === "superadmin" ? await firstRoleId() : session.roleId;
-  const createdById = session.kind === "superadmin" ? "SUPERADMIN" : session.id;
+  const roleId = session.roleId;
+  const createdById = session.id;
 
   const fileRefs: { fileId: string; fileName: string }[] = [];
   try {

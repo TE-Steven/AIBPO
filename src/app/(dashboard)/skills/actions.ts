@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/session";
+import { requireSession, requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 
@@ -13,11 +13,6 @@ export type SkillParam = { name: string; type: string; description: string; requ
 const VALID_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const VALID_AUTH_TYPES = ["NONE", "BEARER", "API_KEY_HEADER", "BASIC"];
 const VALID_PARAM_TYPES = ["string", "number", "boolean", "array"];
-
-async function firstRoleId(): Promise<string> {
-  const role = await prisma.role.findFirstOrThrow({ orderBy: { createdAt: "asc" } });
-  return role.id;
-}
 
 function parseHeaders(raw: FormDataEntryValue | null): SkillHeader[] {
   if (!raw) return [];
@@ -111,14 +106,11 @@ export async function createSkillAction(
   _prevState: SkillActionState,
   formData: FormData,
 ): Promise<SkillActionState> {
-  const session = await requireSession();
+  const session = await requireCompanyUser();
   const result = readSkillFields(formData);
   if ("error" in result) return { error: result.error };
 
-  const roleId = session.kind === "superadmin" ? await firstRoleId() : session.roleId;
-  const createdById = session.kind === "superadmin" ? "superadmin" : session.id;
-
-  await prisma.skill.create({ data: { ...result.data, roleId, createdById } });
+  await prisma.skill.create({ data: { ...result.data, roleId: session.roleId, createdById: session.id } });
 
   revalidatePath("/skills");
   return { success: `Skill「${result.data.name}」已建立。` };

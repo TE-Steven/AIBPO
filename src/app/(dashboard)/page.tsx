@@ -13,10 +13,12 @@ export default async function DashboardHomePage() {
   const displayName = session.displayName;
   const roleLabel = session.kind === "superadmin" ? "超級管理員" : session.roleName;
 
-  // 用量統計是全公司共用的實際花費，不套資料權限（不分角色，全部人看到的是同一組數字）。
+  // 用量統計是「同公司」共用的實際花費，不分角色（同公司內全部人看到的是同一組數字）；
+  // 超級管理員是平台維運視角，維持看全平台加總，不是漏洞。
   const usageByModel = await prisma.apiUsageLog.groupBy({
     by: ["model"],
     _sum: { inputTokens: true, outputTokens: true },
+    where: session.kind === "user" ? { companyId: session.companyId } : undefined,
   });
 
   const totalInputTokens = usageByModel.reduce((sum, row) => sum + (row._sum.inputTokens ?? 0), 0);
