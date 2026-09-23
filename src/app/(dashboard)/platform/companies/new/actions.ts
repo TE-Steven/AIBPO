@@ -1,15 +1,19 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { requireSuperAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { createSessionToken, SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from "@/lib/auth";
-import { ACTIVE_COMPANY_COOKIE_NAME } from "@/lib/activeCompany";
 import { provisionCompany } from "@/lib/companyProvisioning";
 
-export type SignupActionState = { error?: string };
+export type CreateCompanyState = { error?: string };
 
-export async function signupAction(_prevState: SignupActionState, formData: FormData): Promise<SignupActionState> {
+export async function createCompanyAction(
+  _prevState: CreateCompanyState,
+  formData: FormData,
+): Promise<CreateCompanyState> {
+  await requireSuperAdmin();
+
   const companyName = String(formData.get("companyName") ?? "").trim();
   const username = String(formData.get("username") ?? "").trim();
   const displayName = String(formData.get("displayName") ?? "").trim();
@@ -27,11 +31,9 @@ export async function signupAction(_prevState: SignupActionState, formData: Form
     return { error: "這個帳號已經被使用，換一個看看。" };
   }
 
-  const { user } = await provisionCompany({ companyName, username, displayName, password });
+  // 超級管理員只是「代開」，不會變成登入那間公司——建完人還是超級管理員身分，導回公司總覽。
+  await provisionCompany({ companyName, username, displayName, password });
 
-  const token = createSessionToken(user.id);
-  const store = await cookies();
-  store.set(SESSION_COOKIE_NAME, token, SESSION_COOKIE_OPTIONS);
-  store.delete(ACTIVE_COMPANY_COOKIE_NAME);
-  redirect("/");
+  revalidatePath("/platform/companies");
+  redirect("/platform/companies");
 }

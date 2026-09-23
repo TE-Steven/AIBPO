@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { requireSuperAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { estimateUsdCost, USD_TO_TWD_RATE } from "@/lib/anthropic";
-import { IconMenuList } from "@/components/icons";
+import { IconMenuList, IconPlus } from "@/components/icons";
 
 function formatNumber(n: number) {
   return n.toLocaleString("zh-TW");
@@ -48,11 +49,20 @@ export default async function PlatformCompaniesPage() {
 
   return (
     <div className="animate-fade-in space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">平台總覽</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          所有公司的維運視角，僅供查看，不提供編輯——租戶自己的帳號/角色/資料請由各公司的公司管理員自行管理。
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">平台總覽</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            所有公司的維運視角——租戶自己的帳號/角色/資料請由各公司的公司管理員自行管理，這裡只用來代客戶開通新公司跟查看整體統計。
+          </p>
+        </div>
+        <Link
+          href="/platform/companies/new"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600"
+        >
+          <IconPlus className="h-4 w-4" />
+          新增公司
+        </Link>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

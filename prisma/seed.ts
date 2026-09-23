@@ -33,30 +33,16 @@ const AGENT_CHILDREN = [
   { key: "agent-drafts", label: "Workflow 草稿", path: "/agents/drafts", icon: "sparkles", order: 3 },
 ];
 
+// 多租戶化之後，公司／角色／使用者都是自助註冊或超級管理員代開時才建立（見 src/lib/companyProvisioning.ts），
+// 這份 seed 只負責準備全站共用的選單目錄本身——新公司建立時會把當下所有 Menu 整包授權給它的第一個角色。
+// 注意：Render 的啟動指令每次部署都會重跑這個 seed，所以這裡絕對不能建立 Company/Role/User，
+// 之前版本用固定 id upsert 出一間「seed-default-company」，結果每次部署後台都多一間空的幽靈公司。
 async function main() {
-  const defaultCompany = await prisma.company.upsert({
-    where: { id: "seed-default-company" },
-    update: {},
-    create: { id: "seed-default-company", name: "預設公司（原單一租戶，可之後改名）" },
-  });
-
-  const defaultRole = await prisma.role.upsert({
-    where: { companyId_name: { companyId: defaultCompany.id, name: "一般使用者" } },
-    update: {},
-    create: { companyId: defaultCompany.id, name: "一般使用者", description: "系統預設角色", isSystem: true },
-  });
-
   for (const m of DEFAULT_MENUS) {
-    const menu = await prisma.menu.upsert({
+    await prisma.menu.upsert({
       where: { key: m.key },
       update: { label: m.label, path: m.path, icon: m.icon, order: m.order },
       create: m,
-    });
-
-    await prisma.roleMenu.upsert({
-      where: { roleId_menuId: { roleId: defaultRole.id, menuId: menu.id } },
-      update: {},
-      create: { roleId: defaultRole.id, menuId: menu.id },
     });
   }
 
@@ -67,17 +53,10 @@ async function main() {
   });
 
   for (const m of KM_CHILDREN) {
-    const menu = await prisma.menu.upsert({
+    await prisma.menu.upsert({
       where: { key: m.key },
       update: { label: m.label, path: m.path, icon: m.icon, order: m.order, parentId: kmParentMenu.id },
       create: { ...m, parentId: kmParentMenu.id },
-    });
-
-    // KM 子選單預設就開放給預設角色使用（跟其他預設選單一致）。
-    await prisma.roleMenu.upsert({
-      where: { roleId_menuId: { roleId: defaultRole.id, menuId: menu.id } },
-      update: {},
-      create: { roleId: defaultRole.id, menuId: menu.id },
     });
   }
 
@@ -88,20 +67,14 @@ async function main() {
   });
 
   for (const m of AGENT_CHILDREN) {
-    const menu = await prisma.menu.upsert({
+    await prisma.menu.upsert({
       where: { key: m.key },
       update: { label: m.label, path: m.path, icon: m.icon, order: m.order, parentId: agentParentMenu.id },
       create: { ...m, parentId: agentParentMenu.id },
     });
-
-    await prisma.roleMenu.upsert({
-      where: { roleId_menuId: { roleId: defaultRole.id, menuId: menu.id } },
-      update: {},
-      create: { roleId: defaultRole.id, menuId: menu.id },
-    });
   }
 
-  console.log("AIBPO 種子資料建立完成：預設角色與選單已就緒。");
+  console.log("AIBPO 種子資料建立完成：選單目錄已就緒。");
 }
 
 main()
