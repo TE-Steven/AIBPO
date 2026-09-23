@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { loginAction } from "./actions";
 import { Logo } from "@/components/Logo";
 import { IconAlertTriangle } from "@/components/icons";
@@ -54,13 +53,6 @@ export default async function LoginPage({
               登入
             </button>
           </form>
-
-          <p className="mt-4 text-center text-xs text-slate-400">
-            還沒有公司帳號？{" "}
-            <Link href="/signup" className="font-medium text-teal-600 hover:text-teal-700">
-              註冊新公司
-            </Link>
-          </p>
         </div>
       </div>
     </div>

@@ -23,7 +23,7 @@ function isUnderPath(pathname: string, target: string) {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname === "/login" || pathname === "/signup") {
+  if (pathname === "/login") {
     return NextResponse.next();
   }
 

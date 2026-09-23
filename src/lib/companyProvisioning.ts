@@ -10,8 +10,8 @@ export type ProvisionCompanyInput = {
 
 /**
  * 建一間新公司的完整初始狀態：公司本身、預設「管理者」角色（isSystem，全選單權限）、
- * 第一個公司管理員帳號。自助註冊（/signup）跟超級管理員代開公司共用這份邏輯，
- * 差別只在呼叫端要不要順便幫這個新帳號建立登入 session。
+ * 第一個公司管理員帳號。目前只有超級管理員代開公司（/platform/companies/new）會呼叫這個函式
+ * ——沒有自助註冊，公司一律由超級管理員開通。
  */
 export async function provisionCompany(input: ProvisionCompanyInput) {
   const passwordHash = await hashPassword(input.password);

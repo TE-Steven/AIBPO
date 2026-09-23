@@ -81,11 +81,16 @@ export default async function PlatformCompaniesPage() {
           <tbody className="divide-y divide-slate-100">
             {companies.map((c) => (
               <tr key={c.id}>
-                <td className="flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
-                    <IconMenuList className="h-3.5 w-3.5" />
-                  </span>
-                  {c.name}
+                <td className="px-5 py-3">
+                  <Link
+                    href={`/platform/companies/${c.id}`}
+                    className="flex items-center gap-2.5 font-medium text-slate-800 hover:text-teal-600"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+                      <IconMenuList className="h-3.5 w-3.5" />
+                    </span>
+                    {c.name}
+                  </Link>
                 </td>
                 <td className="px-5 py-3 text-slate-500">{c.createdAt.toLocaleDateString("zh-TW")}</td>
                 <td className="px-5 py-3 text-slate-500">{formatNumber(c._count.memberships)}</td>

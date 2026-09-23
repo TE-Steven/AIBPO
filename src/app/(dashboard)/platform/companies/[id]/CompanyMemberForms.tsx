@@ -1,12 +1,16 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { createUserAction, resetUserPasswordAction, type UserActionState } from "./actions";
+import {
+  createCompanyMemberAction,
+  resetCompanyMemberPasswordAction,
+  type CompanyMemberActionState,
+} from "./actions";
 import { IconCheckCircle, IconAlertTriangle, IconPlus, IconKey } from "@/components/icons";
 
-const initialState: UserActionState = {};
+const initialState: CompanyMemberActionState = {};
 
-function Message({ state }: { state: UserActionState }) {
+function Message({ state }: { state: CompanyMemberActionState }) {
   if (!state.success && !state.error) return null;
   const isError = Boolean(state.error);
   return (
@@ -24,8 +28,8 @@ function Message({ state }: { state: UserActionState }) {
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100";
 
-export function CreateUserForm({ roles }: { roles: { id: string; name: string }[] }) {
-  const [state, formAction, pending] = useActionState(createUserAction, initialState);
+export function CreateCompanyMemberForm({ companyId, roles }: { companyId: string; roles: { id: string; name: string }[] }) {
+  const [state, formAction, pending] = useActionState(createCompanyMemberAction, initialState);
   const [dismissed, setDismissed] = useState(false);
 
   if (state.needsConfirm && !dismissed) {
@@ -38,6 +42,7 @@ export function CreateUserForm({ roles }: { roles: { id: string; name: string }[
         <p className="text-xs text-amber-700">如果這不是你認識的人，請按「取消」換一個帳號名稱。</p>
         <div className="flex flex-wrap items-center gap-3">
           <form action={formAction}>
+            <input type="hidden" name="companyId" value={companyId} />
             <input type="hidden" name="username" value={username} />
             <input type="hidden" name="roleId" value={roleId} />
             <input type="hidden" name="confirmed" value="true" />
@@ -63,6 +68,7 @@ export function CreateUserForm({ roles }: { roles: { id: string; name: string }[
 
   return (
     <form action={formAction} onSubmit={() => setDismissed(false)} className="space-y-4">
+      <input type="hidden" name="companyId" value={companyId} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">帳號</label>
@@ -99,14 +105,14 @@ export function CreateUserForm({ roles }: { roles: { id: string; name: string }[
         className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
       >
         <IconPlus className="h-4 w-4" />
-        {pending ? "建立中…" : "新增帳號"}
+        {pending ? "建立中…" : "新增成員"}
       </button>
     </form>
   );
 }
 
-export function ResetPasswordForm({ userId }: { userId: string }) {
-  const [state, formAction, pending] = useActionState(resetUserPasswordAction, initialState);
+export function ResetCompanyMemberPasswordForm({ companyId, userId }: { companyId: string; userId: string }) {
+  const [state, formAction, pending] = useActionState(resetCompanyMemberPasswordAction, initialState);
 
   return (
     <details className="group">
@@ -116,6 +122,7 @@ export function ResetPasswordForm({ userId }: { userId: string }) {
       </summary>
       <p className="mt-1.5 text-xs text-amber-600">這個帳號如果同時屬於其他公司，密碼會一起變更。</p>
       <form action={formAction} className="mt-2 flex flex-wrap items-center gap-2">
+        <input type="hidden" name="companyId" value={companyId} />
         <input type="hidden" name="userId" value={userId} />
         <input
           name="newPassword"
