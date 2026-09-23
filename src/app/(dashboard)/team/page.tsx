@@ -5,10 +5,12 @@ import { IconUsers } from "@/components/icons";
 export default async function TeamPage() {
   const session = await requireSession();
 
-  // 資料權限示範：一般使用者只查得到「同角色」的人；superadmin 的 roleScope() 回傳空條件，不受限制。
-  const users = await prisma.user.findMany({
-    where: roleScope(session),
-    include: { role: true },
+  // 資料權限示範：一般使用者只查得到「同公司、同角色」的人；superadmin 的 roleScope() 回傳空條件，不受限制。
+  // 一個人可能同時是多間公司的成員，這裡要限定 companyId，不能只靠 roleId（roleId 本身雖然已經是單一公司底下的，
+  // 但這裡明確寫出來比較符合這個專案其他地方「資料權限一定同時看得到公司範圍」的寫法習慣）。
+  const memberships = await prisma.companyMembership.findMany({
+    where: session.kind === "user" ? { ...roleScope(session), companyId: session.companyId } : roleScope(session),
+    include: { user: true, role: true },
     orderBy: { createdAt: "asc" },
   });
 
@@ -34,28 +36,28 @@ export default async function TeamPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {users.map((u) => (
-              <tr key={u.id}>
+            {memberships.map((m) => (
+              <tr key={m.id}>
                 <td className="flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                     <IconUsers className="h-3.5 w-3.5" />
                   </span>
-                  {u.displayName}
+                  {m.user.displayName}
                 </td>
-                <td className="px-5 py-3 text-slate-500">{u.username}</td>
-                <td className="px-5 py-3 text-slate-500">{u.role.name}</td>
+                <td className="px-5 py-3 text-slate-500">{m.user.username}</td>
+                <td className="px-5 py-3 text-slate-500">{m.role.name}</td>
                 <td className="px-5 py-3">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      u.isActive ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
+                      m.isActive ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
                     }`}
                   >
-                    {u.isActive ? "啟用中" : "已停用"}
+                    {m.isActive ? "啟用中" : "已停用"}
                   </span>
                 </td>
               </tr>
             ))}
-            {users.length === 0 && (
+            {memberships.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-5 py-8 text-center text-sm text-slate-400">
                   目前沒有成員資料

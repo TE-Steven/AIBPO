@@ -35,14 +35,6 @@ export function CreateUserForm({ roles }: { roles: { id: string; name: string }[
           <input name="username" type="text" required className={inputClass} />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">顯示名稱</label>
-          <input name="displayName" type="text" required className={inputClass} />
-        </div>
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">初始密碼</label>
-          <input name="password" type="password" required minLength={6} className={inputClass} />
-        </div>
-        <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">角色</label>
           <select name="roleId" required className={inputClass} defaultValue="">
             <option value="" disabled>
@@ -54,6 +46,16 @@ export function CreateUserForm({ roles }: { roles: { id: string; name: string }[
               </option>
             ))}
           </select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">顯示名稱</label>
+          <input name="displayName" type="text" className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">建立新帳號時才需要；帳號已存在的話會沿用原本的顯示名稱。</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">初始密碼</label>
+          <input name="password" type="password" minLength={6} className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">建立新帳號時才需要；帳號已存在的話會沿用原本的密碼。</p>
         </div>
       </div>
       <Message state={state} />
@@ -78,6 +80,7 @@ export function ResetPasswordForm({ userId }: { userId: string }) {
         <IconKey className="h-3.5 w-3.5" />
         重設密碼
       </summary>
+      <p className="mt-1.5 text-xs text-amber-600">這個帳號如果同時屬於其他公司，密碼會一起變更。</p>
       <form action={formAction} className="mt-2 flex flex-wrap items-center gap-2">
         <input type="hidden" name="userId" value={userId} />
         <input

@@ -6,6 +6,16 @@
 -- 固定 cuid，讓這份 SQL 可以在 staging 先跑過一次再套到正式環境，結果是確定的。
 -- 套用前後都可以用 `SELECT * FROM aibpo_companies;` 確認只多了這一筆。
 
+-- 0) 建立 Company 表本身（這步在原本手寫時漏掉了，只寫了回填邏輯，忘了表都還沒建）
+CREATE TABLE "aibpo_companies" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "aibpo_companies_pkey" PRIMARY KEY ("id")
+);
+
 -- 1) 建立唯一一間既有公司
 INSERT INTO "aibpo_companies" (id, name, "createdAt", "updatedAt")
 VALUES ('b3d2b67f-5ed1-42cf-bbe6-07891bb5c00b', '預設公司（原單一租戶，可之後改名）', now(), now());
@@ -16,7 +26,9 @@ UPDATE "aibpo_roles" SET "companyId" = 'b3d2b67f-5ed1-42cf-bbe6-07891bb5c00b';
 ALTER TABLE "aibpo_roles" ALTER COLUMN "companyId" SET NOT NULL;
 ALTER TABLE "aibpo_roles"
   ADD CONSTRAINT "aibpo_roles_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "aibpo_companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "aibpo_roles" DROP CONSTRAINT IF EXISTS "aibpo_roles_name_key";
+-- 注意：單欄位的 @unique 在 Postgres 只會變成一個 unique INDEX，不是 pg_constraint 裡的 constraint，
+-- 用 DROP CONSTRAINT 砍不掉（會被 IF EXISTS 靜默吞掉），實際套用時漏了這步，之後用 DROP INDEX 補上。
+DROP INDEX IF EXISTS "aibpo_roles_name_key";
 CREATE UNIQUE INDEX "aibpo_roles_companyId_name_key" ON "aibpo_roles"("companyId", "name");
 CREATE INDEX "aibpo_roles_companyId_idx" ON "aibpo_roles"("companyId");
 

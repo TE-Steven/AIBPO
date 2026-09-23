@@ -9,7 +9,7 @@ export default async function RolesPage() {
 
   const roles = await prisma.role.findMany({
     where: { companyId: session.companyId },
-    include: { _count: { select: { users: true } } },
+    include: { _count: { select: { memberships: true } } },
     orderBy: { createdAt: "asc" },
   });
 
@@ -39,7 +39,7 @@ export default async function RolesPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {roles.map((r) => {
-              const deletable = !r.isSystem && r._count.users === 0;
+              const deletable = !r.isSystem && r._count.memberships === 0;
               return (
                 <tr key={r.id}>
                   <td className="flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800">
@@ -52,7 +52,7 @@ export default async function RolesPage() {
                     )}
                   </td>
                   <td className="px-5 py-3 text-slate-500">{r.description || "—"}</td>
-                  <td className="px-5 py-3 text-slate-500">{r._count.users}</td>
+                  <td className="px-5 py-3 text-slate-500">{r._count.memberships}</td>
                   <td className="px-5 py-3">
                     {deletable ? (
                       <form action={deleteRoleAction.bind(null, r.id)}>

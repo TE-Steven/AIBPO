@@ -12,7 +12,7 @@ export default async function PlatformCompaniesPage() {
 
   const companies = await prisma.company.findMany({
     include: {
-      _count: { select: { users: true, roles: true } },
+      _count: { select: { memberships: true, roles: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -78,7 +78,7 @@ export default async function PlatformCompaniesPage() {
                   {c.name}
                 </td>
                 <td className="px-5 py-3 text-slate-500">{c.createdAt.toLocaleDateString("zh-TW")}</td>
-                <td className="px-5 py-3 text-slate-500">{formatNumber(c._count.users)}</td>
+                <td className="px-5 py-3 text-slate-500">{formatNumber(c._count.memberships)}</td>
                 <td className="px-5 py-3 text-slate-500">{formatNumber(c._count.roles)}</td>
                 <td className="px-5 py-3 text-slate-500">{formatNumber(sourceCountByCompany.get(c.id) ?? 0)}</td>
                 <td className="px-5 py-3 text-slate-500">{formatNumber(agentCountByCompany.get(c.id) ?? 0)}</td>

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { SESSION_COOKIE_NAME, SUPER_ADMIN_SUBJECT, verifySessionToken } from "@/lib/auth";
+import { ACTIVE_COMPANY_COOKIE_NAME, pickActiveMembership } from "@/lib/activeCompany";
 
 export type Session =
   | {
@@ -20,6 +21,7 @@ export type Session =
       companyName: string;
       isCompanyAdmin: boolean;
       menuKeys: string[];
+      memberships: { companyId: string; companyName: string; roleName: string; isCompanyAdmin: boolean }[];
     };
 
 /** 讀取並驗證目前登入者的 session；superadmin 是環境變數帳號，不查資料庫。 */
@@ -35,22 +37,37 @@ export async function getSession(): Promise<Session | null> {
 
   const user = await prisma.user.findUnique({
     where: { id: subject },
-    include: { company: true, role: { include: { roleMenus: { include: { menu: true } } } } },
+    include: {
+      memberships: {
+        where: { isActive: true },
+        include: { company: true, role: { include: { roleMenus: { include: { menu: true } } } } },
+      },
+    },
   });
-  // 帳號被停用或刪除後，舊 session token 應該立即失效。
-  if (!user || !user.isActive) return null;
+  // 帳號被刪除，或者在所有公司底下都被停用了，舊 session token 應該立即失效。
+  if (!user) return null;
+
+  const activeCompanyId = store.get(ACTIVE_COMPANY_COOKIE_NAME)?.value;
+  const active = pickActiveMembership(user.memberships, activeCompanyId);
+  if (!active) return null;
 
   return {
     kind: "user",
     id: user.id,
     username: user.username,
     displayName: user.displayName,
-    roleId: user.roleId,
-    roleName: user.role.name,
-    companyId: user.companyId,
-    companyName: user.company.name,
-    isCompanyAdmin: user.isCompanyAdmin,
-    menuKeys: user.role.roleMenus.map((rm) => rm.menu.key),
+    roleId: active.roleId,
+    roleName: active.role.name,
+    companyId: active.companyId,
+    companyName: active.company.name,
+    isCompanyAdmin: active.isCompanyAdmin,
+    menuKeys: active.role.roleMenus.map((rm) => rm.menu.key),
+    memberships: user.memberships.map((m) => ({
+      companyId: m.companyId,
+      companyName: m.company.name,
+      roleName: m.role.name,
+      isCompanyAdmin: m.isCompanyAdmin,
+    })),
   };
 }
 
@@ -84,18 +101,28 @@ export async function requireCompanyUser(): Promise<Session & { kind: "user" }> 
   return session;
 }
 
-/** 供 proxy.ts 做路徑層級的選單權限檢查：回傳這個使用者的角色看得到哪些選單路徑，以及是否為公司管理員。 */
+/** 供 proxy.ts 做路徑層級的選單權限檢查：回傳「目前使用中那間公司」的角色看得到哪些選單路徑，以及是否為公司管理員。 */
 export async function getAllowedPathsForUserId(
   userId: string,
+  activeCompanyId: string | null,
 ): Promise<{ allowedPaths: string[]; isCompanyAdmin: boolean }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { role: { include: { roleMenus: { include: { menu: true } } } } },
+    include: {
+      memberships: {
+        where: { isActive: true },
+        include: { role: { include: { roleMenus: { include: { menu: true } } } } },
+      },
+    },
   });
-  if (!user || !user.isActive) return { allowedPaths: [], isCompanyAdmin: false };
+  if (!user) return { allowedPaths: [], isCompanyAdmin: false };
+
+  const active = pickActiveMembership(user.memberships, activeCompanyId);
+  if (!active) return { allowedPaths: [], isCompanyAdmin: false };
+
   return {
-    allowedPaths: user.role.roleMenus.map((rm) => rm.menu.path),
-    isCompanyAdmin: user.isCompanyAdmin,
+    allowedPaths: active.role.roleMenus.map((rm) => rm.menu.path),
+    isCompanyAdmin: active.isCompanyAdmin,
   };
 }
 

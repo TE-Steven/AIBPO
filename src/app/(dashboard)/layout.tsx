@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { Logo } from "@/components/Logo";
 import { AdminNav, type NavItem } from "@/components/AdminNav";
 import { logoutAction } from "../login/actions";
+import { CompanySwitcher } from "./CompanySwitcher";
 import { IconLogout } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,9 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <header className="flex shrink-0 items-center justify-between bg-gradient-to-r from-teal-800 to-cyan-500 px-4 py-3 lg:px-6">
         <Logo size="sm" variant="light" />
         <div className="flex items-center gap-4">
+          {session.kind === "user" && session.memberships.length > 1 && (
+            <CompanySwitcher currentCompanyId={session.companyId} memberships={session.memberships} />
+          )}
           <span className="hidden text-sm text-teal-50 sm:inline">
             {session.displayName}
             <span className="text-teal-200">（{roleLabel}）</span>

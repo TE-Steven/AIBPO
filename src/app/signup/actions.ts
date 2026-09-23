@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from "@/lib/auth";
+import { ACTIVE_COMPANY_COOKIE_NAME } from "@/lib/activeCompany";
 
 export type SignupActionState = { error?: string };
 
@@ -33,8 +34,9 @@ export async function signupAction(_prevState: SignupActionState, formData: Form
     const role = await tx.role.create({
       data: { companyId: company.id, name: "管理者", description: "公司管理員的預設角色", isSystem: true },
     });
-    const createdUser = await tx.user.create({
-      data: { username, displayName, passwordHash, companyId: company.id, roleId: role.id, isCompanyAdmin: true },
+    const createdUser = await tx.user.create({ data: { username, displayName, passwordHash } });
+    await tx.companyMembership.create({
+      data: { userId: createdUser.id, companyId: company.id, roleId: role.id, isCompanyAdmin: true },
     });
 
     // 讓新公司一註冊完就有完整功能可用：把全站共用的選單目錄，整包授權給這個新角色。
@@ -49,5 +51,6 @@ export async function signupAction(_prevState: SignupActionState, formData: Form
   const token = createSessionToken(user.id);
   const store = await cookies();
   store.set(SESSION_COOKIE_NAME, token, SESSION_COOKIE_OPTIONS);
+  store.delete(ACTIVE_COMPANY_COOKIE_NAME);
   redirect("/");
 }

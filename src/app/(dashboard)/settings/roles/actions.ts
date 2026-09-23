@@ -37,8 +37,8 @@ export async function deleteRoleAction(roleId: string): Promise<void> {
   if (role.companyId !== session.companyId) return;
   if (role.isSystem) return;
 
-  const userCount = await prisma.user.count({ where: { roleId } });
-  if (userCount > 0) return;
+  const memberCount = await prisma.companyMembership.count({ where: { roleId } });
+  if (memberCount > 0) return;
 
   await prisma.role.delete({ where: { id: roleId } });
   revalidatePath("/settings/roles");

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, SUPER_ADMIN_SUBJECT, verifySessionToken } from "@/lib/auth";
 import { getAllowedPathsForUserId } from "@/lib/session";
+import { ACTIVE_COMPANY_COOKIE_NAME } from "@/lib/activeCompany";
 
 // 一般使用者不管選單權限勾了什麼，這幾頁一律進不去；選單管理是平台超級管理員專屬（全站共用的功能目錄）。
 const PLATFORM_SUPERADMIN_ONLY_PREFIXES = ["/settings/menus"];
@@ -48,7 +49,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const { allowedPaths, isCompanyAdmin } = await getAllowedPathsForUserId(subject);
+  const activeCompanyId = request.cookies.get(ACTIVE_COMPANY_COOKIE_NAME)?.value ?? null;
+  const { allowedPaths, isCompanyAdmin } = await getAllowedPathsForUserId(subject, activeCompanyId);
 
   if (COMPANY_ADMIN_PREFIXES.some((p) => isUnderPath(pathname, p))) {
     if (!isCompanyAdmin) {

@@ -17,8 +17,8 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  roles Role[]
-  users User[]
+  roles       Role[]
+  memberships CompanyMembership[]
 
   @@map("aibpo_companies")
 }
@@ -33,9 +33,9 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company    Company     @relation(fields: [companyId], references: [id])
-  users      User[]
-  roleMenus  RoleMenu[]
+  company     Company             @relation(fields: [companyId], references: [id])
+  memberships CompanyMembership[]
+  roleMenus   RoleMenu[]
   tallies    Tally[]
   dimensions Dimension[]
   kmSources  KmSource[]
@@ -49,25 +49,41 @@ model Role {
   @@map("aibpo_roles")
 }
 
-// 一般使用者帳號。超級管理員不在這張表裡，帳密另外用 Render 環境變數管理。
+// 一般使用者的「身分」：帳號/密碼/顯示名稱只有一份，跨公司共用。超級管理員不在這張表裡，帳密另外用 Render 環境變數管理。
 model User {
+  id           String   @id @default(cuid())
+  username     String   @unique // 維持全站唯一，登入不用先選公司
+  passwordHash String
+  displayName  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships CompanyMembership[]
+
+  @@map("aibpo_users")
+}
+
+// User × Company × Role 樞紐：一人可同時是多間公司的成員，各公司各自一個角色、各自的啟用狀態。
+// isActive 放在這裡而不是 User：公司管理員停用某人，只切斷「這間公司」的存取權，不影響這個人在其他公司的帳號。
+// passwordHash/displayName 留在 User：這是「人」的屬性，不是「人在某公司」的屬性，全公司共用同一份、同一次變更。
+model CompanyMembership {
   id             String   @id @default(cuid())
-  companyId      String // 冗餘存放 role.companyId：公司管理員要查「全公司跨角色」的使用者清單，不想每次都 join Role
-  username       String   @unique // 維持全站唯一，登入不用先選公司
-  passwordHash   String
-  displayName    String
-  isActive       Boolean  @default(true)
+  userId         String
+  companyId      String
   roleId         String
   isCompanyAdmin Boolean  @default(false) // 公司管理員：只能管自己公司的帳號/角色/Prompt 準則
+  isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  user    User    @relation(fields: [userId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
   role    Role    @relation(fields: [roleId], references: [id])
 
-  @@index([roleId])
+  @@unique([userId, companyId]) // 一人在同一間公司只有一筆身分（一個角色）
   @@index([companyId])
-  @@map("aibpo_users")
+  @@index([roleId])
+  @@map("aibpo_company_memberships")
 }
 
 // 選單項目：新增選單後，要在「選單權限」頁勾選哪些角色可以看到。
