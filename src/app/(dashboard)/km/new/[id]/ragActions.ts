@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildUserContent, buildRagSystemPrompt, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
+import {
+  buildUserContent,
+  buildRagSystemPrompt,
+  webFetchMaxUses,
+  hasSourceUrls,
+  ragDocId,
+  ragSourceDescription,
+} from "@/lib/kmAnalysis";
 import type Anthropic from "@anthropic-ai/sdk";
 
 export type RagActionState = { success?: string; error?: string };
@@ -21,7 +28,7 @@ export async function generateRagContentAction(sourceId: string): Promise<RagAct
   await prisma.kmSource.update({ where: { id: sourceId }, data: { ragStatus: "PROCESSING" } });
 
   try {
-    const system = buildRagSystemPrompt();
+    const system = buildRagSystemPrompt({ docId: ragDocId(source), sourceDescription: ragSourceDescription(source) });
     const content = buildUserContent(source);
 
     const response = await anthropic.messages.create({

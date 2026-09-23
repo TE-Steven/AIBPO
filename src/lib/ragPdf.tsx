@@ -1,4 +1,5 @@
 import path from "node:path";
+import { Fragment } from "react";
 import { Document, Page, View, Text, Font, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
 import { lexer } from "marked";
 import type { Token, Tokens } from "marked";
@@ -80,6 +81,16 @@ function renderInline(tokens: Token[] | undefined, fallbackText: string): React.
       return <Text key={i}>{renderInline((t as Tokens.Link).tokens, (t as Tokens.Link).text)}</Text>;
     }
     if (t.type === "br") return "\n";
+    // 緊湊清單（項目間沒有空行，例如我們產出的「- **欄位**：內容」）裡，marked 會把每個項目包成一個
+    // type==="text" 的外層 token，真正的行內格式（粗體等）藏在它自己的 tokens 裡，不會被拆到上一層。
+    // 沒有這一步，粗體標記會整段當純文字印出來，變成看得到 ** 符號的原始 markdown。
+    if (t.type === "text") {
+      const textToken = t as Tokens.Text;
+      if (textToken.tokens && textToken.tokens.length > 0) {
+        return <Fragment key={i}>{renderInline(textToken.tokens, textToken.text)}</Fragment>;
+      }
+      return textToken.text;
+    }
     if ("text" in t) return (t as { text: string }).text;
     return null;
   });
