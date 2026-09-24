@@ -48,7 +48,7 @@ export function KnowledgeList({
     setSelected((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((e) => e.id))));
   }
 
-  const exportHref = `/api/km/export?ids=${Array.from(selected).join(",")}`;
+  const exportHref = (format: "md" | "pdf") => `/api/km/export?format=${format}&ids=${Array.from(selected).join(",")}`;
 
   return (
     <div className="space-y-3">
@@ -106,17 +106,22 @@ export function KnowledgeList({
           <IconChevronDown className={`h-4 w-4 transition-transform ${allExpanded ? "rotate-180" : ""}`} />
           {allExpanded ? "全部收合" : "全部展開"}
         </button>
-        <a
-          href={selected.size > 0 ? exportHref : undefined}
-          aria-disabled={selected.size === 0}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
-            selected.size > 0
-              ? "bg-gradient-to-r from-teal-600 to-cyan-500 shadow-teal-500/25 hover:from-teal-700 hover:to-cyan-600"
-              : "cursor-not-allowed bg-slate-300"
-          }`}
-        >
-          匯出所選為 .md
-        </a>
+        <div className="flex items-center gap-2">
+          {(["md", "pdf"] as const).map((format) => (
+            <a
+              key={format}
+              href={selected.size > 0 ? exportHref(format) : undefined}
+              aria-disabled={selected.size === 0}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
+                selected.size > 0
+                  ? "bg-gradient-to-r from-teal-600 to-cyan-500 shadow-teal-500/25 hover:from-teal-700 hover:to-cyan-600"
+                  : "cursor-not-allowed bg-slate-300"
+              }`}
+            >
+              {format === "md" ? "匯出所選為 .md" : "匯出所選為 PDF"}
+            </a>
+          ))}
+        </div>
       </div>
 
       {filtered.map((entry) => (
