@@ -23,7 +23,7 @@ function resultData(r: AskResult) {
   return { status: r.status, customerId: r.customerId, chatId: null, botAnswer: null, errorMessage: r.errorMessage };
 }
 
-// POST body：{ token } 整批測這個來源的全部題目；{ token, resultId } 只重測其中一題。
+// POST body：{ token } 整批測這個來源的全部題目（建立新的一次測試）；{ token, resultIds } 在原本那次測試裡重測指定題目。
 // token 放在 body（不放 query string），只在這次請求的記憶體裡使用。
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -35,9 +35,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!source) return jsonError("找不到這個來源。", 404);
   if (source.roleId !== session.roleId) return jsonError("沒有權限。", 403);
 
-  const body = (await req.json().catch(() => ({}))) as { token?: unknown; resultId?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { token?: unknown; resultIds?: unknown };
   const token = typeof body.token === "string" ? body.token.trim().replace(/^Bearer\s+/i, "") : "";
-  const resultId = typeof body.resultId === "string" ? body.resultId : null;
+  const resultIds = Array.isArray(body.resultIds)
+    ? [...new Set(body.resultIds.filter((x): x is string => typeof x === "string"))]
+    : [];
   if (!token) return jsonError("請填 token。", 400);
 
   try {
@@ -52,17 +54,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // 決定這次要跑哪些題目
   let runId: string;
   let jobs: { id: string; question: string }[];
-  const isRetest = Boolean(resultId);
+  const isRetest = resultIds.length > 0;
 
-  if (resultId) {
-    const existing = await prisma.botTestResult.findUnique({ where: { id: resultId }, include: { run: true } });
-    if (!existing || existing.run.sourceId !== id) return jsonError("找不到這筆測試結果。", 404);
-    await prisma.botTestResult.update({
-      where: { id: resultId },
+  if (isRetest) {
+    // 重測：只能挑同一次測試裡、屬於這個來源的題目，新結果覆蓋舊的。
+    const existing = await prisma.botTestResult.findMany({
+      where: { id: { in: resultIds }, run: { sourceId: id } },
+      orderBy: { order: "asc" },
+    });
+    const runIds = new Set(existing.map((r) => r.runId));
+    if (existing.length !== resultIds.length || runIds.size !== 1) return jsonError("找不到要重測的題目。", 404);
+    await prisma.botTestResult.updateMany({
+      where: { id: { in: resultIds } },
       data: { status: "PENDING", botAnswer: null, chatId: null, errorMessage: null },
     });
-    runId = existing.runId;
-    jobs = [{ id: existing.id, question: existing.question }];
+    runId = existing[0].runId;
+    jobs = existing.map((r) => ({ id: r.id, question: r.question }));
   } else {
     const entries = await prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } });
     if (entries.length === 0) return jsonError("這個來源還沒有題目。", 400);
@@ -158,7 +165,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           }
           send("done", { status: "FAILED", errorMessage: tokenError });
         } else {
-          if (!isRetest) await prisma.botTestRun.update({ where: { id: runId }, data: { status: "DONE" } });
+          if (isRetest) {
+            // 重測補齊了之前因 token 失效沒送出的題目時，這次測試就不再算「中斷」。
+            const [pending, notSent, done] = await Promise.all([
+              prisma.botTestResult.count({ where: { runId, status: "PENDING" } }),
+              prisma.botTestResult.count({ where: { runId, errorMessage: { contains: "token 失效" } } }),
+              prisma.botTestResult.count({ where: { runId, status: { not: "PENDING" } } }),
+            ]);
+            await prisma.botTestRun.update({
+              where: { id: runId },
+              data: pending === 0 && notSent === 0 ? { status: "DONE", errorMessage: null, completed: done } : { completed: done },
+            });
+          } else {
+            await prisma.botTestRun.update({ where: { id: runId }, data: { status: "DONE" } });
+          }
           send("done", { status: "DONE" });
         }
       } catch {

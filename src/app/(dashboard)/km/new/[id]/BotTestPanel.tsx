@@ -25,6 +25,8 @@ export type BotTestRunView = {
   results: BotTestResultView[];
 };
 
+type ModalState = { mode: "run" } | { mode: "retest"; resultIds: string[] };
+
 type Patch = Partial<Pick<BotTestResultView, "botAnswer" | "status" | "errorMessage">>;
 
 const RESULT_STATUS: Record<string, { label: string; className: string }> = {
@@ -70,18 +72,46 @@ export function BotTestPanel({
   const [patches, setPatches] = useState<Record<string, Patch>>({});
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  // 彈窗：mode "run" 整批測試、"retest" 單題重測
-  const [modal, setModal] = useState<{ mode: "run" } | { mode: "retest"; resultId: string } | null>(null);
+  // 彈窗：mode "run" 整批測試（建立新的一次測試）、"retest" 在目前這次測試裡重測指定題目
+  const [modal, setModal] = useState<ModalState | null>(null);
   const [tokenInput, setTokenInput] = useState("");
   // token 只留在這個頁面的記憶體裡，方便同一批做單題重測；重新整理頁面就沒了。
   const [token, setToken] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  // 「重新測試」的勾選模式
+  const [selectMode, setSelectMode] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
 
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
   const results = (selectedRun?.results ?? []).map((r) => ({ ...r, ...patches[r.id] }));
   const doneCount = results.filter((r) => r.status !== "PENDING").length;
 
-  function openModal(next: { mode: "run" } | { mode: "retest"; resultId: string }) {
+  const allChecked = results.length > 0 && results.every((r) => checked.has(r.id));
+
+  function toggleChecked(resultId: string) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(resultId)) next.delete(resultId);
+      else next.add(resultId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setChecked(allChecked ? new Set() : new Set(results.map((r) => r.id)));
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setChecked(new Set());
+  }
+
+  function selectRun(runId: string) {
+    setSelectedRunId(runId);
+    exitSelectMode();
+  }
+
+  function openModal(next: ModalState) {
     setTokenInput(token);
     setModal(next);
   }
@@ -89,9 +119,17 @@ export function BotTestPanel({
   async function start() {
     if (!modal) return;
     const useToken = tokenInput.trim();
-    const payload = modal.mode === "retest" ? { token: useToken, resultId: modal.resultId } : { token: useToken };
-    if (modal.mode === "retest") setPatches((p) => ({ ...p, [modal.resultId]: { status: "PENDING", botAnswer: null, errorMessage: null } }));
+    const payload = modal.mode === "retest" ? { token: useToken, resultIds: modal.resultIds } : { token: useToken };
+    if (modal.mode === "retest") {
+      const resetIds = modal.resultIds;
+      setPatches((p) => {
+        const next = { ...p };
+        for (const resultId of resetIds) next[resultId] = { status: "PENDING", botAnswer: null, errorMessage: null };
+        return next;
+      });
+    }
     setModal(null);
+    exitSelectMode();
     setRunning(true);
     setMessage(null);
 
@@ -141,7 +179,7 @@ export function BotTestPanel({
   }
 
   const minutesLeft = tokenInput ? tokenMinutesLeft(tokenInput.trim().replace(/^Bearer\s+/i, "")) : null;
-  const modalCount = modal?.mode === "retest" ? 1 : entryCount;
+  const modalCount = modal?.mode === "retest" ? modal.resultIds.length : entryCount;
 
   const latestRun = runs[0] ?? null;
   const latestAnswered = latestRun ? latestRun.results.filter((r) => (patches[r.id]?.status ?? r.status) === "ANSWERED").length : 0;
@@ -187,7 +225,7 @@ export function BotTestPanel({
                 {runs.length > 0 && (
                   <select
                     value={selectedRunId ?? ""}
-                    onChange={(e) => setSelectedRunId(e.target.value)}
+                    onChange={(e) => selectRun(e.target.value)}
                     className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs shadow-sm focus:border-teal-400 focus:outline-none"
                   >
                     {runs.map((r) => (
@@ -196,6 +234,20 @@ export function BotTestPanel({
                       </option>
                     ))}
                   </select>
+                )}
+                {selectedRun && results.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                    disabled={running || !targetLabel}
+                    className={`rounded-lg border px-3.5 py-2 text-xs font-semibold transition disabled:opacity-50 ${
+                      selectMode
+                        ? "border-teal-300 bg-teal-50 text-teal-700"
+                        : "border-slate-300 text-slate-600 hover:border-teal-400 hover:text-teal-600"
+                    }`}
+                  >
+                    重新測試
+                  </button>
                 )}
                 <button
                   type="button"
@@ -247,10 +299,36 @@ export function BotTestPanel({
                   {selectedRun.errorMessage && selectedRun.status === "FAILED" && (
                     <p className="mb-2 text-xs text-rose-600">這次測試中斷：{selectedRun.errorMessage}</p>
                   )}
+                  {selectMode && (
+                    <div className="mb-2 flex flex-wrap items-center gap-3 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-800 ring-1 ring-inset ring-teal-100">
+                      <span>勾選要重測的題目，新結果會覆蓋這次測試裡的舊回答。已選 {checked.size} 題</span>
+                      <button type="button" onClick={toggleAll} className="font-medium text-teal-700 hover:text-teal-900">
+                        {allChecked ? "取消全選" : "全部勾選"}
+                      </button>
+                      <div className="ml-auto flex items-center gap-3">
+                        <button type="button" onClick={exitSelectMode} className="font-medium text-slate-500 hover:text-slate-700">
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openModal({ mode: "retest", resultIds: results.filter((r) => checked.has(r.id)).map((r) => r.id) })}
+                          disabled={checked.size === 0}
+                          className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
+                        >
+                          重測選取的 {checked.size} 題
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="w-full min-w-[720px] table-fixed text-left text-xs">
                       <thead className="bg-slate-50 font-medium text-slate-500">
                         <tr>
+                          {selectMode && (
+                            <th className="w-10 px-3 py-2">
+                              <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="全部勾選" className="accent-teal-600" />
+                            </th>
+                          )}
                           <th className="w-10 px-3 py-2">#</th>
                           <th className="w-1/5 px-3 py-2">題目</th>
                           <th className="px-3 py-2">標準答案</th>
@@ -262,7 +340,23 @@ export function BotTestPanel({
                         {results.map((r) => {
                           const s = RESULT_STATUS[r.status] ?? RESULT_STATUS.PENDING;
                           return (
-                            <tr key={r.id}>
+                            <tr
+                              key={r.id}
+                              onClick={selectMode ? () => toggleChecked(r.id) : undefined}
+                              className={selectMode ? `cursor-pointer ${checked.has(r.id) ? "bg-teal-50/60" : "hover:bg-slate-50"}` : undefined}
+                            >
+                              {selectMode && (
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked.has(r.id)}
+                                    onChange={() => toggleChecked(r.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    aria-label={`勾選第 ${r.order} 題`}
+                                    className="accent-teal-600"
+                                  />
+                                </td>
+                              )}
                               <td className="px-3 py-2.5 text-slate-400">{r.order}</td>
                               <td className="whitespace-pre-wrap px-3 py-2.5 font-medium text-slate-800">{r.question}</td>
                               <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-600">{r.expectedAnswer}</td>
@@ -271,10 +365,10 @@ export function BotTestPanel({
                               </td>
                               <td className="px-3 py-2.5">
                                 <span className={`rounded-full px-2 py-0.5 font-medium ${s.className}`}>{s.label}</span>
-                                {(r.status === "TIMEOUT" || r.status === "ERROR") && !running && (
+                                {(r.status === "TIMEOUT" || r.status === "ERROR") && !running && !selectMode && (
                                   <button
                                     type="button"
-                                    onClick={() => openModal({ mode: "retest", resultId: r.id })}
+                                    onClick={() => openModal({ mode: "retest", resultIds: [r.id] })}
                                     className="mt-1.5 block font-medium text-teal-600 hover:text-teal-700"
                                   >
                                     重測
@@ -286,7 +380,7 @@ export function BotTestPanel({
                         })}
                         {results.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                            <td colSpan={selectMode ? 6 : 5} className="px-3 py-6 text-center text-slate-400">
                               載入中…
                             </td>
                           </tr>
@@ -310,7 +404,7 @@ export function BotTestPanel({
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <IconKey className="h-4 w-4 text-teal-600" />
-                {modal.mode === "retest" ? "重測這一題" : "開始機器人測試"}
+                {modal.mode === "retest" ? `重新測試 ${modal.resultIds.length} 題` : "開始機器人測試"}
               </h3>
               <button type="button" onClick={() => setModal(null)} aria-label="關閉" className="text-slate-400 hover:text-slate-600">
                 <IconX className="h-4 w-4" />
