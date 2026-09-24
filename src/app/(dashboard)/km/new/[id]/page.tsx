@@ -42,7 +42,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
     prisma.agentDraft.count({ where: { sourceId: id, confirmed: false } }),
     prisma.botTestRun.findMany({
       where: { sourceId: id },
-      include: { results: { orderBy: { order: "asc" } } },
+      include: { results: { include: { entry: true }, orderBy: { order: "asc" } } },
       orderBy: { createdAt: "desc" },
       take: 10,
     }),
@@ -103,8 +103,11 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
               results: r.results.map((x) => ({
                 id: x.id,
                 order: x.order,
-                question: x.question,
-                expectedAnswer: x.expectedAnswer,
+                // 顯示題目列表上的最新內容；題目被刪掉時才用當時送出的快照
+                question: x.entry?.question ?? x.question,
+                expectedAnswer: x.entry?.answer ?? x.expectedAnswer,
+                questionChanged: x.entry ? x.entry.question !== x.question : false,
+                entryDeleted: !x.entry,
                 botAnswer: x.botAnswer,
                 status: x.status,
                 errorMessage: x.errorMessage,

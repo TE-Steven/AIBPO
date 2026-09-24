@@ -60,16 +60,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // 重測：只能挑同一次測試裡、屬於這個來源的題目，新結果覆蓋舊的。
     const existing = await prisma.botTestResult.findMany({
       where: { id: { in: resultIds }, run: { sourceId: id } },
+      include: { entry: true },
       orderBy: { order: "asc" },
     });
     const runIds = new Set(existing.map((r) => r.runId));
     if (existing.length !== resultIds.length || runIds.size !== 1) return jsonError("找不到要重測的題目。", 404);
-    await prisma.botTestResult.updateMany({
-      where: { id: { in: resultIds } },
-      data: { status: "PENDING", botAnswer: null, chatId: null, errorMessage: null },
-    });
+    // 重測送出題目列表上最新的題目；快照同步更新成這次實際送出的內容。
+    await prisma.$transaction(
+      existing.map((r) =>
+        prisma.botTestResult.update({
+          where: { id: r.id },
+          data: {
+            question: r.entry?.question ?? r.question,
+            expectedAnswer: r.entry?.answer ?? r.expectedAnswer,
+            status: "PENDING",
+            botAnswer: null,
+            chatId: null,
+            errorMessage: null,
+          },
+        }),
+      ),
+    );
     runId = existing[0].runId;
-    jobs = existing.map((r) => ({ id: r.id, question: r.question }));
+    jobs = existing.map((r) => ({ id: r.id, question: r.entry?.question ?? r.question }));
   } else {
     const entries = await prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } });
     if (entries.length === 0) return jsonError("這個來源還沒有題目。", 400);
@@ -81,6 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         total: entries.length,
         results: {
           create: entries.map((e, i) => ({
+            entryId: e.id,
             order: i + 1,
             question: e.question,
             expectedAnswer: e.answer,

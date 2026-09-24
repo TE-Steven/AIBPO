@@ -36,14 +36,14 @@ model Role {
   company     Company             @relation(fields: [companyId], references: [id])
   memberships CompanyMembership[]
   roleMenus   RoleMenu[]
-  tallies    Tally[]
-  dimensions Dimension[]
-  kmSources  KmSource[]
-  kmEntries  KmEntry[]
-  skills       Skill[]
-  agents       Agent[]
-  agentDrafts  AgentDraft[]
-  botTestRuns  BotTestRun[]
+  tallies     Tally[]
+  dimensions  Dimension[]
+  kmSources   KmSource[]
+  kmEntries   KmEntry[]
+  skills      Skill[]
+  agents      Agent[]
+  agentDrafts AgentDraft[]
+  botTestRuns BotTestRun[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -153,28 +153,28 @@ model Dimension {
 
 // 上傳匯入 KM 的來源（PDF 或 URL）。
 model KmSource {
-  id           String   @id @default(cuid())
-  title        String
-  sourceType   String // "PDF" | "URL"
-  sourceName   String? // legacy 單檔案名稱，舊資料用；新資料看 sourceFileIds
-  sourceUrl    String? // legacy 單網址，舊資料用；新資料看 sourceUrls
-  sourceFileId String? // legacy 單一 Anthropic Files API file_id，舊資料用；新資料看 sourceFileIds
-  sourceFileIds Json? // 新：多檔案時的 [{ fileId, fileName }][]，同一包視為同一個知識來源
-  sourceUrls    Json? // 新：多網址時的 string[]，同一包視為同一個知識來源
-  rawText      String?  @db.Text
-  status       String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
-  errorMessage String?
+  id                   String   @id @default(cuid())
+  title                String
+  sourceType           String // "PDF" | "URL"
+  sourceName           String? // legacy 單檔案名稱，舊資料用；新資料看 sourceFileIds
+  sourceUrl            String? // legacy 單網址，舊資料用；新資料看 sourceUrls
+  sourceFileId         String? // legacy 單一 Anthropic Files API file_id，舊資料用；新資料看 sourceFileIds
+  sourceFileIds        Json? // 新：多檔案時的 [{ fileId, fileName }][]，同一包視為同一個知識來源
+  sourceUrls           Json? // 新：多網址時的 string[]，同一包視為同一個知識來源
+  rawText              String?  @db.Text
+  status               String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
+  errorMessage         String?
   // RAG 內容：把原文重排清理成乾淨版文件（不是 Q&A 抽取），跟 FAQ 分析各自獨立觸發、各自失敗。
-  ragContent      String? @db.Text
-  ragStatus       String  @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
-  ragErrorMessage String?
+  ragContent           String?  @db.Text
+  ragStatus            String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
+  ragErrorMessage      String?
   // Workflow：辨識文件中的客服情境，從既有 Skill 挑選匹配工具，產出待審核的 AgentDraft。
-  workflowStatus       String  @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
+  workflowStatus       String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
   workflowErrorMessage String?
-  roleId       String
-  createdById  String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  roleId               String
+  createdById          String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   role     Role         @relation(fields: [roleId], references: [id])
   entries  KmEntry[]
@@ -207,10 +207,12 @@ model BotTestRun {
   @@map("aibpo_bot_test_runs")
 }
 
-// 題目與標準答案存快照：之後題目被編輯或刪除，這次測試當下比對的內容仍保持原樣。
+// 畫面上的題目/標準答案跟著 entry 顯示最新內容；question/expectedAnswer 快照用來判斷「送出後題目有沒有被改過」，
+// 以及題目被刪除（entryId 變 null）時的後備顯示。
 model BotTestResult {
   id             String   @id @default(cuid())
   runId          String
+  entryId        String? // 對應的 KM 題目；畫面顯示題目最新內容，question/expectedAnswer 是當時實際送出的快照
   order          Int
   question       String   @db.Text
   expectedAnswer String   @db.Text
@@ -222,9 +224,11 @@ model BotTestResult {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  run BotTestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run   BotTestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  entry KmEntry?   @relation(fields: [entryId], references: [id], onDelete: SetNull)
 
   @@index([runId])
+  @@index([entryId])
   @@map("aibpo_bot_test_results")
 }
 
@@ -244,6 +248,8 @@ model KmEntry {
   source KmSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   tally  Tally?   @relation(fields: [tallyId], references: [id], onDelete: SetNull)
   role   Role     @relation(fields: [roleId], references: [id])
+
+  botTestResults BotTestResult[]
 
   @@index([sourceId])
   @@index([roleId])

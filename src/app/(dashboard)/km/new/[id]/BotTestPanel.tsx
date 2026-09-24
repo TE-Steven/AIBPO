@@ -10,6 +10,9 @@ export type BotTestResultView = {
   order: number;
   question: string;
   expectedAnswer: string;
+  // 測試送出後，題目列表上的題目又被改過：機器人回答是針對舊題目的
+  questionChanged: boolean;
+  entryDeleted: boolean;
   botAnswer: string | null;
   status: string;
   errorMessage: string | null;
@@ -27,7 +30,7 @@ export type BotTestRunView = {
 
 type ModalState = { mode: "run" } | { mode: "retest"; resultIds: string[] };
 
-type Patch = Partial<Pick<BotTestResultView, "botAnswer" | "status" | "errorMessage">>;
+type Patch = Partial<Pick<BotTestResultView, "botAnswer" | "status" | "errorMessage" | "questionChanged">>;
 
 const RESULT_STATUS: Record<string, { label: string; className: string }> = {
   PENDING: { label: "等待回答…", className: "bg-amber-50 text-amber-600" },
@@ -124,7 +127,7 @@ export function BotTestPanel({
       const resetIds = modal.resultIds;
       setPatches((p) => {
         const next = { ...p };
-        for (const resultId of resetIds) next[resultId] = { status: "PENDING", botAnswer: null, errorMessage: null };
+        for (const resultId of resetIds) next[resultId] = { status: "PENDING", botAnswer: null, errorMessage: null, questionChanged: false };
         return next;
       });
     }
@@ -164,7 +167,10 @@ export function BotTestPanel({
             setSelectedRunId(data.runId);
             router.refresh();
           } else if (event === "result") {
-            setPatches((p) => ({ ...p, [data.id]: { status: data.status, botAnswer: data.botAnswer, errorMessage: data.errorMessage } }));
+            setPatches((p) => ({
+              ...p,
+              [data.id]: { ...p[data.id], status: data.status, botAnswer: data.botAnswer, errorMessage: data.errorMessage },
+            }));
           } else if (event === "done" && data.status === "FAILED") {
             setMessage(data.errorMessage ?? "測試中斷。");
           }
@@ -361,7 +367,19 @@ export function BotTestPanel({
                                 </td>
                               )}
                               <td className="px-3 py-2.5 text-slate-400">{r.order}</td>
-                              <td className="whitespace-pre-wrap px-3 py-2.5 font-medium text-slate-800">{r.question}</td>
+                              <td className="whitespace-pre-wrap px-3 py-2.5 font-medium text-slate-800">
+                                {r.question}
+                                {r.questionChanged && (
+                                  <span className="mt-1.5 block w-fit rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-normal text-amber-700 ring-1 ring-inset ring-amber-100">
+                                    題目已修改，機器人回答是針對舊題目，建議重測
+                                  </span>
+                                )}
+                                {r.entryDeleted && (
+                                  <span className="mt-1.5 block w-fit rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-500">
+                                    這題已從題目列表刪除
+                                  </span>
+                                )}
+                              </td>
                               <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-600">{r.expectedAnswer}</td>
                               <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-700">
                                 {r.botAnswer ? stripBotDisclaimer(r.botAnswer) : <span className="text-slate-400">{r.errorMessage ?? "—"}</span>}
