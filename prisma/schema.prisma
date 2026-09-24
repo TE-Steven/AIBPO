@@ -207,8 +207,8 @@ model BotTestRun {
   @@map("aibpo_bot_test_runs")
 }
 
-// 畫面上的題目/標準答案跟著 entry 顯示最新內容；question/expectedAnswer 快照用來判斷「送出後題目有沒有被改過」，
-// 以及題目被刪除（entryId 變 null）時的後備顯示。
+// 畫面上的題目/標準答案跟著 entry 顯示最新內容；question/expectedAnswer 快照是「實際送出的題目」與「上次比對用的標準答案」，
+// 用來判斷送出/比對後題目或答案有沒有被改過，以及題目被刪除（entryId 變 null）時的後備顯示。
 model BotTestResult {
   id             String   @id @default(cuid())
   runId          String
@@ -221,6 +221,9 @@ model BotTestResult {
   botAnswer      String?  @db.Text
   status         String   @default("PENDING") // PENDING / ANSWERED / TIMEOUT / ERROR
   errorMessage   String?
+  // AI 比對標準答案與機器人回答：MATCH（一致）/ MISMATCH（不一致，judgeReason 寫原因）/ ERROR（比對失敗）
+  judgeVerdict   String?
+  judgeReason    String?  @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

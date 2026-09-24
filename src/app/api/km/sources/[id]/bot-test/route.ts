@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { companyIdForRole } from "@/lib/company";
 import { askBot, decodeTokenClaims, getBotTestTarget, BotTokenError, type AskResult } from "@/lib/botTest";
+import { judgeBotAnswer } from "@/lib/botJudge";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // 決定這次要跑哪些題目
   let runId: string;
-  let jobs: { id: string; question: string }[];
+  let jobs: { id: string; question: string; expectedAnswer: string }[];
   const isRetest = resultIds.length > 0;
 
   if (isRetest) {
@@ -77,12 +78,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             botAnswer: null,
             chatId: null,
             errorMessage: null,
+            judgeVerdict: null,
+            judgeReason: null,
           },
         }),
       ),
     );
     runId = existing[0].runId;
-    jobs = existing.map((r) => ({ id: r.id, question: r.entry?.question ?? r.question }));
+    jobs = existing.map((r) => ({
+      id: r.id,
+      question: r.entry?.question ?? r.question,
+      expectedAnswer: r.entry?.answer ?? r.expectedAnswer,
+    }));
   } else {
     const entries = await prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } });
     if (entries.length === 0) return jsonError("這個來源還沒有題目。", 400);
@@ -105,9 +112,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       include: { results: { orderBy: { order: "asc" } } },
     });
     runId = run.id;
-    jobs = run.results.map((r) => ({ id: r.id, question: r.question }));
+    jobs = run.results.map((r) => ({ id: r.id, question: r.question, expectedAnswer: r.expectedAnswer }));
   }
 
+  const roleId = source.roleId;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -142,7 +150,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const job = jobs[next++];
           try {
             const result = await askBot(target!, token, job.question);
-            const data = resultData(result);
+            // 拿到回答就請 AI 比對標準答案（沒拿到回答的不比對）
+            const judge =
+              result.status === "ANSWERED"
+                ? await judgeBotAnswer({
+                    question: job.question,
+                    expectedAnswer: job.expectedAnswer,
+                    botAnswer: result.answer,
+                    roleId,
+                  })
+                : null;
+            const data = { ...resultData(result), judgeVerdict: judge?.verdict ?? null, judgeReason: judge?.reason ?? null };
             await prisma.botTestResult.update({ where: { id: job.id }, data });
             if (!isRetest) await prisma.botTestRun.update({ where: { id: runId }, data: { completed: { increment: 1 } } });
             send("result", { id: job.id, ...data });

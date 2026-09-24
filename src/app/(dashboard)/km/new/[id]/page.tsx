@@ -107,7 +107,11 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
                 question: x.entry?.question ?? x.question,
                 expectedAnswer: x.entry?.answer ?? x.expectedAnswer,
                 questionChanged: x.entry ? x.entry.question !== x.question : false,
+                // 上次 AI 比對之後，標準答案又被編輯過
+                answerChanged: Boolean(x.entry && x.judgeVerdict && x.entry.answer !== x.expectedAnswer),
                 entryDeleted: !x.entry,
+                judgeVerdict: x.judgeVerdict,
+                judgeReason: x.judgeReason,
                 botAnswer: x.botAnswer,
                 status: x.status,
                 errorMessage: x.errorMessage,

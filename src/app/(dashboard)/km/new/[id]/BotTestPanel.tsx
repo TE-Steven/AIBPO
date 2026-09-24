@@ -12,7 +12,11 @@ export type BotTestResultView = {
   expectedAnswer: string;
   // 測試送出後，題目列表上的題目又被改過：機器人回答是針對舊題目的
   questionChanged: boolean;
+  // 上次 AI 比對之後標準答案又被改過，需要重新比對
+  answerChanged: boolean;
   entryDeleted: boolean;
+  judgeVerdict: string | null;
+  judgeReason: string | null;
   botAnswer: string | null;
   status: string;
   errorMessage: string | null;
@@ -30,7 +34,9 @@ export type BotTestRunView = {
 
 type ModalState = { mode: "run" } | { mode: "retest"; resultIds: string[] };
 
-type Patch = Partial<Pick<BotTestResultView, "botAnswer" | "status" | "errorMessage" | "questionChanged">>;
+type Patch = Partial<
+  Pick<BotTestResultView, "botAnswer" | "status" | "errorMessage" | "questionChanged" | "answerChanged" | "judgeVerdict" | "judgeReason">
+>;
 
 const RESULT_STATUS: Record<string, { label: string; className: string }> = {
   PENDING: { label: "等待回答…", className: "bg-amber-50 text-amber-600" },
@@ -38,6 +44,22 @@ const RESULT_STATUS: Record<string, { label: string; className: string }> = {
   TIMEOUT: { label: "逾時", className: "bg-slate-100 text-slate-500" },
   ERROR: { label: "錯誤", className: "bg-rose-50 text-rose-600" },
 };
+
+const JUDGE_VERDICT: Record<string, { label: string; className: string }> = {
+  MATCH: { label: "一致", className: "bg-emerald-50 text-emerald-600" },
+  MISMATCH: { label: "不一致", className: "bg-rose-50 text-rose-600" },
+  ERROR: { label: "比對失敗", className: "bg-slate-100 text-slate-500" },
+};
+
+// 需要（重新）AI 比對：有回答、題目沒被改（改了要重測）、而且還沒比對／比對失敗／標準答案改過。
+function needsJudge(r: BotTestResultView) {
+  return r.status === "ANSWERED" && !r.questionChanged && (!r.judgeVerdict || r.judgeVerdict === "ERROR" || r.answerChanged);
+}
+
+function accuracy(results: BotTestResultView[]) {
+  const matched = results.filter((r) => r.judgeVerdict === "MATCH").length;
+  return { matched, percent: results.length ? Math.round((matched / results.length) * 100) : 0 };
+}
 
 const RUN_STATUS: Record<string, string> = { RUNNING: "進行中", DONE: "完成", FAILED: "中斷" };
 
@@ -77,9 +99,9 @@ export function BotTestPanel({
   const [message, setMessage] = useState<string | null>(null);
   // 彈窗：mode "run" 整批測試（建立新的一次測試）、"retest" 在目前這次測試裡重測指定題目
   const [modal, setModal] = useState<ModalState | null>(null);
+  // token 每次開始測試／重新測試都要重新輸入，不留在頁面上。
   const [tokenInput, setTokenInput] = useState("");
-  // token 只留在這個頁面的記憶體裡，方便同一批做單題重測；重新整理頁面就沒了。
-  const [token, setToken] = useState("");
+  const [judging, setJudging] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   // 「重新測試」的勾選模式
   const [selectMode, setSelectMode] = useState(false);
@@ -115,19 +137,28 @@ export function BotTestPanel({
   }
 
   function openModal(next: ModalState) {
-    setTokenInput(token);
+    setTokenInput("");
     setModal(next);
   }
 
   async function start() {
     if (!modal) return;
     const useToken = tokenInput.trim();
+    setTokenInput("");
     const payload = modal.mode === "retest" ? { token: useToken, resultIds: modal.resultIds } : { token: useToken };
     if (modal.mode === "retest") {
       const resetIds = modal.resultIds;
       setPatches((p) => {
         const next = { ...p };
-        for (const resultId of resetIds) next[resultId] = { status: "PENDING", botAnswer: null, errorMessage: null, questionChanged: false };
+        for (const resultId of resetIds) next[resultId] = {
+          status: "PENDING",
+          botAnswer: null,
+          errorMessage: null,
+          questionChanged: false,
+          answerChanged: false,
+          judgeVerdict: null,
+          judgeReason: null,
+        };
         return next;
       });
     }
@@ -147,7 +178,6 @@ export function BotTestPanel({
         setMessage(data.error ?? "測試啟動失敗，請重試一次。");
         return;
       }
-      setToken(useToken);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -169,7 +199,15 @@ export function BotTestPanel({
           } else if (event === "result") {
             setPatches((p) => ({
               ...p,
-              [data.id]: { ...p[data.id], status: data.status, botAnswer: data.botAnswer, errorMessage: data.errorMessage },
+              [data.id]: {
+                ...p[data.id],
+                status: data.status,
+                botAnswer: data.botAnswer,
+                errorMessage: data.errorMessage,
+                judgeVerdict: data.judgeVerdict ?? null,
+                judgeReason: data.judgeReason ?? null,
+                answerChanged: false,
+              },
             }));
           } else if (event === "done" && data.status === "FAILED") {
             setMessage(data.errorMessage ?? "測試中斷。");
@@ -184,11 +222,45 @@ export function BotTestPanel({
     }
   }
 
+  const judgeCount = results.filter(needsJudge).length;
+
+  async function rejudge() {
+    if (!selectedRun) return;
+    setJudging(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/km/sources/${sourceId}/bot-test/judge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: selectedRun.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error ?? "重新比對失敗，請再試一次。");
+        return;
+      }
+      setPatches((p) => {
+        const next = { ...p };
+        for (const r of data.results as { id: string; judgeVerdict: string; judgeReason: string | null }[]) {
+          next[r.id] = { ...next[r.id], judgeVerdict: r.judgeVerdict, judgeReason: r.judgeReason, answerChanged: false };
+        }
+        return next;
+      });
+    } catch {
+      setMessage("重新比對失敗，請再試一次。");
+    } finally {
+      setJudging(false);
+      router.refresh();
+    }
+  }
+
   const minutesLeft = tokenInput ? tokenMinutesLeft(tokenInput.trim().replace(/^Bearer\s+/i, "")) : null;
   const modalCount = modal?.mode === "retest" ? modal.resultIds.length : entryCount;
 
   const latestRun = runs[0] ?? null;
-  const latestAnswered = latestRun ? latestRun.results.filter((r) => (patches[r.id]?.status ?? r.status) === "ANSWERED").length : 0;
+  const latestResults = (latestRun?.results ?? []).map((r) => ({ ...r, ...patches[r.id] }));
+  const latestAnswered = latestResults.filter((r) => r.status === "ANSWERED").length;
+  const latestAccuracy = accuracy(latestResults);
 
   return (
     <>
@@ -200,7 +272,7 @@ export function BotTestPanel({
             {running
               ? `測試中… ${doneCount} / ${results.length || entryCount} 題完成`
               : latestRun
-                ? `上次測試 ${formatTime(latestRun.createdAt)}（${RUN_STATUS[latestRun.status] ?? latestRun.status}）：${latestAnswered} / ${latestRun.total} 題有回答`
+                ? `上次測試 ${formatTime(latestRun.createdAt)}（${RUN_STATUS[latestRun.status] ?? latestRun.status}）：${latestAnswered} / ${latestRun.total} 題有回答，正確率 ${latestAccuracy.percent}%（${latestAccuracy.matched} / ${latestRun.total} 題一致）`
                 : `把這個來源的 ${entryCount} 題逐題丟給現行機器人，並排對照標準答案與機器人回答。`}
           </p>
         </div>
@@ -266,10 +338,21 @@ export function BotTestPanel({
                     重新測試
                   </button>
                 )}
+                {judgeCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={rejudge}
+                    disabled={running || judging}
+                    className="rounded-lg border border-slate-300 px-3.5 py-2 text-xs font-semibold text-slate-600 transition hover:border-teal-400 hover:text-teal-600 disabled:opacity-50"
+                  >
+                    {judging ? "比對中…" : `重新比對（${judgeCount} 題）`}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => openModal({ mode: "run" })}
-                  disabled={running || !targetLabel || entryCount === 0}
+                  disabled={running || !targetLabel || entryCount === 0 || runs.length > 0}
+                  title={runs.length > 0 ? "這個來源已經測試過，請用「重新測試」" : undefined}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
                 >
                   <IconSparkles className="h-3.5 w-3.5" />
@@ -296,7 +379,7 @@ export function BotTestPanel({
                 <div className="mt-4">
                   <div className="mb-2 flex items-center gap-3 text-xs text-slate-500">
                     <span>
-                      {doneCount} / {results.length} 題完成
+                      {doneCount} / {results.length} 題完成・一致 {accuracy(results).matched} 題（正確率 {accuracy(results).percent}%）
                     </span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                       <div
@@ -330,7 +413,7 @@ export function BotTestPanel({
                     </div>
                   )}
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="w-full min-w-[720px] table-fixed text-left text-xs">
+                    <table className="w-full min-w-[960px] table-fixed text-left text-xs">
                       <thead className="bg-slate-50 font-medium text-slate-500">
                         <tr>
                           {selectMode && (
@@ -343,6 +426,7 @@ export function BotTestPanel({
                           <th className="px-3 py-2">標準答案</th>
                           <th className="px-3 py-2">機器人回答</th>
                           <th className="w-24 px-3 py-2">狀態</th>
+                          <th className="w-48 px-3 py-2">AI 比對</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 align-top">
@@ -396,12 +480,31 @@ export function BotTestPanel({
                                   </button>
                                 )}
                               </td>
+                              <td className="px-3 py-2.5">
+                                {r.judgeVerdict ? (
+                                  <>
+                                    <span className={`rounded-full px-2 py-0.5 font-medium ${JUDGE_VERDICT[r.judgeVerdict]?.className ?? ""}`}>
+                                      {JUDGE_VERDICT[r.judgeVerdict]?.label ?? r.judgeVerdict}
+                                    </span>
+                                    {r.judgeReason && <p className="mt-1.5 whitespace-pre-wrap text-slate-600">{r.judgeReason}</p>}
+                                  </>
+                                ) : r.status === "ANSWERED" ? (
+                                  <span className="text-slate-400">{running ? "比對中…" : "尚未比對"}</span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                                {r.answerChanged && (
+                                  <span className="mt-1.5 block w-fit rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 ring-1 ring-inset ring-amber-100">
+                                    標準答案已修改，請重新比對
+                                  </span>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
                         {results.length === 0 && (
                           <tr>
-                            <td colSpan={selectMode ? 6 : 5} className="px-3 py-6 text-center text-slate-400">
+                            <td colSpan={selectMode ? 7 : 6} className="px-3 py-6 text-center text-slate-400">
                               載入中…
                             </td>
                           </tr>
