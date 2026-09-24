@@ -7,6 +7,9 @@ import { ResultsEditor } from "./ResultsEditor";
 import { ChatPanel } from "./ChatPanel";
 import { EditableTitle } from "./EditableTitle";
 import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
+import { BotTestPanel } from "./BotTestPanel";
+import { getBotTestTarget } from "@/lib/botTest";
+import { companyIdForRole } from "@/lib/company";
 import { sourceLabel } from "@/lib/kmAnalysis";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
@@ -32,11 +35,18 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
     }),
   ]);
 
-  const [entries, draftCount] = await Promise.all([
+  const [entries, draftCount, botTestRuns, botTestTarget] = await Promise.all([
     source.status === "DONE"
       ? prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } })
       : Promise.resolve([]),
     prisma.agentDraft.count({ where: { sourceId: id, confirmed: false } }),
+    prisma.botTestRun.findMany({
+      where: { sourceId: id },
+      include: { results: { orderBy: { order: "asc" } } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    companyIdForRole(source.roleId).then(getBotTestTarget),
   ]);
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
@@ -78,6 +88,28 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
             workflowStatus={source.workflowStatus}
             workflowErrorMessage={source.workflowErrorMessage}
             draftCount={draftCount}
+          />
+          <BotTestPanel
+            sourceId={source.id}
+            entryCount={entries.length}
+            targetLabel={botTestTarget ? `${botTestTarget.gatewayBaseUrl}（channel ${botTestTarget.platformId}）` : null}
+            runs={botTestRuns.map((r) => ({
+              id: r.id,
+              status: r.status,
+              total: r.total,
+              completed: r.completed,
+              errorMessage: r.errorMessage,
+              createdAt: r.createdAt.toISOString(),
+              results: r.results.map((x) => ({
+                id: x.id,
+                order: x.order,
+                question: x.question,
+                expectedAnswer: x.expectedAnswer,
+                botAnswer: x.botAnswer,
+                status: x.status,
+                errorMessage: x.errorMessage,
+              })),
+            }))}
           />
           <ResultsEditor entries={entries} tallyOptions={tallyOptions} />
         </>

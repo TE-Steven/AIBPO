@@ -43,6 +43,7 @@ model Role {
   skills       Skill[]
   agents       Agent[]
   agentDrafts  AgentDraft[]
+  botTestRuns  BotTestRun[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -175,12 +176,56 @@ model KmSource {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  role    Role         @relation(fields: [roleId], references: [id])
-  entries KmEntry[]
-  drafts  AgentDraft[]
+  role     Role         @relation(fields: [roleId], references: [id])
+  entries  KmEntry[]
+  drafts   AgentDraft[]
+  botTests BotTestRun[]
 
   @@index([roleId])
   @@map("aibpo_km_sources")
+}
+
+// 把某個來源的題目整批丟給現行機器人（telligent workflow）問一次，結果留存供人工並排比對。
+model BotTestRun {
+  id           String   @id @default(cuid())
+  sourceId     String
+  roleId       String
+  createdById  String
+  status       String   @default("RUNNING") // RUNNING / DONE / FAILED
+  total        Int
+  completed    Int      @default(0)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  source  KmSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  role    Role            @relation(fields: [roleId], references: [id])
+  results BotTestResult[]
+
+  @@index([sourceId])
+  @@index([roleId])
+  @@map("aibpo_bot_test_runs")
+}
+
+// 題目與標準答案存快照：之後題目被編輯或刪除，這次測試當下比對的內容仍保持原樣。
+model BotTestResult {
+  id             String   @id @default(cuid())
+  runId          String
+  order          Int
+  question       String   @db.Text
+  expectedAnswer String   @db.Text
+  customerId     String // 每題一個全新的 customerId，機器人不會帶著前一題的上下文回答
+  chatId         String?
+  botAnswer      String?  @db.Text
+  status         String   @default("PENDING") // PENDING / ANSWERED / TIMEOUT / ERROR
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  run BotTestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@map("aibpo_bot_test_results")
 }
 
 // AI 從來源分析出來的每一則 FAQ（題目/答案都可以再編輯）。

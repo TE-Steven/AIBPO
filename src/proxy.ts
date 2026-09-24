@@ -41,6 +41,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // API 路徑不在選單路徑底下，交給各 route 自己用 getSession() + 資料擁有權檢查把關。
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
   // 以下只套用在一般使用者/公司管理員：選單權限在這裡做成真正的路徑保護，不是只有側欄看不看得到而已。
   if (PLATFORM_SUPERADMIN_ONLY_PREFIXES.some((p) => isUnderPath(pathname, p)) || PLATFORM_ONLY_PREFIXES.some((p) => isUnderPath(pathname, p))) {
     return NextResponse.redirect(new URL("/settings/profile", request.url));

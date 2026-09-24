@@ -4,6 +4,8 @@ import { requireSuperAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { toggleCompanyMemberActiveAction, toggleCompanyMemberAdminAction } from "./actions";
 import { CreateCompanyMemberForm, ResetCompanyMemberPasswordForm } from "./CompanyMemberForms";
+import { BotTestTargetForm } from "./BotTestTargetForm";
+import { getBotTestTarget, DEFAULT_BOT_TEST_TARGET } from "@/lib/botTest";
 import { IconUsers, IconArrowLeft, IconShieldCheck } from "@/components/icons";
 
 export default async function PlatformCompanyDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,13 +15,14 @@ export default async function PlatformCompanyDetailPage({ params }: { params: Pr
   const company = await prisma.company.findUnique({ where: { id } });
   if (!company) notFound();
 
-  const [memberships, roles] = await Promise.all([
+  const [memberships, roles, botTestTarget] = await Promise.all([
     prisma.companyMembership.findMany({
       where: { companyId: id },
       include: { user: true, role: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.role.findMany({ where: { companyId: id }, orderBy: { name: "asc" } }),
+    getBotTestTarget(id),
   ]);
 
   return (
@@ -109,6 +112,15 @@ export default async function PlatformCompanyDetailPage({ params }: { params: Pr
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">機器人測試 API 設定</h2>
+        <p className="mb-4 mt-1 text-xs text-slate-500">
+          這間公司在 KM 來源頁做「機器人測試」時，會把題目送到這組 API。
+          {!botTestTarget && <span className="ml-1 text-amber-600">尚未設定，公司成員目前無法使用機器人測試。</span>}
+        </p>
+        <BotTestTargetForm companyId={id} target={botTestTarget ?? DEFAULT_BOT_TEST_TARGET} />
       </div>
     </div>
   );
