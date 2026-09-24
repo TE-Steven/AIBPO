@@ -214,14 +214,25 @@ export function BotTestPanel({
             className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">機器人測試</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  把這個來源的 {entryCount} 題逐題丟給現行機器人（每題用全新的客戶身分），並排對照標準答案與機器人回答。測試中關掉視窗不會中斷。
-                </p>
+            <div className="shrink-0 border-b border-slate-100 px-6 py-4">
+              {/* 第一列：標題 + 右上角關閉；第二列：操作按鈕（寬度不夠時換行也不會把叉叉擠走） */}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">機器人測試</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    把這個來源的 {entryCount} 題逐題丟給現行機器人（每題用全新的客戶身分），並排對照標準答案與機器人回答。測試中關掉視窗不會中斷。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPanelOpen(false)}
+                  aria-label="關閉"
+                  className="-mr-2 -mt-1 shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <IconX className="h-5 w-5" />
+                </button>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="mt-3 flex flex-wrap items-center gap-3">
                 {runs.length > 0 && (
                   <select
                     value={selectedRunId ?? ""}
@@ -257,14 +268,6 @@ export function BotTestPanel({
                 >
                   <IconSparkles className="h-3.5 w-3.5" />
                   {running ? "測試中…" : "開始機器人測試"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPanelOpen(false)}
-                  aria-label="關閉"
-                  className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                >
-                  <IconX className="h-5 w-5" />
                 </button>
               </div>
             </div>
