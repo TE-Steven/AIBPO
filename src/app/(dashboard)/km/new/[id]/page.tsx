@@ -100,6 +100,10 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
               completed: r.completed,
               errorMessage: r.errorMessage,
               createdAt: r.createdAt.toISOString(),
+              // 這次測試之後才新增的題目：重新測試時可以勾選一起送出
+              untested: entries
+                .filter((e) => !r.results.some((x) => x.entryId === e.id))
+                .map((e) => ({ entryId: e.id, question: e.question, expectedAnswer: e.answer })),
               results: r.results.map((x) => ({
                 id: x.id,
                 order: x.order,
