@@ -168,9 +168,12 @@ model KmSource {
   ragContent           String?  @db.Text
   ragStatus            String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
   ragErrorMessage      String?
+  // 這一次產生的開始時間：產生完成時只在「還是同一次」才寫回，按了停止或重新產生後，舊請求晚到的結果會被丟掉。
+  ragStartedAt         DateTime?
   // Workflow：辨識文件中的客服情境，從既有 Skill 挑選匹配工具，產出待審核的 AgentDraft。
   workflowStatus       String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
   workflowErrorMessage String?
+  workflowStartedAt    DateTime?
   roleId               String
   createdById          String
   createdAt            DateTime @default(now())

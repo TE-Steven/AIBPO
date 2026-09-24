@@ -18,6 +18,11 @@ function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name:
   return chain.join(" › ");
 }
 
+// 「產生中」已經進行幾分鐘（舊資料沒有開始時間時為 null），讓使用者判斷是不是卡住了
+function elapsedMinutes(startedAt: Date | null): number | null {
+  return startedAt ? Math.floor((Date.now() - startedAt.getTime()) / 60000) : null;
+}
+
 export default async function KmSourceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await requireSession();
@@ -87,6 +92,8 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
             ragErrorMessage={source.ragErrorMessage}
             workflowStatus={source.workflowStatus}
             workflowErrorMessage={source.workflowErrorMessage}
+            ragElapsedMinutes={elapsedMinutes(source.ragStartedAt)}
+            workflowElapsedMinutes={elapsedMinutes(source.workflowStartedAt)}
             draftCount={draftCount}
           />
           <BotTestPanel

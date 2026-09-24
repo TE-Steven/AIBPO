@@ -3,8 +3,8 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { generateRagContentAction } from "./ragActions";
-import { generateWorkflowDraftsAction } from "./workflowActions";
+import { generateRagContentAction, stopRagContentAction } from "./ragActions";
+import { generateWorkflowDraftsAction, stopWorkflowDraftsAction } from "./workflowActions";
 import { IconCheckCircle, IconAlertTriangle, IconSparkles, IconChevronDown } from "@/components/icons";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
@@ -14,6 +14,26 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   DONE: { label: "已完成", className: "bg-emerald-50 text-emerald-600" },
   FAILED: { label: "失敗", className: "bg-rose-50 text-rose-600" },
 };
+
+// 「產生中」卻不是這個分頁在等結果（重新整理過、或伺服器重新部署把請求中斷）時顯示：已進行多久 + 停止按鈕。
+function StuckNotice({ elapsedMinutes, onStop, stopping }: { elapsedMinutes: number | null; onStop: () => void; stopping: boolean }) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-100">
+      <span className="flex-1">
+        {elapsedMinutes === null ? "產生中，無法確認開始時間" : `已進行約 ${elapsedMinutes} 分鐘`}
+        。一般幾分鐘內就會完成；如果等很久都沒動靜，可能是中途被中斷了，可以停止後重新產生。
+      </span>
+      <button
+        type="button"
+        onClick={onStop}
+        disabled={stopping}
+        className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+      >
+        {stopping ? "停止中…" : "停止"}
+      </button>
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_LABEL[status] ?? STATUS_LABEL.NONE;
@@ -27,6 +47,8 @@ export function ExtraOutputsPanel({
   ragErrorMessage,
   workflowStatus,
   workflowErrorMessage,
+  ragElapsedMinutes,
+  workflowElapsedMinutes,
   draftCount,
 }: {
   sourceId: string;
@@ -35,11 +57,15 @@ export function ExtraOutputsPanel({
   ragErrorMessage: string | null;
   workflowStatus: string;
   workflowErrorMessage: string | null;
+  ragElapsedMinutes: number | null;
+  workflowElapsedMinutes: number | null;
   draftCount: number;
 }) {
   const router = useRouter();
   const [ragPending, startRag] = useTransition();
   const [workflowPending, startWorkflow] = useTransition();
+  const [ragStopping, startRagStop] = useTransition();
+  const [workflowStopping, startWorkflowStop] = useTransition();
   const [ragMessage, setRagMessage] = useState<{ success?: string; error?: string }>({});
   const [workflowMessage, setWorkflowMessage] = useState<{ success?: string; error?: string }>({});
   const [copied, setCopied] = useState(false);
@@ -50,6 +76,22 @@ export function ExtraOutputsPanel({
     startRag(async () => {
       const result = await generateRagContentAction(sourceId);
       setRagMessage(result);
+      router.refresh();
+    });
+  }
+
+  function stopRag() {
+    setRagMessage({});
+    startRagStop(async () => {
+      setRagMessage(await stopRagContentAction(sourceId));
+      router.refresh();
+    });
+  }
+
+  function stopWorkflow() {
+    setWorkflowMessage({});
+    startWorkflowStop(async () => {
+      setWorkflowMessage(await stopWorkflowDraftsAction(sourceId));
       router.refresh();
     });
   }
@@ -90,6 +132,9 @@ export function ExtraOutputsPanel({
           {ragPending ? "產生中…" : ragStatus === "DONE" ? "重新產生" : "產生 RAG 內容"}
         </button>
 
+        {ragStatus === "PROCESSING" && !ragPending && (
+          <StuckNotice elapsedMinutes={ragElapsedMinutes} onStop={stopRag} stopping={ragStopping} />
+        )}
         {ragErrorMessage && ragStatus === "FAILED" && !ragMessage.error && (
           <p className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-inset ring-rose-100">
             <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -172,6 +217,9 @@ export function ExtraOutputsPanel({
           )}
         </div>
 
+        {workflowStatus === "PROCESSING" && !workflowPending && (
+          <StuckNotice elapsedMinutes={workflowElapsedMinutes} onStop={stopWorkflow} stopping={workflowStopping} />
+        )}
         {workflowErrorMessage && workflowStatus === "FAILED" && !workflowMessage.error && (
           <p className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-inset ring-rose-100">
             <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
