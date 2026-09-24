@@ -75,6 +75,7 @@ export function BotTestPanel({
   const [tokenInput, setTokenInput] = useState("");
   // token 只留在這個頁面的記憶體裡，方便同一批做單題重測；重新整理頁面就沒了。
   const [token, setToken] = useState("");
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
   const results = (selectedRun?.results ?? []).map((r) => ({ ...r, ...patches[r.id] }));
@@ -142,116 +143,163 @@ export function BotTestPanel({
   const minutesLeft = tokenInput ? tokenMinutesLeft(tokenInput.trim().replace(/^Bearer\s+/i, "")) : null;
   const modalCount = modal?.mode === "retest" ? 1 : entryCount;
 
+  const latestRun = runs[0] ?? null;
+  const latestAnswered = latestRun ? latestRun.results.filter((r) => (patches[r.id]?.status ?? r.status) === "ANSWERED").length : 0;
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <>
+      {/* 來源頁上只放一行摘要，執行與結果都在彈窗裡看 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-5 py-3.5 shadow-sm">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">機器人測試</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            把這個來源的 {entryCount} 題逐題丟給現行機器人（每題用全新的客戶身分），並排對照標準答案與機器人回答。
+          <p className="mt-0.5 text-xs text-slate-500">
+            {running
+              ? `測試中… ${doneCount} / ${results.length || entryCount} 題完成`
+              : latestRun
+                ? `上次測試 ${formatTime(latestRun.createdAt)}（${RUN_STATUS[latestRun.status] ?? latestRun.status}）：${latestAnswered} / ${latestRun.total} 題有回答`
+                : `把這個來源的 ${entryCount} 題逐題丟給現行機器人，並排對照標準答案與機器人回答。`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {runs.length > 0 && (
-            <select
-              value={selectedRunId ?? ""}
-              onChange={(e) => setSelectedRunId(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs shadow-sm focus:border-teal-400 focus:outline-none"
-            >
-              {runs.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {formatTime(r.createdAt)}（{RUN_STATUS[r.status] ?? r.status}）
-                </option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            onClick={() => openModal({ mode: "run" })}
-            disabled={running || !targetLabel || entryCount === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
-          >
-            <IconSparkles className="h-3.5 w-3.5" />
-            {running ? "測試中…" : "開始機器人測試"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setPanelOpen(true)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600"
+        >
+          <IconSparkles className="h-3.5 w-3.5" />
+          {running ? "查看進度" : latestRun ? "查看結果 / 測試" : "開啟機器人測試"}
+        </button>
       </div>
 
-      {!targetLabel && (
-        <p className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-100">
-          <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          這間公司還沒設定機器人 API，請聯絡平台管理員設定後才能測試。
-        </p>
-      )}
-      {message && (
-        <p className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-inset ring-rose-100">
-          <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          {message}
-        </p>
-      )}
-
-      {selectedRun && (
-        <div className="mt-4">
-          <div className="mb-2 flex items-center gap-3 text-xs text-slate-500">
-            <span>
-              {doneCount} / {results.length} 題完成
-            </span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-teal-500 to-cyan-400 transition-all"
-                style={{ width: `${results.length ? (doneCount / results.length) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-          {selectedRun.errorMessage && selectedRun.status === "FAILED" && (
-            <p className="mb-2 text-xs text-rose-600">這次測試中斷：{selectedRun.errorMessage}</p>
-          )}
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[720px] table-fixed text-left text-xs">
-              <thead className="bg-slate-50 font-medium text-slate-500">
-                <tr>
-                  <th className="w-10 px-3 py-2">#</th>
-                  <th className="w-1/5 px-3 py-2">題目</th>
-                  <th className="px-3 py-2">標準答案</th>
-                  <th className="px-3 py-2">機器人回答</th>
-                  <th className="w-24 px-3 py-2">狀態</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 align-top">
-                {results.map((r) => {
-                  const s = RESULT_STATUS[r.status] ?? RESULT_STATUS.PENDING;
-                  return (
-                    <tr key={r.id}>
-                      <td className="px-3 py-2.5 text-slate-400">{r.order}</td>
-                      <td className="whitespace-pre-wrap px-3 py-2.5 font-medium text-slate-800">{r.question}</td>
-                      <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-600">{r.expectedAnswer}</td>
-                      <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-700">
-                        {r.botAnswer ? stripBotDisclaimer(r.botAnswer) : <span className="text-slate-400">{r.errorMessage ?? "—"}</span>}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className={`rounded-full px-2 py-0.5 font-medium ${s.className}`}>{s.label}</span>
-                        {(r.status === "TIMEOUT" || r.status === "ERROR") && !running && (
-                          <button
-                            type="button"
-                            onClick={() => openModal({ mode: "retest", resultId: r.id })}
-                            className="mt-1.5 block font-medium text-teal-600 hover:text-teal-700"
-                          >
-                            重測
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {results.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
-                      載入中…
-                    </td>
-                  </tr>
+      {panelOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setPanelOpen(false)}>
+          <div
+            className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">機器人測試</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  把這個來源的 {entryCount} 題逐題丟給現行機器人（每題用全新的客戶身分），並排對照標準答案與機器人回答。測試中關掉視窗不會中斷。
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {runs.length > 0 && (
+                  <select
+                    value={selectedRunId ?? ""}
+                    onChange={(e) => setSelectedRunId(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs shadow-sm focus:border-teal-400 focus:outline-none"
+                  >
+                    {runs.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {formatTime(r.createdAt)}（{RUN_STATUS[r.status] ?? r.status}）
+                      </option>
+                    ))}
+                  </select>
                 )}
-              </tbody>
-            </table>
+                <button
+                  type="button"
+                  onClick={() => openModal({ mode: "run" })}
+                  disabled={running || !targetLabel || entryCount === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
+                >
+                  <IconSparkles className="h-3.5 w-3.5" />
+                  {running ? "測試中…" : "開始機器人測試"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanelOpen(false)}
+                  aria-label="關閉"
+                  className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <IconX className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {!targetLabel && (
+                <p className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-100">
+                  <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  這間公司還沒設定機器人 API，請聯絡平台管理員設定後才能測試。
+                </p>
+              )}
+              {message && (
+                <p className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-inset ring-rose-100">
+                  <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {message}
+                </p>
+              )}
+
+              {selectedRun && (
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center gap-3 text-xs text-slate-500">
+                    <span>
+                      {doneCount} / {results.length} 題完成
+                    </span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-teal-500 to-cyan-400 transition-all"
+                        style={{ width: `${results.length ? (doneCount / results.length) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                  {selectedRun.errorMessage && selectedRun.status === "FAILED" && (
+                    <p className="mb-2 text-xs text-rose-600">這次測試中斷：{selectedRun.errorMessage}</p>
+                  )}
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full min-w-[720px] table-fixed text-left text-xs">
+                      <thead className="bg-slate-50 font-medium text-slate-500">
+                        <tr>
+                          <th className="w-10 px-3 py-2">#</th>
+                          <th className="w-1/5 px-3 py-2">題目</th>
+                          <th className="px-3 py-2">標準答案</th>
+                          <th className="px-3 py-2">機器人回答</th>
+                          <th className="w-24 px-3 py-2">狀態</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 align-top">
+                        {results.map((r) => {
+                          const s = RESULT_STATUS[r.status] ?? RESULT_STATUS.PENDING;
+                          return (
+                            <tr key={r.id}>
+                              <td className="px-3 py-2.5 text-slate-400">{r.order}</td>
+                              <td className="whitespace-pre-wrap px-3 py-2.5 font-medium text-slate-800">{r.question}</td>
+                              <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-600">{r.expectedAnswer}</td>
+                              <td className="whitespace-pre-wrap px-3 py-2.5 text-slate-700">
+                                {r.botAnswer ? stripBotDisclaimer(r.botAnswer) : <span className="text-slate-400">{r.errorMessage ?? "—"}</span>}
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <span className={`rounded-full px-2 py-0.5 font-medium ${s.className}`}>{s.label}</span>
+                                {(r.status === "TIMEOUT" || r.status === "ERROR") && !running && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openModal({ mode: "retest", resultId: r.id })}
+                                    className="mt-1.5 block font-medium text-teal-600 hover:text-teal-700"
+                                  >
+                                    重測
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {results.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                              載入中…
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {!selectedRun && targetLabel && (
+                <p className="py-16 text-center text-sm text-slate-400">還沒有測試紀錄，按右上角「開始機器人測試」開始。</p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -311,6 +359,6 @@ export function BotTestPanel({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
