@@ -12,10 +12,13 @@ export function AnalysisRunner({
   sourceId,
   dimensions,
   hasTallies,
+  templateNames,
 }: {
   sourceId: string;
   dimensions: Dimension[];
   hasTallies: boolean;
+  // 有子分類的第一層分類：勾選 Tally 時會依這些範本另外產出結構化文件
+  templateNames: string[];
 }) {
   const router = useRouter();
   const [selectedDimensionIds, setSelectedDimensionIds] = useState<string[]>([]);
@@ -29,7 +32,7 @@ export function AnalysisRunner({
   const [stageIndex, setStageIndex] = useState(0);
   const [thinkingText, setThinkingText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [doneCount, setDoneCount] = useState<number | null>(null);
+  const [doneCount, setDoneCount] = useState<{ faq: number; doc: number } | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   function toggleDimension(id: string) {
@@ -71,9 +74,9 @@ export function AnalysisRunner({
     });
     es.addEventListener("text", () => setStageIndex((i) => Math.max(i, 2)));
     es.addEventListener("done", (e) => {
-      const { count } = JSON.parse((e as MessageEvent).data);
+      const { count, docCount } = JSON.parse((e as MessageEvent).data);
       setStageIndex(3);
-      setDoneCount(count);
+      setDoneCount({ faq: count, doc: docCount ?? 0 });
       es.close();
       router.refresh();
     });
@@ -124,7 +127,7 @@ export function AnalysisRunner({
         ) : doneCount !== null ? (
           <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-100">
             <IconCheckCircle className="h-4 w-4 shrink-0" />
-            分析完成，產出了 {doneCount} 題 FAQ。
+            分析完成，產出了 {doneCount.faq} 題 FAQ{doneCount.doc > 0 ? `、${doneCount.doc} 份結構化文件` : ""}。
           </p>
         ) : (
           <div className="max-h-64 overflow-y-auto rounded-lg bg-slate-900 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-slate-300">
@@ -184,6 +187,11 @@ export function AnalysisRunner({
             />
             把 Tally 分類也當作維度依據
           </label>
+        )}
+        {hasTallies && useTally && templateNames.length > 0 && (
+          <p className="w-full text-xs text-slate-500">
+            會另外依「{templateNames.join("」「")}」範本，找出文件裡所有這類實體，每個實體依分類的維度整理成一份結構化文件（文件沒寫的維度會標「文件未提及」）。
+          </p>
         )}
         <div className="flex items-center gap-2 text-sm text-slate-700">
           FAQ 數量

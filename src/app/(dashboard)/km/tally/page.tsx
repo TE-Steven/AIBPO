@@ -3,27 +3,7 @@ import { prisma } from "@/lib/db";
 import { deleteTallyAction } from "./actions";
 import { CreateTallyForm } from "./TallyForms";
 import { IconMenuList, IconTrash } from "@/components/icons";
-
-type TallyRow = { id: string; name: string; parentId: string | null; order: number };
-type TallyNode<T extends TallyRow> = T & { depth: number; children: TallyNode<T>[] };
-
-function buildTree<T extends TallyRow>(tallies: T[]): TallyNode<T>[] {
-  const byParent = new Map<string | null, T[]>();
-  for (const t of tallies) {
-    const arr = byParent.get(t.parentId) ?? [];
-    arr.push(t);
-    byParent.set(t.parentId, arr);
-  }
-  function build(parentId: string | null, depth: number): TallyNode<T>[] {
-    const children = (byParent.get(parentId) ?? []).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-    return children.map((t) => ({ ...t, depth, children: build(t.id, depth + 1) }));
-  }
-  return build(null, 1);
-}
-
-function flatten<T extends TallyRow>(nodes: TallyNode<T>[]): TallyNode<T>[] {
-  return nodes.flatMap((n) => [n, ...flatten(n.children)]);
-}
+import { buildTallyTree, flattenTallyTree } from "@/lib/tallyTree";
 
 export default async function TallyPage() {
   const session = await requireSession();
@@ -34,8 +14,8 @@ export default async function TallyPage() {
     orderBy: { order: "asc" },
   });
 
-  const tree = buildTree(tallies);
-  const flatList = flatten(tree);
+  const tree = buildTallyTree(tallies);
+  const flatList = flattenTallyTree(tree);
   // 只有第 1、2 層可以再往下掛子分類（最多三層）。
   const parentOptions = flatList
     .filter((t) => t.depth < 3)
@@ -46,7 +26,8 @@ export default async function TallyPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">分類管理（Tally）</h1>
         <p className="mt-1 text-sm text-slate-500">
-          大中小分類，最多三層，也可以只用大分類。分類可以在「來源管理」時當作分析維度使用。
+          大中小分類，最多三層，也可以只用大分類。分類可以在「來源管理」時當作分析維度使用；
+          底下有子分類的大分類會被當成「文件範本」：例如「產品型號」底下有「價格」「規格」，分析時就會找出每個型號，依這些維度各整理成一份結構化文件。
         </p>
       </div>
 

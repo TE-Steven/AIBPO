@@ -77,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // 新題目：屬於這個來源、而且還不在這次測試裡。
     const linkedEntryIds = new Set(run.results.map((r) => r.entryId));
     const newEntries = await prisma.kmEntry.findMany({
-      where: { id: { in: entryIds }, sourceId: id },
+      where: { id: { in: entryIds }, sourceId: id, kind: "FAQ" },
       orderBy: { createdAt: "asc" },
     });
     if (newEntries.length !== entryIds.length || newEntries.some((e) => linkedEntryIds.has(e.id))) {
@@ -125,7 +125,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if ((await prisma.botTestRun.count({ where: { sourceId: id } })) > 0) {
       return jsonError("這個來源已經測試過，請用「重新測試」。", 400);
     }
-    const entries = await prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } });
+    // 結構化文件（kind DOC）的題目是實體名稱，不適合拿去問機器人，只測 FAQ
+    const entries = await prisma.kmEntry.findMany({ where: { sourceId: id, kind: "FAQ" }, orderBy: { createdAt: "asc" } });
     if (entries.length === 0) return jsonError("這個來源還沒有題目。", 400);
     const run = await prisma.botTestRun.create({
       data: {

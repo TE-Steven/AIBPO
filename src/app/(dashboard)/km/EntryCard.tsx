@@ -9,6 +9,8 @@ export type KmEntryLike = {
   question: string;
   answer: string;
   tallyId: string | null;
+  // DOC：依分類範本整理的結構化文件（question 是實體名稱、answer 是 markdown）
+  kind?: string;
 };
 
 export function EntryCard({
@@ -60,6 +62,9 @@ export function EntryCard({
           onClick={(e) => e.stopPropagation()}
           className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
         />
+        {entry.kind === "DOC" && (
+          <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-600">結構化文件</span>
+        )}
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{question}</span>
         {tallyId && (
           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">

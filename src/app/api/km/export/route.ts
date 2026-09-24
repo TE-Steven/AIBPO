@@ -61,9 +61,16 @@ export async function GET(req: NextRequest) {
     lines.push(`## ${group}`);
     lines.push("");
     for (const entry of groupEntries) {
-      lines.push(`### Q: ${entry.question}`);
-      lines.push("");
-      lines.push(entry.answer);
+      if (entry.kind === "DOC") {
+        // 結構化文件：實體名稱當 ###，答案裡的 ## 維度 / ### 子維度 往下降兩層，維持整份匯出的階層
+        lines.push(`### ${entry.question}`);
+        lines.push("");
+        lines.push(entry.answer.replace(/^(#{1,4})(?=\s)/gm, "##$1"));
+      } else {
+        lines.push(`### Q: ${entry.question}`);
+        lines.push("");
+        lines.push(entry.answer);
+      }
       lines.push("");
     }
   }

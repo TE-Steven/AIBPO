@@ -1,7 +1,45 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { KmEntry, KmSource, Tally } from "@/generated/prisma/client";
+import type { TallyNode } from "@/lib/tallyTree";
 
 export type FaqDraft = { question: string; answer: string; suggestedTally: string | null };
+// 依分類範本整理的結構化文件（AI 原始輸出）：template = 第一層分類名稱，values 的 key 是「維度」或「維度 > 子維度」
+export type TallyDocumentDraft = { template: string; name: string; values: Record<string, string | null> };
+export type TallyTemplate = TallyNode<Tally>;
+
+// 範本欄位：第二層維度；有第三層的話再列出「維度 > 子維度」
+function templateFields(template: TallyTemplate): { key: string; optional: boolean }[] {
+  return template.children.flatMap((h2) =>
+    h2.children.length > 0
+      ? [{ key: h2.name, optional: true }, ...h2.children.map((h3) => ({ key: `${h2.name} > ${h3.name}`, optional: false }))]
+      : [{ key: h2.name, optional: false }],
+  );
+}
+
+function buildTemplateText(templates: TallyTemplate[]): string {
+  if (templates.length === 0) return "";
+  const templatesText = templates
+    .map(
+      (t) =>
+        `範本「${t.name}」的欄位：\n${templateFields(t)
+          .map((f) => `- ${f.key}${f.optional ? "（整體說明，選填；細項請填在下面的子欄位）" : ""}`)
+          .join("\n")}`,
+    )
+    .join("\n\n");
+  return `
+除了 FAQ 之外，還要依照下面的「文件範本」整理結構化文件。每個範本代表一種實體（例如「產品型號」），請找出文件中所有屬於這一類的實體（例如每一個型號），一個都不要漏；每個實體整理成一份文件，逐一填寫範本的每個欄位：
+
+${templatesText}
+
+結構化文件的規則：
+- 欄位內容只能根據文件內容，文件沒有提到的欄位一律填 null，不要猜測或補寫
+- 欄位內容可以用 markdown（條列、表格），但不要加標題（#），標題會由系統依範本產生
+- name 用文件中該實體的正式名稱（例如型號名稱）
+- 文件裡找不到屬於某個範本的實體，就不要產出那個範本的文件
+- values 的 key 必須和上面列出的欄位名稱完全一樣
+`;
+}
+
 export type WorkflowDraft = {
   suggestedName: string;
   suggestedPrompt: string;
@@ -12,12 +50,16 @@ export type WorkflowDraft = {
 export function buildSystemPrompt(params: {
   dimensions: string[];
   tallies: Tally[];
+  // 有子分類的第一層分類：要依範本另外產出結構化文件
+  templates?: TallyTemplate[];
   countMin: number;
   countMax: number;
   answerStyle?: string;
   guidelines?: string;
 }): string {
   const { dimensions, tallies, countMin, countMax, answerStyle, guidelines } = params;
+  const templates = params.templates ?? [];
+  const templateText = buildTemplateText(templates);
 
   const dimensionsText =
     dimensions.length > 0
@@ -45,7 +87,7 @@ export function buildSystemPrompt(params: {
 
 分析維度：
 ${dimensionsText}
-${tallyText}${answerStyleText}
+${tallyText}${answerStyleText}${templateText}
 請產出介於 ${countMin} 到 ${countMax} 題之間的 FAQ，每一題必須：
 - 題目要像真實使用者會問的問題，具體、口語化
 - 答案要根據文件內容回答，不要虛構或超出文件範圍的內容
@@ -54,11 +96,19 @@ ${tallyText}${answerStyleText}
 - 不要加「實際以官網公告為準」「詳情請洽詢」「請以最新資訊為準」這類模稜兩可、把責任推回去的免責聲明——文件裡寫的資訊就是確定的答案，直接肯定地講出來就好
 - 如果內容本質上是價目表、規格比較、方案對照這種有多個項目、多個欄位互相對應的資料，不要把它拆成一條條零碎的問答（會破壞項目與欄位之間的對應關係，之後容易被誤讀或誤答）。這種情況請整合成一題，答案用 markdown 表格完整呈現，保留完整的行列對應
 
-完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個陣列，格式如下，不要在 json 區塊內加註解或其他文字：
+${
+    templates.length > 0
+      ? `完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個物件，格式如下，不要在 json 區塊內加註解或其他文字：
+
+\`\`\`json
+{"faqs": [{"question": "...", "answer": "...", "suggestedTally": "分類名稱或 null"}], "documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}]}
+\`\`\``
+      : `完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個陣列，格式如下，不要在 json 區塊內加註解或其他文字：
 
 \`\`\`json
 [{"question": "...", "answer": "...", "suggestedTally": "分類名稱或 null"}]
-\`\`\``;
+\`\`\``
+  }`;
 }
 
 export type SourceFileRef = { fileId: string; fileName: string };
@@ -276,16 +326,20 @@ export function parseWorkflowDrafts(text: string, skills: { id: string; name: st
     .filter((d) => d.suggestedName && d.suggestedPrompt);
 }
 
-export function parseFaqDrafts(text: string): FaqDraft[] {
+function parseAnalysisJson(text: string): unknown {
   const match = text.match(/```json\s*([\s\S]*?)```/);
   const jsonText = match ? match[1] : text;
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonText);
+    return JSON.parse(jsonText);
   } catch {
-    return [];
+    return null;
   }
+}
+
+// 沒有範本時 AI 回傳陣列；有範本時回傳 {faqs, documents} 物件，兩種都接受。
+export function parseFaqDrafts(text: string): FaqDraft[] {
+  const json = parseAnalysisJson(text);
+  const parsed = Array.isArray(json) ? json : (json as { faqs?: unknown } | null)?.faqs;
 
   if (!Array.isArray(parsed)) return [];
 
@@ -303,4 +357,56 @@ export function parseFaqDrafts(text: string): FaqDraft[] {
           : null,
     }))
     .filter((f) => f.question && f.answer);
+}
+
+export function parseTallyDocuments(text: string): TallyDocumentDraft[] {
+  const json = parseAnalysisJson(text) as { documents?: unknown } | null;
+  const docs = json && !Array.isArray(json) ? json.documents : null;
+  if (!Array.isArray(docs)) return [];
+
+  return docs
+    .filter(
+      (d): d is Record<string, unknown> =>
+        typeof d === "object" && d !== null && typeof d.template === "string" && typeof d.name === "string",
+    )
+    .map((d) => {
+      const values: Record<string, string | null> = {};
+      if (typeof d.values === "object" && d.values !== null) {
+        for (const [key, value] of Object.entries(d.values as Record<string, unknown>)) {
+          values[key] = typeof value === "string" && value.trim() && value.trim() !== "null" ? value.trim() : null;
+        }
+      }
+      return { template: String(d.template).trim(), name: String(d.name).trim(), values };
+    })
+    .filter((d) => d.template && d.name);
+}
+
+// AI 可能用全形 ＞、› 或多餘空白分隔「維度 > 子維度」，比對前先統一。
+function normalizeFieldKey(key: string): string {
+  return key.replace(/[＞›»]/g, ">").replace(/\s*>\s*/g, " > ").replace(/\s+/g, " ").trim();
+}
+
+export const MISSING_FIELD_TEXT = "文件未提及";
+
+// 由伺服器依範本樹組 markdown：維度順序照分類管理的排序，缺的欄位補「文件未提及」，不依賴 AI 自己排版。
+export function buildTallyDocumentMarkdown(template: TallyTemplate, values: Record<string, string | null>): string {
+  const lookup = new Map<string, string>();
+  for (const [key, value] of Object.entries(values)) {
+    if (value) lookup.set(normalizeFieldKey(key), value);
+  }
+
+  const lines: string[] = [];
+  for (const h2 of template.children) {
+    lines.push(`## ${h2.name}`, "");
+    const overview = lookup.get(normalizeFieldKey(h2.name));
+    if (h2.children.length === 0) {
+      lines.push(overview ?? MISSING_FIELD_TEXT, "");
+      continue;
+    }
+    if (overview) lines.push(overview, "");
+    for (const h3 of h2.children) {
+      lines.push(`### ${h3.name}`, "", lookup.get(normalizeFieldKey(`${h2.name} > ${h3.name}`)) ?? MISSING_FIELD_TEXT, "");
+    }
+  }
+  return lines.join("\n").trim();
 }

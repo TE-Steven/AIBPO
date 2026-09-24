@@ -25,6 +25,8 @@ const styles = StyleSheet.create({
   h1: { fontSize: 16, fontWeight: "bold", marginBottom: 6 },
   h2: { fontSize: 13, fontWeight: "bold", marginBottom: 5 },
   h3: { fontSize: 11.5, fontWeight: "bold", marginBottom: 4 },
+  h4: { fontSize: 10.5, fontWeight: "bold", marginBottom: 3, color: "#334155" },
+  h5: { fontSize: 10, fontWeight: "bold", marginBottom: 3, color: "#64748b" },
   paragraph: { marginBottom: 8 },
   listWrap: { marginBottom: 8 },
   listItem: { flexDirection: "row", marginBottom: 3 },
@@ -50,7 +52,9 @@ const styles = StyleSheet.create({
 function headingStyle(depth: number) {
   if (depth <= 1) return styles.h1;
   if (depth === 2) return styles.h2;
-  return styles.h3;
+  if (depth === 3) return styles.h3;
+  if (depth === 4) return styles.h4;
+  return styles.h5;
 }
 
 function renderInline(tokens: Token[] | undefined, fallbackText: string): React.ReactNode {

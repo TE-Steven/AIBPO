@@ -247,6 +247,8 @@ model KmEntry {
   tallyId        String?
   dimensionsUsed Json?
   confirmed      Boolean  @default(false) // 在「新增KM」勾選確認後才會進「知識列表」
+  // FAQ：一般問答；DOC：依分類範本（第一層分類 > 維度 > 子維度）整理的結構化文件，question 放實體名稱、answer 是 markdown
+  kind           String   @default("FAQ")
   roleId         String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

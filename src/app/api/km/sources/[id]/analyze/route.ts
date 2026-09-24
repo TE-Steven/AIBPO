@@ -2,7 +2,16 @@ import type { NextRequest } from "next/server";
 import { getSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
+import {
+  buildSystemPrompt,
+  buildUserContent,
+  parseFaqDrafts,
+  parseTallyDocuments,
+  buildTallyDocumentMarkdown,
+  webFetchMaxUses,
+  hasSourceUrls,
+} from "@/lib/kmAnalysis";
+import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
 
@@ -32,6 +41,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const answerStyle = url.searchParams.get("answerStyle") ?? "";
 
   const tallies = useTally ? await prisma.tally.findMany({ where: roleScope(session), orderBy: { order: "asc" } }) : [];
+  // 有子分類的第一層分類當文件範本：另外找出所有這類實體，每個實體依範本整理成一份結構化文件
+  const templates = tallyTemplates(buildTallyTree(tallies));
 
   const encoder = new TextEncoder();
 
@@ -49,12 +60,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         const companyId = await companyIdForRole(source.roleId);
         const guidelines = await getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY);
-        const system = buildSystemPrompt({ dimensions, tallies, countMin, countMax, answerStyle, guidelines });
+        const system = buildSystemPrompt({ dimensions, tallies, templates, countMin, countMax, answerStyle, guidelines });
         const content = buildUserContent(source);
 
         const apiStream = anthropic.messages.stream({
           model: KM_ANALYSIS_MODEL,
-          max_tokens: 16000,
+          // 有範本時要逐一整理每個實體的每個欄位，輸出可能很長；本來就是串流，不會逾時
+          max_tokens: templates.length > 0 ? 64000 : 16000,
           thinking: { type: "adaptive", display: "summarized" },
           system,
           ...(hasSourceUrls(source)
@@ -86,14 +98,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         });
 
         const faqDrafts = parseFaqDrafts(fullText);
-        if (faqDrafts.length === 0) {
+        const templateByName = new Map(templates.map((t) => [t.name, t]));
+        const seenDocs = new Set<string>();
+        const documents = parseTallyDocuments(fullText).flatMap((d) => {
+          const template = templateByName.get(d.template);
+          const key = `${d.template}\u0000${d.name}`;
+          if (!template || seenDocs.has(key)) return [];
+          seenDocs.add(key);
+          return [{ template, name: d.name, answer: buildTallyDocumentMarkdown(template, d.values) }];
+        });
+        if (faqDrafts.length === 0 && documents.length === 0) {
           throw new Error("AI 沒有產生出可解析的 FAQ，請重試一次，或調整維度後再試。");
         }
 
         const tallyIdByName = new Map(tallies.map((t) => [t.name, t.id]));
 
-        await prisma.$transaction(
-          faqDrafts.map((f) =>
+        await prisma.$transaction([
+          ...faqDrafts.map((f) =>
             prisma.kmEntry.create({
               data: {
                 sourceId: id,
@@ -105,10 +126,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               },
             }),
           ),
-        );
+          ...documents.map((d) =>
+            prisma.kmEntry.create({
+              data: {
+                sourceId: id,
+                kind: "DOC",
+                question: d.name,
+                answer: d.answer,
+                tallyId: d.template.id,
+                dimensionsUsed: dimensions,
+                roleId: source.roleId,
+              },
+            }),
+          ),
+        ]);
 
         await prisma.kmSource.update({ where: { id }, data: { status: "DONE" } });
-        send("done", { count: faqDrafts.length });
+        send("done", { count: faqDrafts.length, docCount: documents.length });
       } catch (err) {
         const message = err instanceof Error ? err.message : "分析失敗，發生未知錯誤。";
         await prisma.kmSource.update({ where: { id }, data: { status: "FAILED", errorMessage: message } });

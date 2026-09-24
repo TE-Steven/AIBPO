@@ -10,6 +10,7 @@ import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
 import { BotTestPanel } from "./BotTestPanel";
 import { getBotTestTarget } from "@/lib/botTest";
 import { companyIdForRole } from "@/lib/company";
+import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import { sourceLabel } from "@/lib/kmAnalysis";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
@@ -79,6 +80,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           sourceId={source.id}
           dimensions={dimensions.map((d) => ({ id: d.id, name: d.name }))}
           hasTallies={tallies.length > 0}
+          templateNames={tallyTemplates(buildTallyTree(tallies)).map((t) => t.name)}
         />
       )}
 
@@ -98,7 +100,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           />
           <BotTestPanel
             sourceId={source.id}
-            entryCount={entries.length}
+            entryCount={entries.filter((e) => e.kind === "FAQ").length}
             targetLabel={botTestTarget ? `${botTestTarget.gatewayBaseUrl}（channel ${botTestTarget.platformId}）` : null}
             runs={botTestRuns.map((r) => ({
               id: r.id,
@@ -109,7 +111,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
               createdAt: r.createdAt.toISOString(),
               // 這次測試之後才新增的題目：重新測試時可以勾選一起送出
               untested: entries
-                .filter((e) => !r.results.some((x) => x.entryId === e.id))
+                .filter((e) => e.kind === "FAQ" && !r.results.some((x) => x.entryId === e.id))
                 .map((e) => ({ entryId: e.id, question: e.question, expectedAnswer: e.answer })),
               results: r.results.map((x) => ({
                 id: x.id,
