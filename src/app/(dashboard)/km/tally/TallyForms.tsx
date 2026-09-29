@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
-import { createTallyAction, type TallyActionState } from "./actions";
-import { IconCheckCircle, IconAlertTriangle, IconPlus } from "@/components/icons";
+import { useActionState, useState, useTransition } from "react";
+import { createTallyAction, deleteTallyAction, type TallyActionState } from "./actions";
+import { IconCheckCircle, IconAlertTriangle, IconPlus, IconTrash } from "@/components/icons";
 
 const initialState: TallyActionState = {};
 
@@ -57,5 +57,78 @@ export function CreateTallyForm({ parentOptions }: { parentOptions: { id: string
         {pending ? "建立中…" : "新增分類"}
       </button>
     </form>
+  );
+}
+
+// 每一層都可以刪：先顯示影響範圍（會一併刪掉幾個子分類、幾筆 KM 會變未分類），按確定才刪
+export function DeleteTallyButton({
+  tallyId,
+  name,
+  descendantCount,
+  entryCount,
+}: {
+  tallyId: string;
+  name: string;
+  descendantCount: number;
+  entryCount: number;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [message, setMessage] = useState<TallyActionState>({});
+  const [pending, startTransition] = useTransition();
+
+  function remove() {
+    startTransition(async () => {
+      const result = await deleteTallyAction(tallyId);
+      setMessage(result);
+      setConfirming(false);
+    });
+  }
+
+  if (message.error) {
+    return <span className="text-xs text-rose-600">{message.error}</span>;
+  }
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-rose-500 hover:text-rose-700"
+      >
+        <IconTrash className="h-3.5 w-3.5" />
+        刪除
+      </button>
+    );
+  }
+
+  const impacts = [
+    descendantCount > 0 ? `底下 ${descendantCount} 個子分類會一併刪除` : null,
+    entryCount > 0 ? `${entryCount} 筆 KM 會改為未分類（題目本身不會刪除）` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="max-w-xs space-y-1.5 rounded-lg bg-rose-50 p-2.5 text-xs ring-1 ring-inset ring-rose-100">
+      <p className="font-medium text-rose-700">確定刪除「{name}」？</p>
+      {impacts.length > 0 && (
+        <ul className="list-disc pl-4 text-rose-600">
+          {impacts.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-center gap-3 pt-0.5">
+        <button
+          type="button"
+          onClick={remove}
+          disabled={pending}
+          className="rounded-md bg-rose-600 px-2.5 py-1 font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+        >
+          {pending ? "刪除中…" : "確定刪除"}
+        </button>
+        <button type="button" onClick={() => setConfirming(false)} className="font-medium text-slate-500 hover:text-slate-700">
+          取消
+        </button>
+      </div>
+    </div>
   );
 }

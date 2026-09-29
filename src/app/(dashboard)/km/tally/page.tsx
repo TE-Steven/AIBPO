@@ -1,8 +1,7 @@
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { deleteTallyAction } from "./actions";
-import { CreateTallyForm } from "./TallyForms";
-import { IconMenuList, IconTrash } from "@/components/icons";
+import { CreateTallyForm, DeleteTallyButton } from "./TallyForms";
+import { IconMenuList } from "@/components/icons";
 import { buildTallyTree, flattenTallyTree } from "@/lib/tallyTree";
 
 export default async function TallyPage() {
@@ -48,7 +47,9 @@ export default async function TallyPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {flatList.map((t) => {
-              const deletable = t._count.children === 0 && t._count.kmEntries === 0;
+              // 刪除的影響範圍：整棵子樹的子分類數，以及子樹裡所有分類的 KM 數
+              const subtree = flattenTallyTree([t]);
+              const subtreeEntries = subtree.reduce((sum, n) => sum + n._count.kmEntries, 0);
               return (
                 <tr key={t.id}>
                   <td
@@ -64,19 +65,12 @@ export default async function TallyPage() {
                   <td className="px-5 py-3 text-slate-500">第 {t.depth} 層</td>
                   <td className="px-5 py-3 text-slate-500">{t._count.kmEntries}</td>
                   <td className="px-5 py-3">
-                    {deletable ? (
-                      <form action={deleteTallyAction.bind(null, t.id)}>
-                        <button
-                          type="submit"
-                          className="inline-flex items-center gap-1 text-xs font-medium text-rose-500 hover:text-rose-700"
-                        >
-                          <IconTrash className="h-3.5 w-3.5" />
-                          刪除
-                        </button>
-                      </form>
-                    ) : (
-                      <span className="text-xs text-slate-300">尚有子分類或 KM 使用中</span>
-                    )}
+                    <DeleteTallyButton
+                      tallyId={t.id}
+                      name={t.name}
+                      descendantCount={subtree.length - 1}
+                      entryCount={subtreeEntries}
+                    />
                   </td>
                 </tr>
               );
