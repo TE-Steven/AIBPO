@@ -3,12 +3,14 @@ import { prisma } from "@/lib/db";
 import {
   buildDocumentsSystemPrompt,
   buildUserContent,
-  parseTallyDocuments,
+  parseTallyOutput,
   buildTallyDocumentMarkdown,
   entityKey,
+  entityNameKey,
   webFetchMaxUses,
   hasSourceUrls,
   type TallyTemplate,
+  type TallyOutputDraft,
 } from "@/lib/kmAnalysis";
 import type { KmSource } from "@/generated/prisma/client";
 
@@ -53,16 +55,55 @@ export async function generateTallyDocuments(params: {
     throw new Error("結構化文件內容太長，輸出被截斷。請減少範本的維度，或把來源拆成幾份較小的文件後再試。");
   }
 
+  return assembleTallyDocuments(parseTallyOutput(fullText), templates);
+}
+
+// AI 輸出 → 每個實體一份 markdown：去重、雙向寫入關聯、附上通用規則（純函式，方便測試）
+export function assembleTallyDocuments(output: TallyOutputDraft, templates: TallyTemplate[]): GeneratedDocument[] {
   const templateByName = new Map(templates.map((t) => [t.name, t]));
   const seen = new Set<string>();
-  const documents = parseTallyDocuments(fullText).flatMap((d) => {
-    const template = templateByName.get(d.template);
+  const drafts = output.documents.filter((d) => {
     const key = entityKey(d.template, d.name);
-    if (!template || seen.has(key)) return [];
+    if (!templateByName.has(d.template) || seen.has(key)) return false;
     seen.add(key);
-    return [{ templateId: template.id, name: d.name, answer: buildTallyDocumentMarkdown(template, d.values) }];
+    return true;
   });
-  return documents;
+
+  // 關聯雙向寫入：每一筆關聯寫進每個相關實體的「相關項目」，列出其他實體；名稱比對忽略大小寫、全半形、空白與連字號
+  const seenRelations = new Set<string>();
+  const relations = output.relations.filter((r) => {
+    const key = `${[...r.items.map(entityNameKey)].sort().join("|")}\u0000${r.description}`;
+    if (seenRelations.has(key)) return false;
+    seenRelations.add(key);
+    return true;
+  });
+  // 關聯裡的名稱如果對得上某份文件，就顯示那份文件的正式名稱（AI 可能寫成「L-700」，文件叫「L700」）
+  const canonicalName = new Map<string, string>();
+  for (const d of drafts) if (!canonicalName.has(entityNameKey(d.name))) canonicalName.set(entityNameKey(d.name), d.name);
+  function relatedFor(name: string) {
+    const self = entityNameKey(name);
+    return relations
+      .filter((r) => r.items.some((item) => entityNameKey(item) === self))
+      .map((r) => ({
+        others: r.items
+          .filter((item) => entityNameKey(item) !== self)
+          .map((item) => canonicalName.get(entityNameKey(item)) ?? item),
+        description: r.description,
+      }))
+      .filter((r) => r.others.length > 0);
+  }
+
+  return drafts.map((d) => {
+    const template = templateByName.get(d.template)!;
+    return {
+      templateId: template.id,
+      name: d.name,
+      answer: buildTallyDocumentMarkdown(template, d.values, {
+        related: relatedFor(d.name),
+        sharedRules: output.sharedRules.get(template.name) ?? [],
+      }),
+    };
+  });
 }
 
 // 寫入結構化文件；replace = true 時先刪掉這個來源既有的結構化文件（重新產生用），同一個 transaction，失敗就兩邊都不動。

@@ -5,6 +5,15 @@ import type { TallyNode } from "@/lib/tallyTree";
 export type FaqDraft = { question: string; answer: string; suggestedTally: string | null };
 // 依分類範本整理的結構化文件（AI 原始輸出）：template = 第一層分類名稱，values 的 key 是「維度」或「維度 > 子維度」
 export type TallyDocumentDraft = { template: string; name: string; values: Record<string, string | null> };
+// 關聯：同一筆關聯只列一次（items 是兩個以上的實體名稱），程式會雙向寫進每個相關實體的「相關項目」段
+export type TallyRelationDraft = { items: string[]; description: string };
+export type SharedRule = { field: string | null; text: string };
+export type TallyOutputDraft = {
+  documents: TallyDocumentDraft[];
+  // 範本名稱 → 適用這個範本「所有」實體的通用規則；field 是規則對應的欄位（沒有對應欄位為 null）
+  sharedRules: Map<string, SharedRule[]>;
+  relations: TallyRelationDraft[];
+};
 export type TallyTemplate = TallyNode<Tally>;
 
 function guidelinesPrefix(guidelines?: string): string {
@@ -108,10 +117,20 @@ ${templatesText}
 - 文件裡找不到屬於某個範本的實體，就不要產出那個範本的文件
 - values 的 key 必須和上面列出的欄位名稱完全一樣
 
-完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），格式如下，不要在 json 區塊內加註解或其他文字：
+通用規則（sharedRules）：
+- 文件中適用於某個範本「所有」實體的規則（例如「所有型號主機保固 2 年」「全系列皆需由專人安裝」），不要寫進各實體的欄位，改列在 sharedRules：text 寫成一句完整、能單獨看懂的句子；field 填這條規則對應的欄位名稱（跟上面列出的欄位名稱完全一樣），沒有對應欄位就填 null。系統會自動把它附在該範本每一份文件的最後
+- 只適用其中「部分」實體的規則（例如「L 系列皆支援…」），不算通用規則，請寫進那些實體各自對應的欄位
+- 某個實體是通用規則的例外時（例如其他型號保固 2 年、只有 L700 保固 3 年），把例外寫進該實體的對應欄位
+
+關聯（relations）：
+- 實體之間在文件中有明確關係時（例如「A 與 B 一起購買享 9 折」「C 是 D 的專用配件」「E 為 F 的升級款」），每一筆關係只列一次：items 放所有相關實體的名稱（兩個以上，用跟 documents 的 name 一樣的寫法），description 用一句完整的話說明這個關係
+- 系統會把同一筆關係同時寫進每一個相關實體的文件，所以不需要、也不要在各實體的欄位裡重複描述這個關係
+- 關係只能根據文件內容，文件沒有明講的關係不要自己推論
+
+完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），格式如下，不要在 json 區塊內加註解或其他文字；沒有通用規則或關聯時，給空陣列：
 
 \`\`\`json
-{"documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}]}
+{"documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}], "sharedRules": [{"template": "範本名稱", "rules": [{"field": "欄位名稱或 null", "text": "規則"}]}], "relations": [{"items": ["實體名稱A", "實體名稱B"], "description": "關係說明"}]}
 \`\`\``;
 }
 
@@ -364,9 +383,41 @@ export function parseFaqDrafts(text: string): FaqDraft[] {
     .filter((f) => f.question && f.answer);
 }
 
-export function parseTallyDocuments(text: string): TallyDocumentDraft[] {
-  const json = parseAnalysisJson(text) as { documents?: unknown } | null;
-  const docs = json && !Array.isArray(json) ? json.documents : null;
+export function parseTallyOutput(text: string): TallyOutputDraft {
+  const json = parseAnalysisJson(text) as { documents?: unknown; sharedRules?: unknown; relations?: unknown } | null;
+  const obj = json && !Array.isArray(json) ? json : {};
+  const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+  const cleanStrings = (v: unknown): string[] =>
+    asArray(v)
+      .filter((x): x is string => typeof x === "string")
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+  const sharedRules = new Map<string, SharedRule[]>();
+  for (const item of asArray(obj.sharedRules).filter(isRecord)) {
+    const template = typeof item.template === "string" ? item.template.trim() : "";
+    // 規則可以是 {field, text}，也容忍 AI 只給字串
+    const rules = asArray(item.rules)
+      .map((r): SharedRule | null => {
+        if (typeof r === "string") return r.trim() ? { field: null, text: r.trim() } : null;
+        if (!isRecord(r) || typeof r.text !== "string" || !r.text.trim()) return null;
+        const field = typeof r.field === "string" && r.field.trim() && r.field.trim() !== "null" ? r.field.trim() : null;
+        return { field, text: r.text.trim() };
+      })
+      .filter((r): r is SharedRule => r !== null);
+    if (template && rules.length > 0) sharedRules.set(template, [...(sharedRules.get(template) ?? []), ...rules]);
+  }
+
+  const relations = asArray(obj.relations)
+    .filter(isRecord)
+    .map((r) => ({ items: [...new Set(cleanStrings(r.items))], description: typeof r.description === "string" ? r.description.trim() : "" }))
+    .filter((r) => r.items.length >= 2 && r.description);
+
+  return { documents: parseDocumentDrafts(obj.documents), sharedRules, relations };
+}
+
+function parseDocumentDrafts(docs: unknown): TallyDocumentDraft[] {
   if (!Array.isArray(docs)) return [];
 
   return docs
@@ -392,31 +443,59 @@ function normalizeFieldKey(key: string): string {
 }
 
 export const MISSING_FIELD_TEXT = "文件未提及";
+// 這個欄位實體本身沒寫，但有對應的通用規則
+export const SHARED_FIELD_TEXT = "請見下方「通用規則」";
 
 // 由伺服器依範本樹組 markdown：維度順序照分類管理的排序，缺的欄位補「文件未提及」，不依賴 AI 自己排版。
-export function buildTallyDocumentMarkdown(template: TallyTemplate, values: Record<string, string | null>): string {
+export function buildTallyDocumentMarkdown(
+  template: TallyTemplate,
+  values: Record<string, string | null>,
+  extras: { related?: { others: string[]; description: string }[]; sharedRules?: SharedRule[] } = {},
+): string {
   const lookup = new Map<string, string>();
   for (const [key, value] of Object.entries(values)) {
     if (value) lookup.set(normalizeFieldKey(key), value);
   }
+  // 有通用規則對應的欄位：實體自己沒寫時指向下方的通用規則，而不是寫「文件未提及」
+  const sharedFields = new Set((extras.sharedRules ?? []).flatMap((r) => (r.field ? [normalizeFieldKey(r.field)] : [])));
+  const missing = (key: string) => (sharedFields.has(normalizeFieldKey(key)) ? SHARED_FIELD_TEXT : MISSING_FIELD_TEXT);
 
   const lines: string[] = [];
   for (const h2 of template.children) {
     lines.push(`## ${h2.name}`, "");
     const overview = lookup.get(normalizeFieldKey(h2.name));
     if (h2.children.length === 0) {
-      lines.push(overview ?? MISSING_FIELD_TEXT, "");
+      lines.push(overview ?? missing(h2.name), "");
       continue;
     }
     if (overview) lines.push(overview, "");
     for (const h3 of h2.children) {
-      lines.push(`### ${h3.name}`, "", lookup.get(normalizeFieldKey(`${h2.name} > ${h3.name}`)) ?? MISSING_FIELD_TEXT, "");
+      const key = `${h2.name} > ${h3.name}`;
+      lines.push(`### ${h3.name}`, "", lookup.get(normalizeFieldKey(key)) ?? missing(key), "");
     }
+  }
+
+  // 系統產生的段落：跟其他實體的關聯（雙向一致），以及這個範本所有實體共用的通用規則
+  if (extras.related && extras.related.length > 0) {
+    lines.push("## 相關項目", "");
+    for (const r of extras.related) lines.push(`- **${r.others.join("、")}**：${r.description}`);
+    lines.push("");
+  }
+  // 實體自己在某欄位寫了內容（例外），就不再附上同一欄位的通用規則，避免同一份文件前後矛盾
+  const applicableRules = (extras.sharedRules ?? []).filter((r) => !r.field || !lookup.has(normalizeFieldKey(r.field)));
+  if (applicableRules.length > 0) {
+    lines.push(`## 通用規則（適用所有${template.name}）`, "");
+    for (const rule of applicableRules) lines.push(`- ${rule.text}`);
+    lines.push("");
   }
   return lines.join("\n").trim();
 }
 
 // 判斷兩個實體是不是同一個：忽略大小寫、全形半形、空白與連字號（「L600」「L-600」「ｌ６００」視為同一個）
 export function entityKey(template: string, name: string): string {
-  return `${template}\u0000${name.normalize("NFKC").toLowerCase().replace(/[\s\-_－—–‐・.]/g, "")}`;
+  return `${template}\u0000${entityNameKey(name)}`;
+}
+
+export function entityNameKey(name: string): string {
+  return name.normalize("NFKC").toLowerCase().replace(/[\s\-_－—–‐・.]/g, "");
 }
