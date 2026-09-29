@@ -44,6 +44,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#f1f5f9",
   },
   tableCell: { flex: 1, borderWidth: 0.5, borderColor: "#cbd5e1", padding: 4, fontSize: 9.5 },
+  nestedList: { marginTop: 3, marginLeft: 4 },
+  hr: { borderBottomWidth: 0.75, borderBottomColor: "#cbd5e1", marginTop: 4, marginBottom: 10 },
+  quote: { borderLeftWidth: 2, borderLeftColor: "#94a3b8", paddingLeft: 10, marginBottom: 8, color: "#475569" },
+  codeBlock: {
+    fontFamily: "Courier",
+    fontSize: 9,
+    backgroundColor: "#f1f5f9",
+    padding: 8,
+    marginBottom: 8,
+  },
   strong: { fontWeight: "bold" },
   em: { fontStyle: "italic" },
   code: { fontFamily: "Courier" },
@@ -82,7 +92,14 @@ function renderInline(tokens: Token[] | undefined, fallbackText: string): React.
       );
     }
     if (t.type === "link") {
-      return <Text key={i}>{renderInline((t as Tokens.Link).tokens, (t as Tokens.Link).text)}</Text>;
+      const link = t as Tokens.Link;
+      const showUrl = link.href && link.href !== link.text && !link.href.startsWith("mailto:");
+      return (
+        <Text key={i}>
+          {renderInline(link.tokens, link.text)}
+          {showUrl ? `（${link.href}）` : ""}
+        </Text>
+      );
     }
     if (t.type === "br") return "\n";
     // 緊湊清單（項目間沒有空行，例如我們產出的「- **欄位**：內容」）裡，marked 會把每個項目包成一個
@@ -116,15 +133,23 @@ function renderParagraph(token: Tokens.Paragraph, key: string) {
   );
 }
 
-function renderList(token: Tokens.List, key: string) {
+function renderList(token: Tokens.List, key: string, depth = 0) {
   return (
-    <View key={key} style={styles.listWrap}>
-      {token.items.map((item, i) => (
-        <View key={i} style={styles.listItem} wrap={false}>
-          <Text style={styles.bullet}>{token.ordered ? `${(Number(token.start) || 1) + i}.` : "•"}</Text>
-          <Text style={styles.listItemText}>{renderInline(item.tokens, item.text)}</Text>
-        </View>
-      ))}
+    <View key={key} style={depth === 0 ? styles.listWrap : styles.nestedList}>
+      {token.items.map((item, i) => {
+        // 項目內容 = 行內文字 + 可能的巢狀清單；巢狀清單另外遞迴畫在文字下方
+        const inlineTokens = item.tokens.filter((t) => t.type !== "list");
+        const nestedLists = item.tokens.filter((t): t is Tokens.List => t.type === "list");
+        return (
+          <View key={i} style={styles.listItem} wrap={nestedLists.length > 0}>
+            <Text style={styles.bullet}>{token.ordered ? `${(Number(token.start) || 1) + i}.` : depth === 0 ? "•" : "◦"}</Text>
+            <View style={styles.listItemText}>
+              <Text>{renderInline(inlineTokens, nestedLists.length > 0 ? "" : item.text)}</Text>
+              {nestedLists.map((nested, ni) => renderList(nested, `n${ni}`, depth + 1))}
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -174,6 +199,20 @@ function renderBlock(token: Token, key: string): React.ReactNode {
       return renderTable(token as Tokens.Table, key);
     case "space":
       return null;
+    case "hr":
+      return <View key={key} style={styles.hr} />;
+    case "blockquote":
+      return (
+        <View key={key} style={styles.quote}>
+          {(token as Tokens.Blockquote).tokens.map((t, i) => renderBlock(t, `${key}-${i}`))}
+        </View>
+      );
+    case "code":
+      return (
+        <Text key={key} style={styles.codeBlock}>
+          {(token as Tokens.Code).text}
+        </Text>
+      );
     default:
       return renderFallback(token, key);
   }
