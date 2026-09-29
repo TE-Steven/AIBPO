@@ -7,37 +7,8 @@ export type FaqDraft = { question: string; answer: string; suggestedTally: strin
 export type TallyDocumentDraft = { template: string; name: string; values: Record<string, string | null> };
 export type TallyTemplate = TallyNode<Tally>;
 
-// 範本欄位：第二層維度；有第三層的話再列出「維度 > 子維度」
-function templateFields(template: TallyTemplate): { key: string; optional: boolean }[] {
-  return template.children.flatMap((h2) =>
-    h2.children.length > 0
-      ? [{ key: h2.name, optional: true }, ...h2.children.map((h3) => ({ key: `${h2.name} > ${h3.name}`, optional: false }))]
-      : [{ key: h2.name, optional: false }],
-  );
-}
-
-function buildTemplateText(templates: TallyTemplate[]): string {
-  if (templates.length === 0) return "";
-  const templatesText = templates
-    .map(
-      (t) =>
-        `範本「${t.name}」的欄位：\n${templateFields(t)
-          .map((f) => `- ${f.key}${f.optional ? "（整體說明，選填；細項請填在下面的子欄位）" : ""}`)
-          .join("\n")}`,
-    )
-    .join("\n\n");
-  return `
-除了 FAQ 之外，還要依照下面的「文件範本」整理結構化文件。每個範本代表一種實體（例如「產品型號」），請找出文件中所有屬於這一類的實體（例如每一個型號），一個都不要漏；每個實體整理成一份文件，逐一填寫範本的每個欄位：
-
-${templatesText}
-
-結構化文件的規則：
-- 欄位內容只能根據文件內容，文件沒有提到的欄位一律填 null，不要猜測或補寫
-- 欄位內容可以用 markdown（條列、表格），但不要加標題（#），標題會由系統依範本產生
-- name 用文件中該實體的正式名稱（例如型號名稱）
-- 文件裡找不到屬於某個範本的實體，就不要產出那個範本的文件
-- values 的 key 必須和上面列出的欄位名稱完全一樣
-`;
+function guidelinesPrefix(guidelines?: string): string {
+  return guidelines?.trim() ? `【最高準則，優先於本提示詞裡的其他任何指示，一定要遵守】\n${guidelines.trim()}\n\n---\n\n` : "";
 }
 
 export type WorkflowDraft = {
@@ -47,19 +18,17 @@ export type WorkflowDraft = {
   unmatchedNote: string | null;
 };
 
+// FAQ 分析的提示詞。結構化文件另外用 buildDocumentsSystemPrompt 分開產生（兩者一起輸出時太長容易被截斷、互相拖累）。
 export function buildSystemPrompt(params: {
   dimensions: string[];
-  tallies: Tally[];
-  // 有子分類的第一層分類：要依範本另外產出結構化文件
-  templates?: TallyTemplate[];
+  // 分類的完整路徑（大 > 中 > 小），讓 AI 替每題 FAQ 建議歸類
+  tallyPaths: string[];
   countMin: number;
   countMax: number;
   answerStyle?: string;
   guidelines?: string;
 }): string {
-  const { dimensions, tallies, countMin, countMax, answerStyle, guidelines } = params;
-  const templates = params.templates ?? [];
-  const templateText = buildTemplateText(templates);
+  const { dimensions, tallyPaths, countMin, countMax, answerStyle, guidelines } = params;
 
   const dimensionsText =
     dimensions.length > 0
@@ -67,9 +36,9 @@ export function buildSystemPrompt(params: {
       : "（使用者沒有指定特定維度，請你自行判斷內容中最值得整理成 FAQ 的重點）";
 
   const tallyText =
-    tallies.length > 0
-      ? `\n你也可以參考以下分類清單，為每一題建議最適合歸類的分類名稱（從清單中選一個最貼近的名稱，完全比對不到就填 null，不要自己發明新分類名稱）：\n${tallies
-          .map((t) => `- ${t.name}`)
+    tallyPaths.length > 0
+      ? `\n你也可以參考以下分類清單，為每一題建議最適合歸類的分類（「>」表示上下層；請照抄清單中的一整行完整路徑，完全比對不到就填 null，不要自己發明新分類）：\n${tallyPaths
+          .map((t) => `- ${t}`)
           .join("\n")}\n`
       : "";
 
@@ -77,17 +46,13 @@ export function buildSystemPrompt(params: {
     ? `\n使用者對「答案」的輸出風格有以下額外要求，請務必遵守：\n${answerStyle.trim()}\n`
     : "";
 
-  const guidelinesBlock = guidelines?.trim()
-    ? `【最高準則，優先於本提示詞裡的其他任何指示，一定要遵守】\n${guidelines.trim()}\n\n---\n\n`
-    : "";
-
-  return `${guidelinesBlock}你是知識庫建置助手（Knowledge Management）。使用者會提供一份文件或一個網頁，你要仔細閱讀全文內容，根據下面指定的「分析維度」，找出所有適合整理成 FAQ（常見問題集）的題目與答案組合。
+  return `${guidelinesPrefix(guidelines)}你是知識庫建置助手（Knowledge Management）。使用者會提供一份文件或一個網頁，你要仔細閱讀全文內容，根據下面指定的「分析維度」，找出所有適合整理成 FAQ（常見問題集）的題目與答案組合。
 
 請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。
 
 分析維度：
 ${dimensionsText}
-${tallyText}${answerStyleText}${templateText}
+${tallyText}${answerStyleText}
 請產出介於 ${countMin} 到 ${countMax} 題之間的 FAQ，每一題必須：
 - 題目要像真實使用者會問的問題，具體、口語化
 - 答案要根據文件內容回答，不要虛構或超出文件範圍的內容
@@ -96,19 +61,54 @@ ${tallyText}${answerStyleText}${templateText}
 - 不要加「實際以官網公告為準」「詳情請洽詢」「請以最新資訊為準」這類模稜兩可、把責任推回去的免責聲明——文件裡寫的資訊就是確定的答案，直接肯定地講出來就好
 - 如果內容本質上是價目表、規格比較、方案對照這種有多個項目、多個欄位互相對應的資料，不要把它拆成一條條零碎的問答（會破壞項目與欄位之間的對應關係，之後容易被誤讀或誤答）。這種情況請整合成一題，答案用 markdown 表格完整呈現，保留完整的行列對應
 
-${
-    templates.length > 0
-      ? `完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個物件，格式如下，不要在 json 區塊內加註解或其他文字：
+完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個陣列，格式如下，不要在 json 區塊內加註解或其他文字：
 
 \`\`\`json
-{"faqs": [{"question": "...", "answer": "...", "suggestedTally": "分類名稱或 null"}], "documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}]}
-\`\`\``
-      : `完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個陣列，格式如下，不要在 json 區塊內加註解或其他文字：
+[{"question": "...", "answer": "...", "suggestedTally": "分類完整路徑或 null"}]
+\`\`\``;
+}
+
+// 範本欄位：第二層維度；有第三層的話再列出「維度 > 子維度」
+function templateFields(template: TallyTemplate): { key: string; optional: boolean }[] {
+  return template.children.flatMap((h2) =>
+    h2.children.length > 0
+      ? [{ key: h2.name, optional: true }, ...h2.children.map((h3) => ({ key: `${h2.name} > ${h3.name}`, optional: false }))]
+      : [{ key: h2.name, optional: false }],
+  );
+}
+
+// 結構化文件的提示詞：只做「找出所有實體、逐欄填寫」，不受 FAQ 的分析維度、題數、答案風格影響（最高準則仍然適用）。
+export function buildDocumentsSystemPrompt(params: { templates: TallyTemplate[]; guidelines?: string }): string {
+  const templatesText = params.templates
+    .map(
+      (t) =>
+        `範本「${t.name}」的欄位：\n${templateFields(t)
+          .map((f) => `- ${f.key}${f.optional ? "（整體說明，選填；細項請填在下面的子欄位）" : ""}`)
+          .join("\n")}`,
+    )
+    .join("\n\n");
+
+  return `${guidelinesPrefix(params.guidelines)}你是知識庫建置助手（Knowledge Management）。使用者會提供一份文件或一個網頁，你要依照下面的「文件範本」把內容整理成結構化文件。
+
+請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。
+
+每個範本代表一種實體（例如「產品型號」）。請仔細讀完全文，找出文件中所有屬於這一類的實體（例如每一個型號），一個都不要漏；每個實體整理成一份文件，逐一填寫範本的每個欄位：
+
+${templatesText}
+
+規則：
+- 欄位內容只能根據文件內容，文件沒有提到的欄位一律填 null，不要猜測或補寫
+- 欄位內容可以用 markdown（條列、表格），但不要加標題（#），標題會由系統依範本產生
+- name 用文件中該實體的正式名稱（例如型號名稱）
+- 同一個實體只能輸出一份；文件裡用不同寫法（大小寫、空格、連字號）指的是同一個實體時，合併成一份
+- 文件裡找不到屬於某個範本的實體，就不要產出那個範本的文件
+- values 的 key 必須和上面列出的欄位名稱完全一樣
+
+完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），格式如下，不要在 json 區塊內加註解或其他文字：
 
 \`\`\`json
-[{"question": "...", "answer": "...", "suggestedTally": "分類名稱或 null"}]
-\`\`\``
-  }`;
+{"documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}]}
+\`\`\``;
 }
 
 export type SourceFileRef = { fileId: string; fileName: string };
@@ -157,7 +157,7 @@ export function hasSourceUrls(source: KmSource): boolean {
   return getSourceUrls(source).length > 0;
 }
 
-export function buildUserContent(source: KmSource): Anthropic.MessageParam["content"] {
+export function buildUserContent(source: KmSource, task: "faq" | "documents" = "faq"): Anthropic.MessageParam["content"] {
   const files = getSourceFiles(source);
   const urls = getSourceUrls(source);
 
@@ -179,10 +179,11 @@ export function buildUserContent(source: KmSource): Anthropic.MessageParam["cont
         : `請抓取並分析這個網址的內容：${urls[0]}`,
     );
   }
+  const output = task === "documents" ? "結構化文件" : "FAQ";
   instructions.push(
     files.length + urls.length > 1
-      ? "以上這些請視為同一個知識來源合併分析，依照系統指示產出 FAQ。"
-      : "請依照系統指示產出 FAQ。",
+      ? `以上這些請視為同一個知識來源合併分析，依照系統指示產出${output}。`
+      : `請依照系統指示產出${output}。`,
   );
 
   return [...documentBlocks, { type: "text" as const, text: instructions.join("\n\n") }];
@@ -409,4 +410,9 @@ export function buildTallyDocumentMarkdown(template: TallyTemplate, values: Reco
     }
   }
   return lines.join("\n").trim();
+}
+
+// 判斷兩個實體是不是同一個：忽略大小寫、全形半形、空白與連字號（「L600」「L-600」「ｌ６００」視為同一個）
+export function entityKey(template: string, name: string): string {
+  return `${template}\u0000${name.normalize("NFKC").toLowerCase().replace(/[\s\-_－—–‐・.]/g, "")}`;
 }

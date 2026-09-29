@@ -7,6 +7,8 @@ import { ResultsEditor } from "./ResultsEditor";
 import { ChatPanel } from "./ChatPanel";
 import { EditableTitle } from "./EditableTitle";
 import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
+import { AnalysisStuckNotice } from "./AnalysisStuckNotice";
+import { DocumentsPanel } from "./DocumentsPanel";
 import { BotTestPanel } from "./BotTestPanel";
 import { getBotTestTarget } from "@/lib/botTest";
 import { companyIdForRole } from "@/lib/company";
@@ -56,6 +58,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
   ]);
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
+  const templateNames = tallyTemplates(buildTallyTree(tallies)).map((t) => t.name);
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -80,8 +83,12 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           sourceId={source.id}
           dimensions={dimensions.map((d) => ({ id: d.id, name: d.name }))}
           hasTallies={tallies.length > 0}
-          templateNames={tallyTemplates(buildTallyTree(tallies)).map((t) => t.name)}
+          templateNames={templateNames}
         />
+      )}
+
+      {source.status === "PROCESSING" && (
+        <AnalysisStuckNotice sourceId={source.id} elapsedMinutes={elapsedMinutes(source.analysisStartedAt)} />
       )}
 
       {source.status === "DONE" && (
@@ -98,6 +105,14 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
             workflowElapsedMinutes={elapsedMinutes(source.workflowStartedAt)}
             draftCount={draftCount}
           />
+          {templateNames.length > 0 && (
+            <DocumentsPanel
+              sourceId={source.id}
+              templateNames={templateNames}
+              docCount={entries.filter((e) => e.kind === "DOC").length}
+              lastError={source.errorMessage}
+            />
+          )}
           <BotTestPanel
             sourceId={source.id}
             entryCount={entries.filter((e) => e.kind === "FAQ").length}

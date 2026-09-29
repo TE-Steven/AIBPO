@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
+import { tallyPathOptions, resolveTallyId } from "@/lib/tallyTree";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
 
@@ -163,7 +164,14 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
   const companyId = await companyIdForRole(roleId);
   const guidelines = await getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY);
 
-  const system = buildSystemPrompt({ dimensions, tallies, countMin: count, countMax: count, guidelines });
+  const tallyOptions = tallyPathOptions(tallies);
+  const system = buildSystemPrompt({
+    dimensions,
+    tallyPaths: tallyOptions.map((o) => o.path),
+    countMin: count,
+    countMax: count,
+    guidelines,
+  });
   const content = buildUserContent(source);
 
   const response = await anthropic.messages.create({
@@ -189,8 +197,6 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
     return { error: "這次沒有產生出新的題目，可能是內容不足以支撐更多維度，可以換個維度再試。" };
   }
 
-  const tallyIdByName = new Map(tallies.map((t) => [t.name, t.id]));
-
   await prisma.$transaction(
     drafts.map((f) =>
       prisma.kmEntry.create({
@@ -198,7 +204,7 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
           sourceId,
           question: f.question,
           answer: f.answer,
-          tallyId: f.suggestedTally ? (tallyIdByName.get(f.suggestedTally) ?? null) : null,
+          tallyId: resolveTallyId(tallyOptions, f.suggestedTally),
           dimensionsUsed: dimensions,
           roleId,
         },

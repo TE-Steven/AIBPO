@@ -164,6 +164,8 @@ model KmSource {
   rawText              String?  @db.Text
   status               String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
   errorMessage         String?
+  // 這一次分析的開始時間：寫回結果時只在「還是同一次」才寫，按了停止後舊請求晚到的結果會被丟掉
+  analysisStartedAt    DateTime?
   // RAG 內容：把原文重排清理成乾淨版文件（不是 Q&A 抽取），跟 FAQ 分析各自獨立觸發、各自失敗。
   ragContent           String?  @db.Text
   ragStatus            String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED

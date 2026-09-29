@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { generateRagContentAction, stopRagContentAction } from "./ragActions";
 import { generateWorkflowDraftsAction, stopWorkflowDraftsAction } from "./workflowActions";
 import { IconCheckCircle, IconAlertTriangle, IconSparkles, IconChevronDown } from "@/components/icons";
+import { StuckNotice } from "./StuckNotice";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   NONE: { label: "尚未產生", className: "bg-slate-100 text-slate-500" },
@@ -14,26 +15,6 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   DONE: { label: "已完成", className: "bg-emerald-50 text-emerald-600" },
   FAILED: { label: "失敗", className: "bg-rose-50 text-rose-600" },
 };
-
-// 「產生中」卻不是這個分頁在等結果（重新整理過、或伺服器重新部署把請求中斷）時顯示：已進行多久 + 停止按鈕。
-function StuckNotice({ elapsedMinutes, onStop, stopping }: { elapsedMinutes: number | null; onStop: () => void; stopping: boolean }) {
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-100">
-      <span className="flex-1">
-        {elapsedMinutes === null ? "產生中，無法確認開始時間" : `已進行約 ${elapsedMinutes} 分鐘`}
-        。一般幾分鐘內就會完成；如果等很久都沒動靜，可能是中途被中斷了，可以停止後重新產生。
-      </span>
-      <button
-        type="button"
-        onClick={onStop}
-        disabled={stopping}
-        className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
-      >
-        {stopping ? "停止中…" : "停止"}
-      </button>
-    </div>
-  );
-}
 
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_LABEL[status] ?? STATUS_LABEL.NONE;

@@ -1,0 +1,77 @@
+import type { NextRequest } from "next/server";
+import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/db";
+import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
+import { generateTallyDocuments, saveTallyDocuments } from "@/lib/tallyDocuments";
+import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
+import { companyIdForRole } from "@/lib/company";
+
+export const dynamic = "force-dynamic";
+
+// 重新產生結構化文件：分析完成後改了分類範本，或第一次產生失敗時使用。
+// 新的產生成功才替換掉這個來源既有的結構化文件；失敗的話舊的保持不動。FAQ 完全不受影響。
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const session = await getSession();
+  if (!session) return new Response("Unauthorized", { status: 401 });
+  if (session.kind !== "user") return new Response("Forbidden", { status: 403 });
+
+  const source = await prisma.kmSource.findUnique({ where: { id } });
+  if (!source) return new Response("Not found", { status: 404 });
+  if (source.roleId !== session.roleId) return new Response("Forbidden", { status: 403 });
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      let closed = false;
+      function send(event: string, data: unknown) {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          closed = true;
+        }
+      }
+
+      try {
+        if (source.status !== "DONE") throw new Error("這個來源還沒分析完成，請先完成分析。");
+        const tallies = await prisma.tally.findMany({ where: { roleId: source.roleId }, orderBy: { order: "asc" } });
+        const templates = tallyTemplates(buildTallyTree(tallies));
+        if (templates.length === 0) {
+          throw new Error("目前沒有文件範本：請先到「分類管理」在大分類底下加上子分類（維度）。");
+        }
+
+        const guidelines = await getSystemSetting(await companyIdForRole(source.roleId), KM_OUTPUT_GUIDELINES_KEY);
+        const documents = await generateTallyDocuments({
+          source,
+          templates,
+          guidelines,
+          onThinking: (text) => send("thinking", { text }),
+          onFetch: () => send("stage", { label: "正在讀取網頁內容…" }),
+        });
+        if (documents.length === 0) {
+          throw new Error("文件裡沒有找到符合範本的實體，既有的結構化文件保持不變。");
+        }
+
+        await saveTallyDocuments({ sourceId: id, roleId: source.roleId, documents, replace: true });
+        await prisma.kmSource.update({ where: { id }, data: { errorMessage: null } });
+        send("done", { docCount: documents.length });
+      } catch (err) {
+        send("error", { message: err instanceof Error ? err.message : "結構化文件產生失敗。" });
+      } finally {
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}

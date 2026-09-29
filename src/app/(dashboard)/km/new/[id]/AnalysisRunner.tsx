@@ -6,7 +6,9 @@ import { IconSparkles, IconAlertTriangle, IconCheckCircle } from "@/components/i
 
 type Dimension = { id: string; name: string };
 
-const STAGES = ["讀取來源內容", "依維度擷取重點", "整理成 FAQ 題目與答案", "產出結果"] as const;
+const BASE_STAGES = ["讀取來源內容", "依維度擷取重點", "整理成 FAQ 題目與答案", "產出結果"];
+// 有文件範本時，FAQ 之後多一段「依範本整理結構化文件」
+const DOC_STAGES = ["讀取來源內容", "依維度擷取重點", "整理成 FAQ 題目與答案", "依範本整理結構化文件", "產出結果"];
 
 export function AnalysisRunner({
   sourceId,
@@ -32,7 +34,8 @@ export function AnalysisRunner({
   const [stageIndex, setStageIndex] = useState(0);
   const [thinkingText, setThinkingText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [doneCount, setDoneCount] = useState<{ faq: number; doc: number } | null>(null);
+  const [doneCount, setDoneCount] = useState<{ faq: number; doc: number; docError: string | null } | null>(null);
+  const stages = useTally && templateNames.length > 0 ? DOC_STAGES : BASE_STAGES;
   const esRef = useRef<EventSource | null>(null);
 
   function toggleDimension(id: string) {
@@ -73,10 +76,14 @@ export function AnalysisRunner({
       setThinkingText((prev) => (prev + text).slice(-4000));
     });
     es.addEventListener("text", () => setStageIndex((i) => Math.max(i, 2)));
-    es.addEventListener("done", (e) => {
-      const { count, docCount } = JSON.parse((e as MessageEvent).data);
+    es.addEventListener("documents", () => {
       setStageIndex(3);
-      setDoneCount({ faq: count, doc: docCount ?? 0 });
+      setThinkingText("");
+    });
+    es.addEventListener("done", (e) => {
+      const { count, docCount, docError } = JSON.parse((e as MessageEvent).data);
+      setStageIndex(stages.length - 1);
+      setDoneCount({ faq: count, doc: docCount ?? 0, docError: docError ?? null });
       es.close();
       router.refresh();
     });
@@ -102,8 +109,8 @@ export function AnalysisRunner({
           <h2 className="text-sm font-semibold text-slate-900">AI 分析中…</h2>
         </div>
 
-        <ol className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {STAGES.map((label, i) => (
+        <ol className={`mb-4 grid grid-cols-2 gap-2 ${stages.length > 4 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+          {stages.map((label, i) => (
             <li
               key={label}
               className={`rounded-lg px-3 py-2 text-center text-xs font-medium ${
@@ -125,10 +132,18 @@ export function AnalysisRunner({
             {error}
           </p>
         ) : doneCount !== null ? (
+          <>
           <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-100">
             <IconCheckCircle className="h-4 w-4 shrink-0" />
             分析完成，產出了 {doneCount.faq} 題 FAQ{doneCount.doc > 0 ? `、${doneCount.doc} 份結構化文件` : ""}。
           </p>
+          {doneCount.docError && (
+            <p className="mt-2 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-700 ring-1 ring-inset ring-amber-100">
+              <IconAlertTriangle className="h-4 w-4 shrink-0" />
+              FAQ 已經存好，但結構化文件沒有產生成功：{doneCount.docError}（可以在來源頁按「重新產生結構化文件」）
+            </p>
+          )}
+          </>
         ) : (
           <div className="max-h-64 overflow-y-auto rounded-lg bg-slate-900 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-slate-300">
             {thinkingText || "AI 正在思考…"}
