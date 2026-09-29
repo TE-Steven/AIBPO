@@ -1,17 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { stripBotDisclaimer } from "@/lib/botTestShared";
+import { buildJudgeSystemPrompt } from "@/lib/kmAnalysis";
+import type { PromptConfigData } from "@/lib/promptConfig";
 
 // 機器人測試的 AI 比對：判斷機器人回答跟標準答案意思是否一致，不一致就說明差在哪裡。
 
 export type JudgeResult = { verdict: "MATCH" | "MISMATCH" | "ERROR"; reason: string | null };
 
-const JUDGE_SYSTEM = `你是客服知識庫的品質檢查員。使用者會給你一題客服問題、標準答案，以及客服機器人的實際回答。
-請判斷機器人回答跟標準答案是否一致：
-- 重點是「意思」與「關鍵資訊」（數字、條件、步驟、限制、注意事項），用字、語氣、排版、順序不同都不算不一致。
-- 機器人多補充了不衝突的資訊，只要標準答案的關鍵資訊都有講到、沒有講錯，仍算一致。
-- 以下算不一致：漏掉標準答案裡的關鍵資訊、數字或條件講錯、意思相反或答非所問、回答「不知道」或要客戶另洽客服。
-- 不一致時，reason 用繁體中文一到兩句具體說明差異（例如「少回答到保固期限 2 年」「把 100 公分講成 120 公分」）；一致時 reason 填空字串。`;
+// 比對用的系統提示詞由 Prompt 管理的設定組成（buildJudgeSystemPrompt，規則 J1–J4）
 
 const JUDGE_SCHEMA = {
   type: "object",
@@ -28,12 +25,14 @@ export async function judgeBotAnswer(params: {
   expectedAnswer: string;
   botAnswer: string;
   roleId: string;
+  // 公司在 Prompt 管理調整的比對標準；沒給就用預設
+  config?: PromptConfigData;
 }): Promise<JudgeResult> {
   try {
     const response = await anthropic.messages.create({
       model: KM_ANALYSIS_MODEL,
       max_tokens: 2000,
-      system: JUDGE_SYSTEM,
+      system: buildJudgeSystemPrompt(params.config),
       output_config: { effort: "low", format: { type: "json_schema", schema: JUDGE_SCHEMA } },
       messages: [
         {

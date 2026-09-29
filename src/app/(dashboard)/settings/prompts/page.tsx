@@ -1,25 +1,26 @@
 import { requireCompanyAdmin } from "@/lib/session";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
-import { PromptForm } from "./PromptForm";
+import { getPromptConfig } from "@/lib/promptConfigStore";
+import { PromptSettings } from "./PromptSettings";
 
 export default async function PromptsPage() {
   const session = await requireCompanyAdmin();
 
-  const guidelines = await getSystemSetting(session.companyId, KM_OUTPUT_GUIDELINES_KEY);
+  const [guidelines, config] = await Promise.all([
+    getSystemSetting(session.companyId, KM_OUTPUT_GUIDELINES_KEY),
+    getPromptConfig(session.companyId),
+  ]);
 
   return (
     <div className="animate-fade-in space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Prompt 管理</h1>
         <p className="mt-1 text-sm text-slate-500">
-          在這裡定義的準則，優先於任何使用者在「來源管理」自訂的分析參數，會套用在所有 KM 分析與問答上。
+          設定這間公司所有 AI 產出使用的提示詞與參數：每一條規則都可以開關、修改文字，隨時還原成系統預設。AI 每次執行時都會讀取這裡的最新設定。
         </p>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold text-slate-900">KM 輸出最高準則</h2>
-        <PromptForm defaultValue={guidelines} />
-      </div>
+      <PromptSettings guidelines={guidelines} initialConfig={config} />
     </div>
   );
 }

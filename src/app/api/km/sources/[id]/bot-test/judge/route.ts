@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { judgeBotAnswer } from "@/lib/botJudge";
+import { getPromptConfig } from "@/lib/promptConfigStore";
+import { companyIdForRole } from "@/lib/company";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   });
 
   const updated: { id: string; judgeVerdict: string; judgeReason: string | null }[] = [];
+  const promptConfig = await getPromptConfig(await companyIdForRole(source.roleId));
   let next = 0;
   async function worker() {
     while (next < targets.length) {
@@ -46,6 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         expectedAnswer,
         botAnswer: r.botAnswer!,
         roleId: source!.roleId,
+        config: promptConfig,
       });
       await prisma.botTestResult.update({
         where: { id: r.id },

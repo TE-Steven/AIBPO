@@ -13,6 +13,8 @@ import { BotTestPanel } from "./BotTestPanel";
 import { getBotTestTarget } from "@/lib/botTest";
 import { companyIdForRole } from "@/lib/company";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
+import { getPromptConfig } from "@/lib/promptConfigStore";
+import { resolveOptions } from "@/lib/promptConfig";
 import { sourceLabel } from "@/lib/kmAnalysis";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
@@ -43,7 +45,8 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
     }),
   ]);
 
-  const [entries, draftCount, botTestRuns, botTestTarget] = await Promise.all([
+  const companyId = await companyIdForRole(source.roleId);
+  const [entries, draftCount, botTestRuns, botTestTarget, promptConfig] = await Promise.all([
     source.status === "DONE"
       ? prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } })
       : Promise.resolve([]),
@@ -54,8 +57,10 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
       orderBy: { createdAt: "desc" },
       take: 10,
     }),
-    companyIdForRole(source.roleId).then(getBotTestTarget),
+    getBotTestTarget(companyId),
+    getPromptConfig(companyId),
   ]);
+  const promptOptions = resolveOptions(promptConfig);
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
   const templateNames = tallyTemplates(buildTallyTree(tallies)).map((t) => t.name);
@@ -84,6 +89,8 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           dimensions={dimensions.map((d) => ({ id: d.id, name: d.name }))}
           hasTallies={tallies.length > 0}
           templateNames={templateNames}
+          defaultCountMin={promptOptions.faqCountMin}
+          defaultCountMax={promptOptions.faqCountMax}
         />
       )}
 

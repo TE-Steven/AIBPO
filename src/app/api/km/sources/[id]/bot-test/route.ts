@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { companyIdForRole } from "@/lib/company";
 import { askBot, decodeTokenClaims, getBotTestTarget, BotTokenError, type AskResult } from "@/lib/botTest";
 import { judgeBotAnswer } from "@/lib/botJudge";
+import { getPromptConfig } from "@/lib/promptConfigStore";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return jsonError(err instanceof BotTokenError ? err.message : "token 格式不正確。", 400);
   }
 
-  const target = await getBotTestTarget(await companyIdForRole(source.roleId));
+  const companyId = await companyIdForRole(source.roleId);
+  const [target, promptConfig] = await Promise.all([getBotTestTarget(companyId), getPromptConfig(companyId)]);
   if (!target) return jsonError("這間公司還沒設定機器人測試 API，請聯絡平台管理員。", 400);
 
   // 決定這次要跑哪些題目
@@ -193,6 +195,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
                     expectedAnswer: job.expectedAnswer,
                     botAnswer: result.answer,
                     roleId,
+                    config: promptConfig,
                   })
                 : null;
             const data = { ...resultData(result), judgeVerdict: judge?.verdict ?? null, judgeReason: judge?.reason ?? null };

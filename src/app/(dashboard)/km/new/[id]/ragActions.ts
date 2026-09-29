@@ -15,6 +15,7 @@ import {
 import type Anthropic from "@anthropic-ai/sdk";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
+import { getPromptConfig } from "@/lib/promptConfigStore";
 
 export type RagActionState = { success?: string; error?: string };
 
@@ -39,8 +40,14 @@ export async function generateRagContentAction(sourceId: string): Promise<RagAct
 
   try {
     // 公司的「Prompt 最高準則」跟 FAQ／結構化文件一樣要套用
-    const guidelines = await getSystemSetting(await companyIdForRole(source.roleId), KM_OUTPUT_GUIDELINES_KEY);
-    const system = buildRagSystemPrompt({ docId: ragDocId(source), sourceDescription: ragSourceDescription(source), guidelines });
+    const companyId = await companyIdForRole(source.roleId);
+    const [guidelines, config] = await Promise.all([getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY), getPromptConfig(companyId)]);
+    const system = buildRagSystemPrompt({
+      docId: ragDocId(source),
+      sourceDescription: ragSourceDescription(source),
+      guidelines,
+      config,
+    });
     const content = buildUserContent(source);
 
     // RAG 是整份文件重排，長文件輸出很長：用串流（大 max_tokens 不會逾時），並檢查有沒有被截斷

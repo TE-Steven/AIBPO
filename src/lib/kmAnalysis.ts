@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { KmEntry, KmSource, Tally } from "@/generated/prisma/client";
 import type { TallyNode } from "@/lib/tallyTree";
+import { ruleText, resolveOptions, type PromptConfigData } from "@/lib/promptConfig";
 
 export type FaqDraft = { question: string; answer: string; suggestedTally: string | null };
 // 依分類範本整理的結構化文件（AI 原始輸出）：template = 第一層分類名稱，values 的 key 是「維度」或「維度 > 子維度」
@@ -27,7 +28,14 @@ export type WorkflowDraft = {
   unmatchedNote: string | null;
 };
 
+// 把一段規則清單組成「- 規則」的條列；全部關閉時回傳 null
+function ruleLines(config: PromptConfigData | undefined, ids: string[]): string | null {
+  const lines = ids.map((id) => ruleText(config, id)).filter((t): t is string => Boolean(t));
+  return lines.length > 0 ? lines.map((t) => `- ${t}`).join("\n") : null;
+}
+
 // FAQ 分析的提示詞。結構化文件另外用 buildDocumentsSystemPrompt 分開產生（兩者一起輸出時太長容易被截斷、互相拖累）。
+// 文字與開關來自公司的提示詞設定（Prompt 管理），沒設定的部分用預設。
 export function buildSystemPrompt(params: {
   dimensions: string[];
   // 分類的完整路徑（大 > 中 > 小），讓 AI 替每題 FAQ 建議歸類
@@ -36,8 +44,9 @@ export function buildSystemPrompt(params: {
   countMax: number;
   answerStyle?: string;
   guidelines?: string;
+  config?: PromptConfigData;
 }): string {
-  const { dimensions, tallyPaths, countMin, countMax, answerStyle, guidelines } = params;
+  const { dimensions, tallyPaths, countMin, countMax, answerStyle, guidelines, config } = params;
 
   const dimensionsText =
     dimensions.length > 0
@@ -45,30 +54,25 @@ export function buildSystemPrompt(params: {
       : "（使用者沒有指定特定維度，請你自行判斷內容中最值得整理成 FAQ 的重點）";
 
   const tallyText =
-    tallyPaths.length > 0
-      ? `\n你也可以參考以下分類清單，為每一題建議最適合歸類的分類（「>」表示上下層；請照抄清單中的一整行完整路徑，完全比對不到就填 null，不要自己發明新分類）：\n${tallyPaths
-          .map((t) => `- ${t}`)
-          .join("\n")}\n`
-      : "";
+    tallyPaths.length > 0 ? `\n${ruleText(config, "F10")}\n${tallyPaths.map((t) => `- ${t}`).join("\n")}\n` : "";
 
   const answerStyleText = answerStyle?.trim()
     ? `\n使用者對「答案」的輸出風格有以下額外要求，請務必遵守：\n${answerStyle.trim()}\n`
     : "";
 
-  return `${guidelinesPrefix(guidelines)}你是知識庫建置助手（Knowledge Management）。使用者會提供一份文件或一個網頁，你要仔細閱讀全文內容，根據下面指定的「分析維度」，找出所有適合整理成 FAQ（常見問題集）的題目與答案組合。
+  const rules = ruleLines(config, ["F1", "F2", "F3", "F4", "F5", "F6"]);
+  const countText = rules
+    ? `請產出介於 ${countMin} 到 ${countMax} 題之間的 FAQ，每一題必須：\n${rules}`
+    : `請產出介於 ${countMin} 到 ${countMax} 題之間的 FAQ。`;
 
-請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。
+  return `${guidelinesPrefix(guidelines)}${ruleText(config, "faq.intro")}
+
+${ruleText(config, "faq.language")}
 
 分析維度：
 ${dimensionsText}
 ${tallyText}${answerStyleText}
-請產出介於 ${countMin} 到 ${countMax} 題之間的 FAQ，每一題必須：
-- 題目要像真實使用者會問的問題，具體、口語化
-- 答案要根據文件內容回答，不要虛構或超出文件範圍的內容
-- 同一個題目不要重複出現
-- 用第一人稱、客服的口吻直接回答，就當作你自己就是這個品牌/單位在回覆顧客，把文件內容當作「你自己知道的事」直接講出來；不要用「網站目前提供…」「文件提到…」「根據內容顯示…」這種轉述第三方來源的寫法
-- 不要加「實際以官網公告為準」「詳情請洽詢」「請以最新資訊為準」這類模稜兩可、把責任推回去的免責聲明——文件裡寫的資訊就是確定的答案，直接肯定地講出來就好
-- 如果內容本質上是價目表、規格比較、方案對照這種有多個項目、多個欄位互相對應的資料，不要把它拆成一條條零碎的問答（會破壞項目與欄位之間的對應關係，之後容易被誤讀或誤答）。這種情況請整合成一題，答案用 markdown 表格完整呈現，保留完整的行列對應
+${countText}
 
 完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個陣列，格式如下，不要在 json 區塊內加註解或其他文字：
 
@@ -77,61 +81,62 @@ ${tallyText}${answerStyleText}
 \`\`\``;
 }
 
-// 範本欄位：第二層維度；有第三層的話再列出「維度 > 子維度」
-function templateFields(template: TallyTemplate): { key: string; optional: boolean }[] {
+// 範本欄位：第二層維度；有第三層的話再列出「維度 > 子維度」（withOverview：有子維度的維度另外提供「補充說明」欄位）
+function templateFields(template: TallyTemplate, withOverview: boolean): { key: string; optional: boolean }[] {
   return template.children.flatMap((h2) =>
     h2.children.length > 0
-      ? [{ key: h2.name, optional: true }, ...h2.children.map((h3) => ({ key: `${h2.name} > ${h3.name}`, optional: false }))]
+      ? [
+          ...(withOverview ? [{ key: h2.name, optional: true }] : []),
+          ...h2.children.map((h3) => ({ key: `${h2.name} > ${h3.name}`, optional: false })),
+        ]
       : [{ key: h2.name, optional: false }],
   );
 }
 
 // 結構化文件的提示詞：只做「找出所有實體、逐欄填寫」，不受 FAQ 的分析維度、題數、答案風格影響（最高準則仍然適用）。
-export function buildDocumentsSystemPrompt(params: { templates: TallyTemplate[]; guidelines?: string }): string {
+export function buildDocumentsSystemPrompt(params: {
+  templates: TallyTemplate[];
+  guidelines?: string;
+  config?: PromptConfigData;
+}): string {
+  const { config } = params;
+  const options = resolveOptions(config);
   const templatesText = params.templates
     .map(
       (t) =>
-        `範本「${t.name}」的欄位：\n${templateFields(t)
+        `範本「${t.name}」的欄位：\n${templateFields(t, options.docOverviewField)
           .map((f) => `- ${f.key}${f.optional ? "（補充說明：只寫放不進下面任何子欄位的資訊，沒有就填 null）" : ""}`)
           .join("\n")}`,
     )
     .join("\n\n");
 
-  return `${guidelinesPrefix(params.guidelines)}你是知識庫建置助手（Knowledge Management）。使用者會提供一份文件或一個網頁，你要依照下面的「文件範本」把內容整理成結構化文件。
+  const withShared = Boolean(ruleText(config, "D11"));
+  const withRelations = Boolean(ruleText(config, "D14"));
+  const blocks = [
+    `${guidelinesPrefix(params.guidelines)}${ruleText(config, "doc.intro")}`,
+    ruleText(config, "doc.language"),
+    ruleText(config, "doc.task"),
+    templatesText,
+    `規則：\n${ruleLines(config, ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10"])}`,
+    withShared ? `通用規則（sharedRules）：\n${ruleLines(config, ["D11", "D12", "D13"])}` : null,
+    withRelations ? `關聯（relations）：\n${ruleLines(config, ["D14", "D15", "D16"])}` : null,
+  ];
 
-請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。
+  const emptyNote =
+    withShared && withRelations ? "；沒有通用規則或關聯時，給空陣列" : withShared ? "；沒有通用規則時，給空陣列" : withRelations ? "；沒有關聯時，給空陣列" : "";
+  const format = `{"documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}]${
+    withShared ? `, "sharedRules": [{"template": "範本名稱", "rules": [{"field": "欄位名稱或 null", "text": "規則"}]}]` : ""
+  }${withRelations ? `, "relations": [{"items": ["實體名稱A", "實體名稱B"], "description": "關係說明"}]` : ""}}`;
+  blocks.push(
+    `完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），格式如下，不要在 json 區塊內加註解或其他文字${emptyNote}：\n\n\`\`\`json\n${format}\n\`\`\``,
+  );
 
-每個範本代表一種實體（例如「產品型號」）。請仔細讀完全文，找出文件中所有屬於這一類的實體（例如每一個型號），一個都不要漏；每個實體整理成一份文件，逐一填寫範本的每個欄位：
+  return blocks.filter((b): b is string => Boolean(b)).join("\n\n");
+}
 
-${templatesText}
-
-規則：
-- 欄位內容只能根據文件內容，文件沒有提到的欄位一律填 null，不要猜測或補寫
-- 每一項資訊只放在最貼切的一個欄位，不要在多個欄位重複同樣的內容；「補充說明」欄位絕對不要重複子欄位已經寫過的資訊
-- 用肯定、精簡的陳述句直接寫出事實；不要用「/」並列來猜測（例如「門鎖/設備」），也不要寫「可能」「應該」這類模稜兩可的字眼——文件沒有明確說的就不寫
-- 完整保留文件中的數字、單位、條件、範圍與例外情況，不要四捨五入、概括或省略
-- 同一個實體在文件不同地方提到的資訊，要彙整到同一份文件裡
-- 欄位內容可以用 markdown（條列、表格），但不要加標題（#），標題會由系統依範本產生
-- name 用文件中該實體的正式名稱（例如型號名稱）
-- 同一個實體只能輸出一份；文件裡用不同寫法（大小寫、空格、連字號）指的是同一個實體時，合併成一份
-- 文件裡找不到屬於某個範本的實體，就不要產出那個範本的文件
-- values 的 key 必須和上面列出的欄位名稱完全一樣
-
-通用規則（sharedRules）：
-- 文件中適用於某個範本「所有」實體的規則（例如「所有型號主機保固 2 年」「全系列皆需由專人安裝」），不要寫進各實體的欄位，改列在 sharedRules：text 寫成一句完整、能單獨看懂的句子；field 填這條規則對應的欄位名稱（跟上面列出的欄位名稱完全一樣），沒有對應欄位就填 null。系統會自動把它附在該範本每一份文件的最後
-- 只適用其中「部分」實體的規則（例如「L 系列皆支援…」），不算通用規則，請寫進那些實體各自對應的欄位
-- 某個實體是通用規則的例外時（例如其他型號保固 2 年、只有 L700 保固 3 年），把例外寫進該實體的對應欄位
-
-關聯（relations）：
-- 實體之間在文件中有明確關係時（例如「A 與 B 一起購買享 9 折」「C 是 D 的專用配件」「E 為 F 的升級款」），每一筆關係只列一次：items 放所有相關實體的名稱（兩個以上，用跟 documents 的 name 一樣的寫法），description 用一句完整的話說明這個關係
-- 系統會把同一筆關係同時寫進每一個相關實體的文件，所以不需要、也不要在各實體的欄位裡重複描述這個關係
-- 關係只能根據文件內容，文件沒有明講的關係不要自己推論
-
-完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），格式如下，不要在 json 區塊內加註解或其他文字；沒有通用規則或關聯時，給空陣列：
-
-\`\`\`json
-{"documents": [{"template": "範本名稱", "name": "實體名稱", "values": {"欄位名稱": "內容或 null"}}], "sharedRules": [{"template": "範本名稱", "rules": [{"field": "欄位名稱或 null", "text": "規則"}]}], "relations": [{"items": ["實體名稱A", "實體名稱B"], "description": "關係說明"}]}
-\`\`\``;
+// 機器人測試 AI 比對的提示詞
+export function buildJudgeSystemPrompt(config?: PromptConfigData): string {
+  return `${ruleText(config, "judge.intro")}\n${ruleLines(config, ["J1", "J2", "J3", "J4"])}`;
 }
 
 export type SourceFileRef = { fileId: string; fileName: string };
@@ -242,46 +247,42 @@ export function ragSourceDescription(source: KmSource): string {
   return "PDF 上傳";
 }
 
-export function buildRagSystemPrompt(params: { docId: string; sourceDescription: string; guidelines?: string }): string {
-  const { docId, sourceDescription } = params;
+export function buildRagSystemPrompt(params: {
+  docId: string;
+  sourceDescription: string;
+  guidelines?: string;
+  config?: PromptConfigData;
+}): string {
+  const { docId, sourceDescription, config } = params;
 
-  return `${guidelinesPrefix(params.guidelines)}你是文件重排整理助手。使用者會提供一份文件或一個網頁，這份內容原本可能因為 PDF 分頁、排版等因素，導致段落被硬生生切斷、表格斷裂、或夾雜頁首頁尾雜訊。
+  // 開頭固定區塊：文件資訊（系統填入 doc_id／source）、本文回答哪些問題＋常見說法對照
+  const docInfo = ruleText(config, "R1")?.replaceAll("{doc_id}", docId).replaceAll("{source}", sourceDescription) ?? null;
+  const questions = ruleText(config, "R2");
+  const questionsBlock = questions ? `${questions}${ruleText(config, "R3") ?? ""}` : null;
+  const openingItems = [docInfo, questionsBlock].filter((t): t is string => Boolean(t));
+  const opening =
+    openingItems.length > 0
+      ? `**開頭固定${openingItems.length === 2 ? "兩" : "一"}個區塊（在 H1 標題之後、正文之前）**\n\n${openingItems
+          .map((t, i) => `${i + 1}. ${t}`)
+          .join("\n\n")}`
+      : null;
 
-請全程使用繁體中文思考與作答。你的任務**不是**把內容拆解成問答，而是把整份文件的原始資訊重新排版成一份乾淨、連貫、易讀、對下游系統友善的 markdown 文件。**請假設下游的 RAG 系統完全沒有智能**——不會幫內容補情境、不會做語意理解，就是最陽春的固定長度切塊加關鍵字/向量搜尋，所以本來該由檢索系統做的事，你都要預先寫進文件本身：
+  const section = (title: string, ids: string[]) => {
+    const lines = ruleLines(config, ids);
+    return lines ? `**${title}**\n${lines}` : null;
+  };
 
-**開頭固定兩個區塊（在 H1 標題之後、正文之前）**
-
-1. \`## 文件資訊\`：條列 5 個欄位，格式是 \`- **欄位名**：內容\`：
-   - **product**：這份文件是關於哪個產品/服務，從內容判斷
-   - **category**：這份文件的類型分類（例如「產品 / 安裝規範」「售後 / 保固政策」），從內容判斷
-   - **doc_id**：固定填「${docId}」，不要自己發明或修改
-   - **scope**：這份內容適用的範圍與不適用的例外，從內容判斷；沒有明確範圍限制就填「無特別限制」
-   - **source**：固定填「${sourceDescription}」，不要自己發明或修改
-
-2. \`## 本文回答哪些問題\`：條列這份文件實際能回答的問題，**用真實使用者/顧客會問的口語說法寫**，不要用文件本身的標題或正式術語照抄一遍（例如該寫「刷臉一直打不開怎麼辦」，不要寫「人臉辨識異常之排除方式」）。列完問題後，緊接著補一段「常見說法對照」，把同一個症狀/情境的口語講法跟文件內文會用的正式用詞對應起來（例如「刷臉打不開／認不出我的臉／偵測不到人 = 人臉辨識異常」），這樣即使使用者用口語搜尋，關鍵字也對得上文件正文用詞
-
-**結構**
-- 把被分頁切斷的段落、表格重新接回去，恢復完整的語意單位
-- 一個標題（不管 H1 或 H2）只講一個主題，標題本身要能單獨看懂，不能只靠上一層標題才理解在講什麼
-- 標題階層依內容需要決定：H1→H2 兩層就能清楚表達時，不要硬拆出 H3；只有某個主題底下真的有多個子主題時才用 H3
-- 條列的每一點都要是能單獨看懂的完整句子（講清楚主詞與結論），不要只寫名詞片語；也不要把本來該條列的多個要點擠成一大段長文
-- 圖片、示意圖、圖示裡的資訊（例如 ✓／✗ 正確與錯誤做法對照圖、流程圖、尺寸標示圖）都要轉寫成文字敘述放進正文，不能略過，也不要寫「如圖所示」這種依賴圖片的說法
-- 段落要自足，禁止「如上所述」「上述」「同前條」「詳見前頁」這種依賴上下文才成立的指代寫法——每個段落/條列都要重新把具體內容講一次，不能只回指前面
-- 移除頁首、頁尾、頁碼這類跟內容本身無關的雜訊；如果原始內容是網頁，額外要濾掉導覽列、相關文章推薦、留言區、cookie 同意條這類非正文的爬蟲雜訊
-- 保留文件原本的資訊與用詞，不要摘要、不要省略、不要改寫語意，只整理格式、結構與寫法
-
-**內容要能被單獨切出來也看得懂（最關鍵的一條）**
-- 每個標題底下的內容一開始，都要有一句肉眼可見的完整句子，明講「這段在講哪個品牌/文件/主題」，例如「以下說明追覓吹風機的保固與維修政策」。不是隱藏的 metadata，是正常寫在內文裡的一句話——這樣即使下游系統把文件切成任意大小的片段，不管切到哪一塊，只要涵蓋到段落開頭附近，都能看出這段在講什麼
-- 時間、金額、規格數字寫絕對值：原文有給明確日期就換算寫死，不要保留「即日起」「目前」這種相對說法；原文沒給日期就照實保留，不要自己編一個日期
-- 適用範圍與例外要跟結論寫在同一段裡，不要拆到別段或省略（例如「僅限 A、B 機種，C 機種不適用」要跟前面的結論放在一起）
-- 同一個具體數字/規格值只在它第一次出現、最適合的那個段落講清楚一次；如果後面其他段落需要再提到同一件事，用文字描述帶過（例如「超出前面提到的身高範圍時」），不要把同一個數字原封不動再重複打一次，**用括號補註數字也算重複**（例如「前面提到的適用身高範圍（145-200 公分）」就是違規）——同一個事實只有一個地方是最終依據，避免之後修改內容時只改到其中一處、造成兩處數字兜不起來
-
-**表格**
-- 保留成 markdown table 的同時，額外在旁邊補一段把表格內容攤平成完整句子的敘述（例如「A方案月租299元，含10GB流量」），因為下游系統可能連表格的欄位對應語意都解析不好
-
-輸出前請逐段自我檢查一次：正文裡每一個具體數字/規格值是否只出現一次（「文件資訊」「本文回答哪些問題」「常見說法對照」這三個開頭區塊不算）；第二次以後出現的，一律改成文字描述（例如「前面提到的適用身高範圍」），連括號補註都要拿掉。
-
-直接輸出整理後的 markdown 全文，不要加開場白或結語，也不要用 json 區塊包起來。即使你需要先用工具讀取網頁內容，讀取完成後也要直接接著輸出整理後的 markdown 本文，不要加「好的」「以下是」「整理完成」這類過渡句或任何說明你正在做什麼的句子——你的完整回應從第一個字開始就必須是文件本身的內容（例如一個標題），不能是任何其他文字。`;
+  const blocks = [
+    `${guidelinesPrefix(params.guidelines)}${ruleText(config, "rag.intro")}`,
+    ruleText(config, "R0"),
+    opening,
+    section("結構", ["R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"]),
+    section("內容要能被單獨切出來也看得懂（最關鍵的一條）", ["R12", "R13", "R14", "R15"]),
+    section("表格", ["R16"]),
+    ruleText(config, "R17"),
+    ruleText(config, "R18"),
+  ];
+  return blocks.filter((b): b is string => Boolean(b)).join("\n\n");
 }
 
 export function buildWorkflowSystemPrompt(skills: { id: string; name: string; description: string }[]): string {
@@ -455,7 +456,7 @@ export const SHARED_FIELD_TEXT = "請見下方「通用規則」";
 export function buildTallyDocumentMarkdown(
   template: TallyTemplate,
   values: Record<string, string | null>,
-  extras: { related?: { others: string[]; description: string }[]; sharedRules?: SharedRule[] } = {},
+  extras: { related?: { others: string[]; description: string }[]; sharedRules?: SharedRule[]; missingText?: string } = {},
 ): string {
   const lookup = new Map<string, string>();
   for (const [key, value] of Object.entries(values)) {
@@ -463,7 +464,8 @@ export function buildTallyDocumentMarkdown(
   }
   // 有通用規則對應的欄位：實體自己沒寫時指向下方的通用規則，而不是寫「文件未提及」
   const sharedFields = new Set((extras.sharedRules ?? []).flatMap((r) => (r.field ? [normalizeFieldKey(r.field)] : [])));
-  const missing = (key: string) => (sharedFields.has(normalizeFieldKey(key)) ? SHARED_FIELD_TEXT : MISSING_FIELD_TEXT);
+  const missing = (key: string) =>
+    sharedFields.has(normalizeFieldKey(key)) ? SHARED_FIELD_TEXT : (extras.missingText ?? MISSING_FIELD_TEXT);
 
   const lines: string[] = [];
   for (const h2 of template.children) {

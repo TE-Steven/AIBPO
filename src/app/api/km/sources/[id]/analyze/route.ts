@@ -7,6 +7,7 @@ import { buildTallyTree, tallyTemplates, tallyPathOptions, resolveTallyId } from
 import { generateTallyDocuments, saveTallyDocuments } from "@/lib/tallyDocuments";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
+import { getPromptConfig } from "@/lib/promptConfigStore";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +69,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         send("status", { status: "PROCESSING" });
 
         const companyId = await companyIdForRole(source.roleId);
-        const guidelines = await getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY);
+        const [guidelines, promptConfig] = await Promise.all([
+          getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY),
+          getPromptConfig(companyId),
+        ]);
 
         // ---- 第一段：FAQ ----
         const apiStream = anthropic.messages.stream({
@@ -82,6 +86,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             countMax,
             answerStyle,
             guidelines,
+            config: promptConfig,
           }),
           ...(hasSourceUrls(source)
             ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
@@ -141,6 +146,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               source,
               templates,
               guidelines,
+              config: promptConfig,
               onThinking: (text) => send("thinking", { text }),
               onFetch: () => send("stage", { label: "正在讀取網頁內容…" }),
             });

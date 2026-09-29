@@ -5,6 +5,7 @@ import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import { generateTallyDocuments, saveTallyDocuments } from "@/lib/tallyDocuments";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
+import { getPromptConfig } from "@/lib/promptConfigStore";
 
 export const dynamic = "force-dynamic";
 
@@ -41,11 +42,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           throw new Error("目前沒有文件範本：請先到「分類管理」在大分類底下加上子分類（維度）。");
         }
 
-        const guidelines = await getSystemSetting(await companyIdForRole(source.roleId), KM_OUTPUT_GUIDELINES_KEY);
+        const companyId = await companyIdForRole(source.roleId);
+        const [guidelines, promptConfig] = await Promise.all([
+          getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY),
+          getPromptConfig(companyId),
+        ]);
         const documents = await generateTallyDocuments({
           source,
           templates,
           guidelines,
+          config: promptConfig,
           onThinking: (text) => send("thinking", { text }),
           onFetch: () => send("stage", { label: "正在讀取網頁內容…" }),
         });

@@ -15,19 +15,24 @@ export function AnalysisRunner({
   dimensions,
   hasTallies,
   templateNames,
+  defaultCountMin = 10,
+  defaultCountMax = 30,
 }: {
   sourceId: string;
   dimensions: Dimension[];
   hasTallies: boolean;
   // 有子分類的第一層分類：勾選 Tally 時會依這些範本另外產出結構化文件
   templateNames: string[];
+  // FAQ 題數預設值（來自 Prompt 管理的設定）
+  defaultCountMin?: number;
+  defaultCountMax?: number;
 }) {
   const router = useRouter();
   const [selectedDimensionIds, setSelectedDimensionIds] = useState<string[]>([]);
   const [freeText, setFreeText] = useState("");
   const [useTally, setUseTally] = useState(hasTallies);
-  const [countMin, setCountMin] = useState(10);
-  const [countMax, setCountMax] = useState(30);
+  const [countMin, setCountMin] = useState(defaultCountMin);
+  const [countMax, setCountMax] = useState(defaultCountMax);
   const [answerStyle, setAnswerStyle] = useState("");
 
   const [running, setRunning] = useState(false);

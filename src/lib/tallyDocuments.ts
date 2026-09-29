@@ -12,6 +12,7 @@ import {
   type TallyTemplate,
   type TallyOutputDraft,
 } from "@/lib/kmAnalysis";
+import { resolveOptions, ruleText, type PromptConfigData } from "@/lib/promptConfig";
 import type { KmSource } from "@/generated/prisma/client";
 
 // 依分類範本產生結構化文件（KmEntry kind = DOC）。跟 FAQ 分開呼叫：一起輸出時太長容易被截斷，而且一邊失敗會連另一邊都拿不到。
@@ -22,6 +23,7 @@ export async function generateTallyDocuments(params: {
   source: KmSource;
   templates: TallyTemplate[];
   guidelines: string;
+  config?: PromptConfigData;
   onThinking?: (text: string) => void;
   onFetch?: () => void;
 }): Promise<GeneratedDocument[]> {
@@ -31,7 +33,7 @@ export async function generateTallyDocuments(params: {
     model: KM_ANALYSIS_MODEL,
     max_tokens: 64000,
     thinking: { type: "adaptive", display: "summarized" },
-    system: buildDocumentsSystemPrompt({ templates, guidelines: params.guidelines }),
+    system: buildDocumentsSystemPrompt({ templates, guidelines: params.guidelines, config: params.config }),
     ...(hasSourceUrls(source)
       ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
       : {}),
@@ -55,11 +57,19 @@ export async function generateTallyDocuments(params: {
     throw new Error("結構化文件內容太長，輸出被截斷。請減少範本的維度，或把來源拆成幾份較小的文件後再試。");
   }
 
-  return assembleTallyDocuments(parseTallyOutput(fullText), templates);
+  return assembleTallyDocuments(parseTallyOutput(fullText), templates, params.config);
 }
 
 // AI 輸出 → 每個實體一份 markdown：去重、雙向寫入關聯、附上通用規則（純函式，方便測試）
-export function assembleTallyDocuments(output: TallyOutputDraft, templates: TallyTemplate[]): GeneratedDocument[] {
+export function assembleTallyDocuments(
+  output: TallyOutputDraft,
+  templates: TallyTemplate[],
+  config?: PromptConfigData,
+): GeneratedDocument[] {
+  // Prompt 管理關掉「通用規則」「相關項目」時，就算 AI 還是回傳了也不採用
+  const useShared = Boolean(ruleText(config, "D11"));
+  const useRelations = Boolean(ruleText(config, "D14"));
+  const { docMissingText } = resolveOptions(config);
   const templateByName = new Map(templates.map((t) => [t.name, t]));
   const seen = new Set<string>();
   const drafts = output.documents.filter((d) => {
@@ -71,7 +81,7 @@ export function assembleTallyDocuments(output: TallyOutputDraft, templates: Tall
 
   // 關聯雙向寫入：每一筆關聯寫進每個相關實體的「相關項目」，列出其他實體；名稱比對忽略大小寫、全半形、空白與連字號
   const seenRelations = new Set<string>();
-  const relations = output.relations.filter((r) => {
+  const relations = (useRelations ? output.relations : []).filter((r) => {
     const key = `${[...r.items.map(entityNameKey)].sort().join("|")}\u0000${r.description}`;
     if (seenRelations.has(key)) return false;
     seenRelations.add(key);
@@ -100,7 +110,8 @@ export function assembleTallyDocuments(output: TallyOutputDraft, templates: Tall
       name: d.name,
       answer: buildTallyDocumentMarkdown(template, d.values, {
         related: relatedFor(d.name),
-        sharedRules: output.sharedRules.get(template.name) ?? [],
+        sharedRules: useShared ? (output.sharedRules.get(template.name) ?? []) : [],
+        missingText: docMissingText,
       }),
     };
   });

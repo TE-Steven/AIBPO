@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
 import { tallyPathOptions, resolveTallyId } from "@/lib/tallyTree";
+import { getPromptConfig } from "@/lib/promptConfigStore";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
 
@@ -162,7 +163,7 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
   const dimensions = Array.isArray(input.dimensions) ? input.dimensions : [];
   const tallies = await prisma.tally.findMany({ where: { roleId }, orderBy: { order: "asc" } });
   const companyId = await companyIdForRole(roleId);
-  const guidelines = await getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY);
+  const [guidelines, config] = await Promise.all([getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY), getPromptConfig(companyId)]);
 
   const tallyOptions = tallyPathOptions(tallies);
   const system = buildSystemPrompt({
@@ -171,6 +172,7 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
     countMin: count,
     countMax: count,
     guidelines,
+    config,
   });
   const content = buildUserContent(source);
 
