@@ -13,6 +13,8 @@ import {
   ragSourceDescription,
 } from "@/lib/kmAnalysis";
 import type Anthropic from "@anthropic-ai/sdk";
+import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
+import { companyIdForRole } from "@/lib/company";
 
 export type RagActionState = { success?: string; error?: string };
 
@@ -36,21 +38,35 @@ export async function generateRagContentAction(sourceId: string): Promise<RagAct
   const sameAttempt = { id: sourceId, ragStartedAt: startedAt };
 
   try {
-    const system = buildRagSystemPrompt({ docId: ragDocId(source), sourceDescription: ragSourceDescription(source) });
+    // 公司的「Prompt 最高準則」跟 FAQ／結構化文件一樣要套用
+    const guidelines = await getSystemSetting(await companyIdForRole(source.roleId), KM_OUTPUT_GUIDELINES_KEY);
+    const system = buildRagSystemPrompt({ docId: ragDocId(source), sourceDescription: ragSourceDescription(source), guidelines });
     const content = buildUserContent(source);
 
-    const response = await anthropic.messages.create({
-      model: KM_ANALYSIS_MODEL,
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      system,
-      ...(hasSourceUrls(source)
-        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
-        : {}),
-      messages: [{ role: "user", content }],
-    });
+    // RAG 是整份文件重排，長文件輸出很長：用串流（大 max_tokens 不會逾時），並檢查有沒有被截斷
+    const response = await anthropic.messages
+      .stream({
+        model: KM_ANALYSIS_MODEL,
+        max_tokens: 64000,
+        thinking: { type: "adaptive" },
+        system,
+        ...(hasSourceUrls(source)
+          ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
+          : {}),
+        messages: [{ role: "user", content }],
+      })
+      .finalMessage();
 
     await recordApiUsage({ model: KM_ANALYSIS_MODEL, purpose: "km_rag", usage: response.usage, roleId: source.roleId });
+
+    if (response.stop_reason === "max_tokens") {
+      const truncated = "文件太長，RAG 內容輸出被截斷（後半段會遺漏），這次結果沒有保存。建議把來源拆成幾份較小的文件後再產生。";
+      const { count } = await prisma.kmSource.updateMany({
+        where: sameAttempt,
+        data: { ragStatus: source.ragContent ? "DONE" : "FAILED", ragErrorMessage: truncated },
+      });
+      return { error: count ? truncated : STOPPED_MESSAGE };
+    }
 
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")

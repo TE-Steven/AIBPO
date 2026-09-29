@@ -223,10 +223,10 @@ export function ragSourceDescription(source: KmSource): string {
   return "PDF 上傳";
 }
 
-export function buildRagSystemPrompt(params: { docId: string; sourceDescription: string }): string {
+export function buildRagSystemPrompt(params: { docId: string; sourceDescription: string; guidelines?: string }): string {
   const { docId, sourceDescription } = params;
 
-  return `你是文件重排整理助手。使用者會提供一份文件或一個網頁，這份內容原本可能因為 PDF 分頁、排版等因素，導致段落被硬生生切斷、表格斷裂、或夾雜頁首頁尾雜訊。
+  return `${guidelinesPrefix(params.guidelines)}你是文件重排整理助手。使用者會提供一份文件或一個網頁，這份內容原本可能因為 PDF 分頁、排版等因素，導致段落被硬生生切斷、表格斷裂、或夾雜頁首頁尾雜訊。
 
 請全程使用繁體中文思考與作答。你的任務**不是**把內容拆解成問答，而是把整份文件的原始資訊重新排版成一份乾淨、連貫、易讀、對下游系統友善的 markdown 文件。**請假設下游的 RAG 系統完全沒有智能**——不會幫內容補情境、不會做語意理解，就是最陽春的固定長度切塊加關鍵字/向量搜尋，所以本來該由檢索系統做的事，你都要預先寫進文件本身：
 
