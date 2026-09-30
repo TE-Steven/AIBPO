@@ -82,14 +82,27 @@ ${countText}
 }
 
 // 範本欄位：第二層維度；有第三層的話再列出「維度 > 子維度」（withOverview：有子維度的維度另外提供「補充說明」欄位）
-function templateFields(template: TallyTemplate, withOverview: boolean): { key: string; optional: boolean }[] {
+// description：分類管理填的描述（選填），放在欄位後面的「（說明：…）」讓 AI 知道這個欄位該放什麼
+function templateFields(
+  template: TallyTemplate,
+  withOverview: boolean,
+): { key: string; optional: boolean; description: string | null }[] {
+  const desc = (d?: string | null) => d?.trim().replace(/\s+/g, " ") || null;
   return template.children.flatMap((h2) =>
     h2.children.length > 0
       ? [
-          ...(withOverview ? [{ key: h2.name, optional: true }] : []),
-          ...h2.children.map((h3) => ({ key: `${h2.name} > ${h3.name}`, optional: false })),
+          ...(withOverview ? [{ key: h2.name, optional: true, description: desc(h2.description) }] : []),
+          ...h2.children.map((h3) => ({
+            key: `${h2.name} > ${h3.name}`,
+            optional: false,
+            // 沒有補充說明欄位時，把上層維度的說明併到子欄位，避免遺失
+            description:
+              [desc(h3.description), !withOverview && desc(h2.description) ? `上層「${h2.name}」：${desc(h2.description)}` : null]
+                .filter(Boolean)
+                .join("；") || null,
+          })),
         ]
-      : [{ key: h2.name, optional: false }],
+      : [{ key: h2.name, optional: false, description: desc(h2.description) }],
   );
 }
 
@@ -104,8 +117,14 @@ export function buildDocumentsSystemPrompt(params: {
   const templatesText = params.templates
     .map(
       (t) =>
-        `範本「${t.name}」的欄位：\n${templateFields(t, options.docOverviewField)
-          .map((f) => `- ${f.key}${f.optional ? "（補充說明：只寫放不進下面任何子欄位的資訊，沒有就填 null）" : ""}`)
+        `範本「${t.name}」${t.description?.trim() ? `（說明：${t.description.trim().replace(/\s+/g, " ")}）` : ""}的欄位：\n${templateFields(
+          t,
+          options.docOverviewField,
+        )
+          .map(
+            (f) =>
+              `- ${f.key}${f.description ? `（說明：${f.description}）` : ""}${f.optional ? "（補充說明：只寫放不進下面任何子欄位的資訊，沒有就填 null）" : ""}`,
+          )
           .join("\n")}`,
     )
     .join("\n\n");
@@ -445,7 +464,10 @@ function parseDocumentDrafts(docs: unknown): TallyDocumentDraft[] {
 
 // AI 可能用全形 ＞、› 或多餘空白分隔「維度 > 子維度」，比對前先統一。
 function normalizeFieldKey(key: string): string {
-  return key.replace(/[＞›»]/g, ">").replace(/\s*>\s*/g, " > ").replace(/\s+/g, " ").trim();
+  // AI 可能把欄位後面的「（說明：…）」「（補充說明：…）」一起抄進 key，比對前去掉
+  return key
+    .replace(/（(補充)?說明：[^）]*）/g, "")
+    .replace(/[＞›»]/g, ">").replace(/\s*>\s*/g, " > ").replace(/\s+/g, " ").trim();
 }
 
 export const MISSING_FIELD_TEXT = "文件未提及";

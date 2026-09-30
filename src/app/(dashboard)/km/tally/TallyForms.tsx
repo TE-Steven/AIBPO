@@ -1,8 +1,10 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { createTallyAction, deleteTallyAction, type TallyActionState } from "./actions";
-import { IconCheckCircle, IconAlertTriangle, IconPlus, IconTrash } from "@/components/icons";
+import { createTallyAction, deleteTallyAction, updateTallyAction, type TallyActionState } from "./actions";
+import { IconCheckCircle, IconAlertTriangle, IconPlus, IconTrash, IconPencil } from "@/components/icons";
+
+const DESCRIPTION_HINT = "選填。說明這個分類包含什麼、不包含什麼，AI 會依此判斷。例：「建議售價，含稅，不含安裝費」";
 
 const initialState: TallyActionState = {};
 
@@ -36,6 +38,17 @@ export function CreateTallyForm({ parentOptions }: { parentOptions: { id: string
               </option>
             ))}
           </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">描述（選填）</label>
+          <textarea
+            name="description"
+            rows={2}
+            maxLength={1000}
+            placeholder="例：指 Waferlock 電子鎖主機型號，不含電池與配件"
+            className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+          />
+          <p className="mt-1 text-xs text-slate-400">{DESCRIPTION_HINT}</p>
         </div>
       </div>
       {(state.success || state.error) && (
@@ -126,6 +139,86 @@ export function DeleteTallyButton({
           {pending ? "刪除中…" : "確定刪除"}
         </button>
         <button type="button" onClick={() => setConfirming(false)} className="font-medium text-slate-500 hover:text-slate-700">
+          取消
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 分類名稱＋描述：平常顯示，按「編輯」就地修改
+export function TallyNameCell({ tallyId, name, description }: { tallyId: string; name: string; description: string | null }) {
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState(name);
+  const [draftDescription, setDraftDescription] = useState(description ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateTallyAction(tallyId, { name: draftName, description: draftDescription });
+      if (result.error) setError(result.error);
+      else setEditing(false);
+    });
+  }
+
+  if (!editing) {
+    return (
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-slate-800">{name}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setDraftName(name);
+              setDraftDescription(description ?? "");
+              setEditing(true);
+            }}
+            aria-label={`編輯「${name}」`}
+            className="text-slate-300 transition hover:text-teal-600"
+          >
+            <IconPencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {description ? (
+          <p className="mt-0.5 whitespace-pre-wrap text-xs font-normal text-slate-500">{description}</p>
+        ) : (
+          <p className="mt-0.5 text-xs font-normal text-slate-300">尚未填寫描述</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full min-w-0 space-y-2">
+      <input
+        value={draftName}
+        onChange={(e) => setDraftName(e.target.value)}
+        aria-label="分類名稱"
+        className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+      />
+      <textarea
+        value={draftDescription}
+        onChange={(e) => setDraftDescription(e.target.value)}
+        rows={2}
+        maxLength={1000}
+        aria-label="分類描述"
+        placeholder="描述（選填）"
+        className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-normal shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+      />
+      <p className="text-xs font-normal text-slate-400">{DESCRIPTION_HINT}</p>
+      {error && <p className="text-xs font-normal text-rose-600">{error}</p>}
+      <div className="flex items-center gap-3 text-xs">
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending}
+          className="rounded-md bg-teal-600 px-3 py-1.5 font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50"
+        >
+          {pending ? "儲存中…" : "儲存"}
+        </button>
+        <button type="button" onClick={() => setEditing(false)} className="font-medium text-slate-500 hover:text-slate-700">
           取消
         </button>
       </div>

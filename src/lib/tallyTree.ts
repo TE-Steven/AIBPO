@@ -1,6 +1,6 @@
 // 分類（Tally）是 parentId 串起來的樹，最多三層。這裡放「平面清單 → 樹」與範本判斷，分類管理頁與 KM 分析共用。
 
-export type TallyRow = { id: string; name: string; parentId: string | null; order: number };
+export type TallyRow = { id: string; name: string; parentId: string | null; order: number; description?: string | null };
 export type TallyNode<T extends TallyRow> = T & { depth: number; children: TallyNode<T>[] };
 
 export function buildTallyTree<T extends TallyRow>(tallies: T[]): TallyNode<T>[] {
@@ -22,12 +22,12 @@ export function flattenTallyTree<T extends TallyRow>(nodes: TallyNode<T>[]): Tal
 }
 
 // 每個分類的完整路徑（大 > 中 > 小），給 AI 替 FAQ 歸類用：不同分支底下的同名分類（例如兩個範本都有「價格」）靠路徑區分。
-export function tallyPathOptions<T extends TallyRow>(tallies: T[]): { id: string; path: string }[] {
-  const options: { id: string; path: string }[] = [];
+export function tallyPathOptions<T extends TallyRow>(tallies: T[]): { id: string; path: string; description: string | null }[] {
+  const options: { id: string; path: string; description: string | null }[] = [];
   function walk(nodes: TallyNode<T>[], prefix: string) {
     for (const n of nodes) {
       const path = prefix ? `${prefix} > ${n.name}` : n.name;
-      options.push({ id: n.id, path });
+      options.push({ id: n.id, path, description: n.description?.trim() || null });
       walk(n.children, path);
     }
   }
@@ -35,10 +35,20 @@ export function tallyPathOptions<T extends TallyRow>(tallies: T[]): { id: string
   return options;
 }
 
+// 給 AI 看的分類清單：每行一個完整路徑；有描述的在後面補「（說明：…）」幫 AI 判斷範圍
+export function tallyPathLines(options: { path: string; description: string | null }[]): string[] {
+  return options.map((o) => (o.description ? `${o.path}（說明：${o.description.replace(/\s+/g, " ")}）` : o.path));
+}
+
 // AI 建議的分類 → 分類 id：先比完整路徑；AI 只回名稱時，名稱唯一才採用（同名有好幾個就不猜）。
+// AI 可能連同「（說明：…）」一起照抄，比對前先去掉。
 export function resolveTallyId(options: { id: string; path: string }[], suggested: string | null): string | null {
   if (!suggested) return null;
-  const normalized = suggested.replace(/[＞›»]/g, ">").replace(/\s*>\s*/g, " > ").trim();
+  const normalized = suggested
+    .replace(/（說明：.*）\s*$/, "")
+    .replace(/[＞›»]/g, ">")
+    .replace(/\s*>\s*/g, " > ")
+    .trim();
   const exact = options.find((o) => o.path === normalized);
   if (exact) return exact.id;
   const byName = options.filter((o) => o.path.split(" > ").pop() === normalized);

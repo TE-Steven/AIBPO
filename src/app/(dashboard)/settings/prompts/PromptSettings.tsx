@@ -33,7 +33,7 @@ const TABS: { id: Tab; label: string; desc: string }[] = [
 
 // 預覽用的示意資料
 function sampleTemplates() {
-  const b = { roleId: "", createdAt: new Date(0), updatedAt: new Date(0) };
+  const b = { roleId: "", description: null, createdAt: new Date(0), updatedAt: new Date(0) };
   return tallyTemplates(
     buildTallyTree<Tally>([
       { id: "p", name: "產品型號", parentId: null, order: 1, ...b },

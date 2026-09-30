@@ -26,6 +26,7 @@ export async function createTallyAction(
 
   const name = String(formData.get("name") ?? "").trim();
   const parentId = String(formData.get("parentId") ?? "") || null;
+  const description = String(formData.get("description") ?? "").trim().slice(0, 1000) || null;
   if (!name) {
     return { error: "分類名稱不能是空的。" };
   }
@@ -38,11 +39,28 @@ export async function createTallyAction(
   }
 
   await prisma.tally.create({
-    data: { name, parentId, roleId: session.roleId },
+    data: { name, parentId, description, roleId: session.roleId },
   });
 
   revalidatePath("/km/tally");
   return { success: `分類「${name}」已建立。` };
+}
+
+// 修改分類名稱與描述。描述是選填的，AI 產生結構化文件與替 FAQ 歸類時會參考。
+export async function updateTallyAction(tallyId: string, input: { name: string; description: string }): Promise<TallyActionState> {
+  const session = await requireSession();
+
+  const tally = await prisma.tally.findUnique({ where: { id: tallyId } });
+  if (!tally) return { error: "找不到這個分類，可能已經被刪除了。" };
+  if (session.kind !== "superadmin" && tally.roleId !== session.roleId) return { error: "沒有權限修改這個分類。" };
+
+  const name = input.name.trim();
+  if (!name) return { error: "分類名稱不能是空的。" };
+  const description = input.description.trim().slice(0, 1000) || null;
+
+  await prisma.tally.update({ where: { id: tallyId }, data: { name, description } });
+  revalidatePath("/km/tally");
+  return { success: "已儲存。" };
 }
 
 // 刪除分類：每一層都可以刪。底下的子分類會一併刪除（資料庫 onDelete: Cascade），

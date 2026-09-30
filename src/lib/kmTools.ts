@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
-import { tallyPathOptions, resolveTallyId } from "@/lib/tallyTree";
+import { tallyPathOptions, tallyPathLines, resolveTallyId } from "@/lib/tallyTree";
 import { getPromptConfig } from "@/lib/promptConfigStore";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
@@ -168,7 +168,7 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
   const tallyOptions = tallyPathOptions(tallies);
   const system = buildSystemPrompt({
     dimensions,
-    tallyPaths: tallyOptions.map((o) => o.path),
+    tallyPaths: tallyPathLines(tallyOptions),
     countMin: count,
     countMax: count,
     guidelines,

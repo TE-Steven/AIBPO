@@ -120,13 +120,15 @@ model RoleMenu {
 
 // 分類樹（大中小分類），最多三層，可以只用大分類、不用中小分類。
 model Tally {
-  id        String   @id @default(cuid())
-  name      String
-  parentId  String?
-  order     Int      @default(0)
-  roleId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  // 選填：說明這個分類的範圍與內容，AI 產生結構化文件與替 FAQ 歸類時會一起參考
+  description String?  @db.Text
+  parentId    String?
+  order       Int      @default(0)
+  roleId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   role      Role      @relation(fields: [roleId], references: [id])
   parent    Tally?    @relation("TallyChildren", fields: [parentId], references: [id], onDelete: Cascade)
@@ -153,7 +155,7 @@ model Dimension {
 
 // 上傳匯入 KM 的來源（PDF 或 URL）。
 model KmSource {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   title                String
   sourceType           String // "PDF" | "URL"
   sourceName           String? // legacy 單檔案名稱，舊資料用；新資料看 sourceFileIds
@@ -161,29 +163,29 @@ model KmSource {
   sourceFileId         String? // legacy 單一 Anthropic Files API file_id，舊資料用；新資料看 sourceFileIds
   sourceFileIds        Json? // 新：多檔案時的 [{ fileId, fileName }][]，同一包視為同一個知識來源
   sourceUrls           Json? // 新：多網址時的 string[]，同一包視為同一個知識來源
-  rawText              String?  @db.Text
-  status               String   @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
+  rawText              String?   @db.Text
+  status               String    @default("PENDING") // PENDING / PROCESSING / DONE / FAILED
   errorMessage         String?
   // 這一次分析的開始時間：寫回結果時只在「還是同一次」才寫，按了停止後舊請求晚到的結果會被丟掉
   analysisStartedAt    DateTime?
   // RAG 內容：把原文重排清理成乾淨版文件（不是 Q&A 抽取），跟 FAQ 分析各自獨立觸發、各自失敗。
-  ragContent           String?  @db.Text
-  ragStatus            String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
+  ragContent           String?   @db.Text
+  ragStatus            String    @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
   ragErrorMessage      String?
   // 這一次產生的開始時間：產生完成時只在「還是同一次」才寫回，按了停止或重新產生後，舊請求晚到的結果會被丟掉。
   ragStartedAt         DateTime?
   // Workflow：辨識文件中的客服情境，從既有 Skill 挑選匹配工具，產出待審核的 AgentDraft。
-  workflowStatus       String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
+  workflowStatus       String    @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
   workflowErrorMessage String?
   workflowStartedAt    DateTime?
   // 結構化文件：依分類範本整理的文件（KmEntry kind = DOC），跟 RAG／Workflow 一樣各自觸發、各自失敗。
-  docStatus            String   @default("NONE") // NONE / PROCESSING / DONE / FAILED
+  docStatus            String    @default("NONE") // NONE / PROCESSING / DONE / FAILED
   docErrorMessage      String?
   docStartedAt         DateTime?
   roleId               String
   createdById          String
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   role     Role         @relation(fields: [roleId], references: [id])
   entries  KmEntry[]

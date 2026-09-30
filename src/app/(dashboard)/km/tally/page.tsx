@@ -1,6 +1,6 @@
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { CreateTallyForm, DeleteTallyButton } from "./TallyForms";
+import { CreateTallyForm, DeleteTallyButton, TallyNameCell } from "./TallyForms";
 import { IconMenuList } from "@/components/icons";
 import { buildTallyTree, flattenTallyTree } from "@/lib/tallyTree";
 
@@ -52,15 +52,12 @@ export default async function TallyPage() {
               const subtreeEntries = subtree.reduce((sum, n) => sum + n._count.kmEntries, 0);
               return (
                 <tr key={t.id}>
-                  <td
-                    className="flex items-center gap-2.5 px-5 py-3 font-medium text-slate-800"
-                    style={{ paddingLeft: `${1.25 + (t.depth - 1) * 1.5}rem` }}
-                  >
-                    {t.depth > 1 && <span className="text-slate-300">└</span>}
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+                  <td className="flex items-start gap-2.5 px-5 py-3" style={{ paddingLeft: `${1.25 + (t.depth - 1) * 1.5}rem` }}>
+                    {t.depth > 1 && <span className="pt-1 text-slate-300">└</span>}
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-600">
                       <IconMenuList className="h-3.5 w-3.5" />
                     </span>
-                    {t.name}
+                    <TallyNameCell tallyId={t.id} name={t.name} description={t.description} />
                   </td>
                   <td className="px-5 py-3 text-slate-500">第 {t.depth} 層</td>
                   <td className="px-5 py-3 text-slate-500">{t._count.kmEntries}</td>

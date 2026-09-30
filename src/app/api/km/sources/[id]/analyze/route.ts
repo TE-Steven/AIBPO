@@ -3,7 +3,7 @@ import { getSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
-import { buildTallyTree, tallyTemplates, tallyPathOptions, resolveTallyId } from "@/lib/tallyTree";
+import { buildTallyTree, tallyTemplates, tallyPathOptions, tallyPathLines, resolveTallyId } from "@/lib/tallyTree";
 import { generateTallyDocuments, saveTallyDocuments } from "@/lib/tallyDocuments";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { companyIdForRole } from "@/lib/company";
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           thinking: { type: "adaptive", display: "summarized" },
           system: buildSystemPrompt({
             dimensions,
-            tallyPaths: tallyOptions.map((o) => o.path),
+            tallyPaths: tallyPathLines(tallyOptions),
             countMin,
             countMax,
             answerStyle,
