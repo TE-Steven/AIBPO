@@ -4,7 +4,12 @@
 type DocEntry = { question: string; answer: string; tallyId: string | null; createdAt: Date };
 type TemplateOrder = { id: string; order: number; name: string };
 
-export function buildTallyDocumentsMarkdown(entries: DocEntry[], templates: TemplateOrder[]): string {
+// selfContainedHeadings：維度標題前面加上項目名稱（「## L600｜價格」），下游 RAG 切塊後仍看得出是哪個項目（RAG 規則 R5／R12）
+export function buildTallyDocumentsMarkdown(
+  entries: DocEntry[],
+  templates: TemplateOrder[],
+  selfContainedHeadings = true,
+): string {
   const rank = new Map(
     [...templates].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)).map((t, i) => [t.id, i]),
   );
@@ -13,7 +18,12 @@ export function buildTallyDocumentsMarkdown(entries: DocEntry[], templates: Temp
     const rb = b.tallyId ? (rank.get(b.tallyId) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
     return ra - rb || a.createdAt.getTime() - b.createdAt.getTime();
   });
-  return sorted.map((e) => `# ${e.question}\n\n${e.answer.trim()}`).join("\n\n");
+  return sorted
+    .map((e) => {
+      const body = e.answer.trim();
+      return `# ${e.question}\n\n${selfContainedHeadings ? body.replace(/^(#{2,6})\s+(.+)$/gm, `$1 ${e.question}｜$2`) : body}`;
+    })
+    .join("\n\n");
 }
 
 export function documentsFileName(sourceTitle: string, ext: "md" | "pdf"): { ascii: string; encoded: string } {

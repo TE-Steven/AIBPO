@@ -362,6 +362,13 @@ export function PromptSettings({ guidelines, initialConfig }: { guidelines: stri
             <OptionRow label="「補充說明」欄位（DP5）" hint="有子維度的維度，另外讓 AI 寫放不進子欄位的資訊。">
               <Toggle checked={options.docOverviewField} onChange={(v) => changeOption("docOverviewField", v)} label="補充說明欄位" />
             </OptionRow>
+            <OptionRow label="整份下載的標題帶項目名稱" hint="「價格」寫成「L600｜價格」，餵 RAG 切塊後仍看得出是哪個項目（對應 R5／R12）。">
+              <Toggle
+                checked={options.docSelfContainedHeadings}
+                onChange={(v) => changeOption("docSelfContainedHeadings", v)}
+                label="整份下載的標題帶項目名稱"
+              />
+            </OptionRow>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white px-5 py-2 shadow-sm">

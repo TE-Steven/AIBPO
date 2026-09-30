@@ -3,6 +3,9 @@ import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildTallyDocumentsMarkdown, documentsFileName } from "@/lib/tallyDocumentsExport";
 import { generateRagPdf } from "@/lib/ragPdf";
+import { getPromptConfig } from "@/lib/promptConfigStore";
+import { resolveOptions } from "@/lib/promptConfig";
+import { companyIdForRole } from "@/lib/company";
 
 // 下載整份結構化文件（每個實體一個 H1）。format=pdf 轉 PDF，預設 .md。
 async function loadDocumentsMarkdown(id: string): Promise<{ markdown: string; title: string } | Response> {
@@ -13,16 +16,18 @@ async function loadDocumentsMarkdown(id: string): Promise<{ markdown: string; ti
   if (!source) return new Response("Not found", { status: 404 });
   if (session.kind !== "superadmin" && source.roleId !== session.roleId) return new Response("Forbidden", { status: 403 });
 
-  const [entries, templates] = await Promise.all([
+  const [entries, templates, config] = await Promise.all([
     prisma.kmEntry.findMany({
       where: { sourceId: id, kind: "DOC" },
       select: { question: true, answer: true, tallyId: true, createdAt: true },
     }),
     prisma.tally.findMany({ where: { roleId: source.roleId, parentId: null }, select: { id: true, order: true, name: true } }),
+    companyIdForRole(source.roleId).then(getPromptConfig),
   ]);
   if (entries.length === 0) return new Response("這份來源還沒有結構化文件", { status: 400 });
 
-  return { markdown: buildTallyDocumentsMarkdown(entries, templates), title: source.title };
+  const { docSelfContainedHeadings } = resolveOptions(config);
+  return { markdown: buildTallyDocumentsMarkdown(entries, templates, docSelfContainedHeadings), title: source.title };
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

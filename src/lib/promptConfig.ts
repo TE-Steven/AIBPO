@@ -31,6 +31,8 @@ export type PromptOptions = {
   faqCountMax: number;
   docMissingText: string;
   docOverviewField: boolean;
+  // 整份結構化文件下載時，維度標題前面加上項目名稱（「L600｜價格」），切塊後仍看得出是哪個項目
+  docSelfContainedHeadings: boolean;
   exportFrontmatter: boolean;
   exportGroupBy: "tally" | "source" | "none";
   exportQuestionFormat: "h3" | "bold" | "numbered";
@@ -49,6 +51,7 @@ export const DEFAULT_OPTIONS: PromptOptions = {
   faqCountMax: 30,
   docMissingText: "文件未提及",
   docOverviewField: true,
+  docSelfContainedHeadings: true,
   exportFrontmatter: true,
   exportGroupBy: "tally",
   exportQuestionFormat: "h3",
@@ -273,6 +276,58 @@ export const RULES: RuleDef[] = [
     defaultText: "values 的 key 必須和上面列出的欄位名稱完全一樣",
     toggleable: false,
     editable: false,
+  },
+  {
+    id: "D17",
+    section: "doc",
+    group: "RAG 可讀性",
+    label: "條列完整句",
+    hint: "對應 RAG 規則 R7。",
+    defaultText: "欄位內容若用條列，每一點都要是能單獨看懂的完整句子（講清楚主詞與結論），不要只寫名詞片語",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "D18",
+    section: "doc",
+    group: "RAG 可讀性",
+    label: "圖片資訊轉文字",
+    hint: "對應 RAG 規則 R8。",
+    defaultText:
+      "文件中圖片、示意圖、圖示裡的資訊（例如 ✓／✗ 正確與錯誤做法對照圖、流程圖、尺寸標示圖），要轉寫成文字填進對應欄位，不能略過，也不要寫「如圖所示」這種依賴圖片的說法",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "D19",
+    section: "doc",
+    group: "RAG 可讀性",
+    label: "內容自足、禁止指代",
+    hint: "對應 RAG 規則 R9。",
+    defaultText:
+      "每個欄位的內容都要能單獨看懂：禁止「如上所述」「上述」「同前條」「詳見前頁」這類依賴上下文的指代寫法，需要時直接寫出實體名稱與具體內容",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "D20",
+    section: "doc",
+    group: "RAG 可讀性",
+    label: "時間與金額寫絕對值",
+    hint: "對應 RAG 規則 R13。",
+    defaultText: "時間、金額、規格寫絕對值：原文有給明確日期就換算寫死，不要保留「即日起」「目前」這種相對說法；原文沒給日期就照實保留，不要自己編一個日期",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "D21",
+    section: "doc",
+    group: "RAG 可讀性",
+    label: "表格攤平成句子",
+    hint: "對應 RAG 規則 R16。",
+    defaultText: "欄位內容若用 markdown 表格，要在表格後面補一段把表格內容攤平成完整句子的敘述（例如「A方案月租299元，含10GB流量」），因為下游系統可能解析不好表格的欄位對應",
+    toggleable: true,
+    editable: true,
   },
   {
     id: "D11",
@@ -636,6 +691,7 @@ export function resolveOptions(config: PromptConfigData | undefined): PromptOpti
     faqCountMax: Math.max(min, maxRaw),
     docMissingText: o.docMissingText?.trim() || DEFAULT_OPTIONS.docMissingText,
     docOverviewField: o.docOverviewField ?? DEFAULT_OPTIONS.docOverviewField,
+    docSelfContainedHeadings: o.docSelfContainedHeadings ?? DEFAULT_OPTIONS.docSelfContainedHeadings,
     exportFrontmatter: o.exportFrontmatter ?? DEFAULT_OPTIONS.exportFrontmatter,
     exportGroupBy: (["tally", "source", "none"] as const).includes(o.exportGroupBy as never) ? o.exportGroupBy! : DEFAULT_OPTIONS.exportGroupBy,
     exportQuestionFormat: (["h3", "bold", "numbered"] as const).includes(o.exportQuestionFormat as never)
