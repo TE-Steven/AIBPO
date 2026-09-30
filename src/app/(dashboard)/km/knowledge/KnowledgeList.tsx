@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { EntryCard, type KmEntryLike } from "../EntryCard";
-import { IconChevronDown } from "@/components/icons";
+import { createVersionAction, addToTestBankAction } from "./actions";
+import { IconAlertTriangle, IconCheckCircle, IconChevronDown, IconX } from "@/components/icons";
 
 type Entry = KmEntryLike & { tallyId: string | null; sourceId: string; sourceTitle: string };
 
@@ -10,10 +11,13 @@ export function KnowledgeList({
   entries,
   tallyOptions,
   sourceOptions,
+  onVersionCreated,
 }: {
   entries: Entry[];
   tallyOptions: { id: string; label: string }[];
   sourceOptions: { id: string; title: string }[];
+  // 建立版本後切到「版本」分頁
+  onVersionCreated?: () => void;
 }) {
   const [tallyFilter, setTallyFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -49,6 +53,43 @@ export function KnowledgeList({
   }
 
   const exportHref = (format: "md" | "pdf") => `/api/km/export?format=${format}&ids=${Array.from(selected).join(",")}`;
+
+  // ---- 建立版本／加入測試題庫 ----
+  const [versionModal, setVersionModal] = useState(false);
+  const [versionName, setVersionName] = useState("");
+  const [versionNote, setVersionNote] = useState("");
+  const [includeFaq, setIncludeFaq] = useState(true);
+  const [includeDocs, setIncludeDocs] = useState(true);
+  const [message, setMessage] = useState<{ success?: string; error?: string }>({});
+  const [pending, startTransition] = useTransition();
+  const selectedEntries = entries.filter((e) => selected.has(e.id));
+  const selectedFaqCount = selectedEntries.filter((e) => e.kind !== "DOC").length;
+  const selectedDocCount = selectedEntries.length - selectedFaqCount;
+
+  function createVersion() {
+    startTransition(async () => {
+      const result = await createVersionAction({
+        entryIds: Array.from(selected),
+        name: versionName,
+        note: versionNote,
+        includeFaq,
+        includeDocs,
+      });
+      setMessage(result);
+      if (result.success) {
+        setVersionModal(false);
+        setVersionName("");
+        setVersionNote("");
+        onVersionCreated?.();
+      }
+    });
+  }
+
+  function addToTestBank() {
+    startTransition(async () => {
+      setMessage(await addToTestBankAction(Array.from(selected)));
+    });
+  }
 
   return (
     <div className="space-y-3">
@@ -106,7 +147,27 @@ export function KnowledgeList({
           <IconChevronDown className={`h-4 w-4 transition-transform ${allExpanded ? "rotate-180" : ""}`} />
           {allExpanded ? "全部收合" : "全部展開"}
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setMessage({});
+              setVersionModal(true);
+            }}
+            disabled={selected.size === 0}
+            className="rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+          >
+            建立版本
+          </button>
+          <button
+            type="button"
+            onClick={addToTestBank}
+            disabled={selectedFaqCount === 0 || pending}
+            title={selectedFaqCount === 0 ? "請勾選 FAQ（結構化文件不適合當測試題）" : undefined}
+            className="rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+          >
+            加入測試題庫
+          </button>
           {(["md", "pdf"] as const).map((format) => (
             <a
               key={format}
@@ -123,6 +184,71 @@ export function KnowledgeList({
           ))}
         </div>
       </div>
+
+      {(message.success || message.error) && (
+        <p
+          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ring-1 ring-inset ${
+            message.error ? "bg-rose-50 text-rose-600 ring-rose-100" : "bg-emerald-50 text-emerald-600 ring-emerald-100"
+          }`}
+        >
+          {message.error ? <IconAlertTriangle className="h-4 w-4 shrink-0" /> : <IconCheckCircle className="h-4 w-4 shrink-0" />}
+          {message.error ?? message.success}
+        </p>
+      )}
+
+      {versionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setVersionModal(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">建立知識庫版本</h3>
+              <button type="button" onClick={() => setVersionModal(false)} aria-label="關閉" className="text-slate-400 hover:text-slate-600">
+                <IconX className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-4 text-xs text-slate-500">
+              把勾選的 {selected.size} 題（FAQ {selectedFaqCount}、結構化文件 {selectedDocCount}）凍結成一個版本，並記下目前的 Prompt 設定與分類描述。之後題目再怎麼改，這一版的內容都不會變。
+            </p>
+            <label className="mb-1 block text-sm font-medium text-slate-700">版本名稱</label>
+            <input
+              value={versionName}
+              onChange={(e) => setVersionName(e.target.value)}
+              placeholder="留空自動命名（v1、v2…）"
+              className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+            />
+            <label className="mb-1 block text-sm font-medium text-slate-700">備註（選填）</label>
+            <textarea
+              value={versionNote}
+              onChange={(e) => setVersionNote(e.target.value)}
+              rows={2}
+              placeholder="例：分類補上描述、FAQ 口吻改成中立"
+              className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
+            />
+            <div className="mb-4 flex gap-5 text-sm text-slate-700">
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={includeFaq} onChange={(e) => setIncludeFaq(e.target.checked)} className="accent-teal-600" />
+                包含 FAQ
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={includeDocs} onChange={(e) => setIncludeDocs(e.target.checked)} className="accent-teal-600" />
+                包含結構化文件
+              </label>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setVersionModal(false)} className="px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700">
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={createVersion}
+                disabled={pending || (!includeFaq && !includeDocs)}
+                className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+              >
+                {pending ? "建立中…" : "建立版本"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {filtered.map((entry) => (
         <EntryCard

@@ -33,17 +33,20 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company     Company             @relation(fields: [companyId], references: [id])
-  memberships CompanyMembership[]
-  roleMenus   RoleMenu[]
-  tallies     Tally[]
-  dimensions  Dimension[]
-  kmSources   KmSource[]
-  kmEntries   KmEntry[]
-  skills      Skill[]
-  agents      Agent[]
-  agentDrafts AgentDraft[]
-  botTestRuns BotTestRun[]
+  company         Company             @relation(fields: [companyId], references: [id])
+  memberships     CompanyMembership[]
+  roleMenus       RoleMenu[]
+  tallies         Tally[]
+  dimensions      Dimension[]
+  kmSources       KmSource[]
+  kmEntries       KmEntry[]
+  skills          Skill[]
+  agents          Agent[]
+  agentDrafts     AgentDraft[]
+  botTestRuns     BotTestRun[]
+  kbVersions      KbVersion[]
+  testCases       TestCase[]
+  versionTestRuns VersionTestRun[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -244,6 +247,99 @@ model BotTestResult {
   @@index([runId])
   @@index([entryId])
   @@map("aibpo_bot_test_results")
+}
+
+// 知識庫版本：某一刻知識列表的快照（凍結的題目＋匯出全文＋當時設定）。
+// 使用者下載這一版的檔案上傳到 chatbot，再用固定測試題庫測這一版，跟其他版本比較。
+model KbVersion {
+  id          String   @id @default(cuid())
+  roleId      String
+  name        String
+  note        String?  @db.Text
+  createdById String
+  // 凍結的匯出全文（下載 .md／PDF 都用這份，之後題目被改也不影響這一版）
+  markdown    String   @db.Text
+  // 凍結的題目快照：[{ kind, question, answer, tallyPath, sourceTitle }]
+  entries     Json
+  entryCount  Int
+  // 建立當下的 Prompt 管理設定、最高準則、分類描述，日後追查版本差異用
+  settings    Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  role     Role             @relation(fields: [roleId], references: [id])
+  testRuns VersionTestRun[]
+
+  @@index([roleId])
+  @@map("aibpo_kb_versions")
+}
+
+// 固定測試題庫：每個版本都用同一套題目測，正確率才能公平比較。
+model TestCase {
+  id             String   @id @default(cuid())
+  roleId         String
+  question       String   @db.Text
+  expectedAnswer String   @db.Text
+  // 從哪一題 KM 加入的（只做紀錄，不連動：題目之後被改不影響題庫）
+  entryId        String?
+  // 停用不刪除：保留歷史測試結果的比較
+  archived       Boolean  @default(false)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  role    Role                @relation(fields: [roleId], references: [id])
+  results VersionTestResult[]
+
+  @@index([roleId])
+  @@map("aibpo_test_cases")
+}
+
+model VersionTestRun {
+  id           String   @id @default(cuid())
+  versionId    String
+  roleId       String
+  createdById  String
+  status       String   @default("RUNNING") // RUNNING / DONE / FAILED
+  total        Int
+  completed    Int      @default(0)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  version KbVersion           @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  role    Role                @relation(fields: [roleId], references: [id])
+  results VersionTestResult[]
+
+  @@index([versionId])
+  @@index([roleId])
+  @@map("aibpo_version_test_runs")
+}
+
+model VersionTestResult {
+  id             String   @id @default(cuid())
+  runId          String
+  testCaseId     String?
+  order          Int
+  // 執行當下的題目與標準答案快照
+  question       String   @db.Text
+  expectedAnswer String   @db.Text
+  customerId     String
+  chatId         String?
+  botAnswer      String?  @db.Text
+  status         String   @default("PENDING") // PENDING / ANSWERED / TIMEOUT / ERROR
+  errorMessage   String?
+  judgeVerdict   String? // MATCH / MISMATCH / ERROR
+  judgeReason    String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  run      VersionTestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase TestCase?      @relation(fields: [testCaseId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([testCaseId])
+  @@map("aibpo_version_test_results")
 }
 
 // AI 從來源分析出來的每一則 FAQ（題目/答案都可以再編輯）。
