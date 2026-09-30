@@ -34,6 +34,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         }
       }
 
+      // 用開始時間標記「這一次」產生：按了停止之後，這次晚到的結果不寫入
+      const docStartedAt = new Date();
+      const sameDocAttempt = { id, docStartedAt };
+      let started = false;
       try {
         if (source.status !== "DONE") throw new Error("這個來源還沒分析完成，請先完成分析。");
         const tallies = await prisma.tally.findMany({ where: { roleId: source.roleId }, orderBy: { order: "asc" } });
@@ -41,6 +45,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         if (templates.length === 0) {
           throw new Error("目前沒有文件範本：請先到「分類管理」在大分類底下加上子分類（維度）。");
         }
+
+        await prisma.kmSource.update({ where: { id }, data: { docStatus: "PROCESSING", docErrorMessage: null, docStartedAt } });
+        started = true;
 
         const companyId = await companyIdForRole(source.roleId);
         const [guidelines, promptConfig] = await Promise.all([
@@ -59,11 +66,23 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           throw new Error("文件裡沒有找到符合範本的實體，既有的結構化文件保持不變。");
         }
 
+        if ((await prisma.kmSource.count({ where: sameDocAttempt })) === 0) {
+          throw new Error("這次產生已經被停止，結果沒有保存。");
+        }
         await saveTallyDocuments({ sourceId: id, roleId: source.roleId, documents, replace: true });
-        await prisma.kmSource.update({ where: { id }, data: { errorMessage: null } });
+        await prisma.kmSource.updateMany({ where: sameDocAttempt, data: { docStatus: "DONE", docStartedAt: null } });
         send("done", { docCount: documents.length });
       } catch (err) {
-        send("error", { message: err instanceof Error ? err.message : "結構化文件產生失敗。" });
+        const message = err instanceof Error ? err.message : "結構化文件產生失敗。";
+        if (started) {
+          // 失敗時舊文件保持不動：有舊文件就維持「已完成」，只記錄這次的錯誤
+          const hasDocs = (await prisma.kmEntry.count({ where: { sourceId: id, kind: "DOC" } })) > 0;
+          await prisma.kmSource.updateMany({
+            where: sameDocAttempt,
+            data: { docStatus: hasDocs ? "DONE" : "FAILED", docErrorMessage: message, docStartedAt: null },
+          });
+        }
+        send("error", { message });
       } finally {
         if (!closed) {
           closed = true;

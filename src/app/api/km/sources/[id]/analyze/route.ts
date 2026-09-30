@@ -31,15 +31,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   } catch {
     dimensions = [];
   }
+  // useTally：FAQ 要不要依分類歸類；withDocs：要不要同時依分類範本產生結構化文件（兩件事分開勾選）
   const useTally = url.searchParams.get("useTally") === "1";
+  const withDocs = url.searchParams.get("withDocs") === "1";
   const countMin = Math.max(1, Number(url.searchParams.get("countMin") ?? "10") || 10);
   const countMax = Math.max(countMin, Number(url.searchParams.get("countMax") ?? "30") || 30);
   const answerStyle = url.searchParams.get("answerStyle") ?? "";
 
-  const tallies = useTally ? await prisma.tally.findMany({ where: roleScope(session), orderBy: { order: "asc" } }) : [];
+  const tallies = useTally || withDocs ? await prisma.tally.findMany({ where: roleScope(session), orderBy: { order: "asc" } }) : [];
   // FAQ 歸類用完整路徑（同名分類靠路徑區分）；有子分類的第一層分類另外當結構化文件的範本
-  const tallyOptions = tallyPathOptions(tallies);
-  const templates = tallyTemplates(buildTallyTree(tallies));
+  const tallyOptions = useTally ? tallyPathOptions(tallies) : [];
+  const templates = withDocs ? tallyTemplates(buildTallyTree(tallies)) : [];
 
   const encoder = new TextEncoder();
 
@@ -136,11 +138,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           })),
         });
 
-        // ---- 第二段：結構化文件（失敗不影響已經存好的 FAQ，之後可以在來源頁「重新產生結構化文件」）----
+        // ---- 第二段：結構化文件（有勾選才跑；狀態記在 docStatus，失敗不影響已經存好的 FAQ，之後可以在卡片重新產生）----
         let docCount = 0;
         let docError: string | null = null;
         if (templates.length > 0) {
           send("documents", {});
+          const docStartedAt = new Date();
+          const sameDocAttempt = { id, docStartedAt };
+          await prisma.kmSource.update({
+            where: { id },
+            data: { docStatus: "PROCESSING", docErrorMessage: null, docStartedAt },
+          });
           try {
             const documents = await generateTallyDocuments({
               source,
@@ -150,20 +158,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               onThinking: (text) => send("thinking", { text }),
               onFetch: () => send("stage", { label: "正在讀取網頁內容…" }),
             });
-            if (documents.length > 0 && (await stillCurrent())) {
+            if (documents.length === 0) throw new Error("文件裡沒有找到符合範本的實體。");
+            if (await stillCurrent()) {
               await saveTallyDocuments({ sourceId: id, roleId: source.roleId, documents, replace: false });
+              await prisma.kmSource.updateMany({ where: sameDocAttempt, data: { docStatus: "DONE", docStartedAt: null } });
               docCount = documents.length;
             }
           } catch (err) {
             docError = err instanceof Error ? err.message : "結構化文件產生失敗。";
+            await prisma.kmSource.updateMany({
+              where: sameDocAttempt,
+              data: { docStatus: "FAILED", docErrorMessage: docError, docStartedAt: null },
+            });
           }
         }
 
-        // 結構化文件失敗的原因留在 errorMessage（狀態仍是 DONE），來源頁的結構化文件卡片會顯示
-        await prisma.kmSource.updateMany({
-          where: sameAttempt,
-          data: { status: "DONE", analysisStartedAt: null, errorMessage: docError ? `結構化文件沒有產生成功：${docError}` : null },
-        });
+        await prisma.kmSource.updateMany({ where: sameAttempt, data: { status: "DONE", analysisStartedAt: null } });
         send("done", { count: faqDrafts.length, docCount, docError });
       } catch (err) {
         const message = err instanceof Error ? err.message : "分析失敗，發生未知錯誤。";

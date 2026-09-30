@@ -176,6 +176,10 @@ model KmSource {
   workflowStatus       String   @default("NONE") // NONE / PENDING / PROCESSING / DONE / FAILED
   workflowErrorMessage String?
   workflowStartedAt    DateTime?
+  // 結構化文件：依分類範本整理的文件（KmEntry kind = DOC），跟 RAG／Workflow 一樣各自觸發、各自失敗。
+  docStatus            String   @default("NONE") // NONE / PROCESSING / DONE / FAILED
+  docErrorMessage      String?
+  docStartedAt         DateTime?
   roleId               String
   createdById          String
   createdAt            DateTime @default(now())

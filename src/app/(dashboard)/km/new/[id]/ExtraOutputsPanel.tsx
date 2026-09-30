@@ -7,19 +7,8 @@ import { generateRagContentAction, stopRagContentAction } from "./ragActions";
 import { generateWorkflowDraftsAction, stopWorkflowDraftsAction } from "./workflowActions";
 import { IconCheckCircle, IconAlertTriangle, IconSparkles, IconChevronDown } from "@/components/icons";
 import { StuckNotice } from "./StuckNotice";
-
-const STATUS_LABEL: Record<string, { label: string; className: string }> = {
-  NONE: { label: "尚未產生", className: "bg-slate-100 text-slate-500" },
-  PENDING: { label: "等待中", className: "bg-amber-50 text-amber-600" },
-  PROCESSING: { label: "產生中…", className: "bg-amber-50 text-amber-600" },
-  DONE: { label: "已完成", className: "bg-emerald-50 text-emerald-600" },
-  FAILED: { label: "失敗", className: "bg-rose-50 text-rose-600" },
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_LABEL[status] ?? STATUS_LABEL.NONE;
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.label}</span>;
-}
+import { OutputStatusBadge } from "./OutputStatusBadge";
+import { DocumentsCard } from "./DocumentsCard";
 
 export function ExtraOutputsPanel({
   sourceId,
@@ -31,6 +20,7 @@ export function ExtraOutputsPanel({
   ragElapsedMinutes,
   workflowElapsedMinutes,
   draftCount,
+  documents,
 }: {
   sourceId: string;
   ragStatus: string;
@@ -41,6 +31,14 @@ export function ExtraOutputsPanel({
   ragElapsedMinutes: number | null;
   workflowElapsedMinutes: number | null;
   draftCount: number;
+  // 第三張卡片：結構化文件
+  documents: {
+    status: string;
+    errorMessage: string | null;
+    count: number;
+    templateNames: string[];
+    elapsedMinutes: number | null;
+  };
 }) {
   const router = useRouter();
   const [ragPending, startRag] = useTransition();
@@ -94,11 +92,11 @@ export function ExtraOutputsPanel({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900">RAG 內容</h3>
-          <StatusBadge status={ragStatus} />
+          <OutputStatusBadge status={ragStatus} />
         </div>
         <p className="mb-3 text-xs text-slate-500">
           把原文重排清理成乾淨版文件（修復分頁斷裂、去除雜訊），適合直接餵給下游 RAG 系統。
@@ -176,7 +174,7 @@ export function ExtraOutputsPanel({
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900">Workflow</h3>
-          <StatusBadge status={workflowStatus} />
+          <OutputStatusBadge status={workflowStatus} />
         </div>
         <p className="mb-3 text-xs text-slate-500">
           辨識文件中的客服情境，從既有 Skill 庫挑選匹配工具，產出待審核的 Agent 草稿。
@@ -218,6 +216,8 @@ export function ExtraOutputsPanel({
           </p>
         )}
       </div>
+
+      <DocumentsCard sourceId={sourceId} {...documents} />
     </div>
   );
 }

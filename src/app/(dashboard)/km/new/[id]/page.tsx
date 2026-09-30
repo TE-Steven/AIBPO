@@ -8,7 +8,6 @@ import { ChatPanel } from "./ChatPanel";
 import { EditableTitle } from "./EditableTitle";
 import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
 import { AnalysisStuckNotice } from "./AnalysisStuckNotice";
-import { DocumentsPanel } from "./DocumentsPanel";
 import { BotTestPanel } from "./BotTestPanel";
 import { getBotTestTarget } from "@/lib/botTest";
 import { companyIdForRole } from "@/lib/company";
@@ -111,15 +110,14 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
             ragElapsedMinutes={elapsedMinutes(source.ragStartedAt)}
             workflowElapsedMinutes={elapsedMinutes(source.workflowStartedAt)}
             draftCount={draftCount}
+            documents={{
+              status: source.docStatus,
+              errorMessage: source.docErrorMessage,
+              count: entries.filter((e) => e.kind === "DOC").length,
+              templateNames,
+              elapsedMinutes: elapsedMinutes(source.docStartedAt),
+            }}
           />
-          {templateNames.length > 0 && (
-            <DocumentsPanel
-              sourceId={source.id}
-              templateNames={templateNames}
-              docCount={entries.filter((e) => e.kind === "DOC").length}
-              lastError={source.errorMessage}
-            />
-          )}
           <BotTestPanel
             sourceId={source.id}
             entryCount={entries.filter((e) => e.kind === "FAQ").length}

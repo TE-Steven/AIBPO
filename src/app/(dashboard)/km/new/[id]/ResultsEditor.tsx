@@ -8,14 +8,21 @@ import { IconCheckCircle, IconChevronDown } from "@/components/icons";
 type Entry = KmEntryLike & { confirmed: boolean };
 
 export function ResultsEditor({
-  entries,
+  entries: allEntries,
   tallyOptions,
 }: {
   entries: Entry[];
   tallyOptions: { id: string; label: string }[];
 }) {
+  // 分頁：FAQ 與結構化文件分開勾選、確認（沒有結構化文件時不顯示分頁）
+  const faqEntries = allEntries.filter((e) => e.kind !== "DOC");
+  const docEntries = allEntries.filter((e) => e.kind === "DOC");
+  const [tab, setTab] = useState<"FAQ" | "DOC">("FAQ");
+  const activeTab = tab === "DOC" && docEntries.length > 0 ? "DOC" : "FAQ";
+  const entries = activeTab === "DOC" ? docEntries : faqEntries;
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set(entries.filter((e) => e.confirmed).map((e) => e.id)));
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set(allEntries.filter((e) => e.confirmed).map((e) => e.id)));
   const [isPending, startTransition] = useTransition();
   const [justConfirmed, setJustConfirmed] = useState(false);
   const [allExpanded, setAllExpanded] = useState(false);
@@ -35,6 +42,11 @@ export function ResultsEditor({
     });
   }
 
+  function switchTab(next: "FAQ" | "DOC") {
+    setTab(next);
+    setSelected(new Set());
+  }
+
   function toggleAll() {
     setSelected((prev) => (prev.size === entries.length ? new Set() : new Set(entries.map((e) => e.id))));
   }
@@ -51,6 +63,29 @@ export function ResultsEditor({
 
   return (
     <div className="space-y-3">
+      {docEntries.length > 0 && (
+        <div className="flex gap-1 border-b border-slate-200" role="tablist">
+          {(
+            [
+              ["FAQ", `FAQ（${faqEntries.length}）`],
+              ["DOC", `結構化文件（${docEntries.length}）`],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => switchTab(id)}
+              className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
+                activeTab === id ? "border-teal-600 text-teal-700" : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
           <input
@@ -113,7 +148,7 @@ export function ResultsEditor({
 
       {entries.length === 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
-          還沒有產出任何 KM
+          {activeTab === "DOC" ? "還沒有結構化文件" : "還沒有產出任何 FAQ"}
         </div>
       )}
     </div>

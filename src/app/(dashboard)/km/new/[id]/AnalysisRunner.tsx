@@ -31,6 +31,8 @@ export function AnalysisRunner({
   const [selectedDimensionIds, setSelectedDimensionIds] = useState<string[]>([]);
   const [freeText, setFreeText] = useState("");
   const [useTally, setUseTally] = useState(hasTallies);
+  // 同時產生結構化文件（跟 FAQ 歸類分開勾選；事後也能在「結構化文件」卡片產生）
+  const [withDocs, setWithDocs] = useState(templateNames.length > 0);
   const [countMin, setCountMin] = useState(defaultCountMin);
   const [countMax, setCountMax] = useState(defaultCountMax);
   const [answerStyle, setAnswerStyle] = useState("");
@@ -40,7 +42,7 @@ export function AnalysisRunner({
   const [thinkingText, setThinkingText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [doneCount, setDoneCount] = useState<{ faq: number; doc: number; docError: string | null } | null>(null);
-  const stages = useTally && templateNames.length > 0 ? DOC_STAGES : BASE_STAGES;
+  const stages = withDocs && templateNames.length > 0 ? DOC_STAGES : BASE_STAGES;
   const esRef = useRef<EventSource | null>(null);
 
   function toggleDimension(id: string) {
@@ -65,6 +67,7 @@ export function AnalysisRunner({
     const qs = new URLSearchParams({
       dimensions: JSON.stringify(dimensionNames),
       useTally: useTally ? "1" : "0",
+      withDocs: withDocs && templateNames.length > 0 ? "1" : "0",
       countMin: String(countMin),
       countMax: String(countMax),
       answerStyle,
@@ -205,12 +208,23 @@ export function AnalysisRunner({
               onChange={(e) => setUseTally(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
             />
-            把 Tally 分類也當作維度依據
+            把 Tally 分類也當作維度依據（替每題 FAQ 建議分類）
           </label>
         )}
-        {hasTallies && useTally && templateNames.length > 0 && (
+        {templateNames.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={withDocs}
+              onChange={(e) => setWithDocs(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
+            />
+            同時產生結構化文件
+          </label>
+        )}
+        {templateNames.length > 0 && withDocs && (
           <p className="w-full text-xs text-slate-500">
-            會另外依「{templateNames.join("」「")}」範本，找出文件裡所有這類實體，每個實體依分類的維度整理成一份結構化文件（文件沒寫的維度會標「文件未提及」）。
+            FAQ 完成後，會再依「{templateNames.join("」「")}」範本找出文件裡每一個項目，各整理成一份結構化文件（多一次 AI 呼叫）。不勾的話，之後也可以在「結構化文件」卡片產生。
           </p>
         )}
         <div className="flex items-center gap-2 text-sm text-slate-700">

@@ -41,3 +41,24 @@ export async function stopKmAnalysisAction(sourceId: string): Promise<{ success?
   revalidatePath(`/km/new/${sourceId}`);
   return { success: entryCount > 0 ? "已停止，保留已產生的題目。" : "已停止，可以重新分析。" };
 }
+
+// 停止產生結構化文件：卡在「產生中」時解除；有舊文件就保留並回到已完成，沒有就標失敗，之後可以重新產生。
+export async function stopDocumentsAction(sourceId: string): Promise<{ success?: string; error?: string }> {
+  const session = await requireSession();
+
+  const source = await prisma.kmSource.findUnique({ where: { id: sourceId } });
+  if (!source) return { error: "找不到這份來源。" };
+  if (session.kind !== "superadmin" && source.roleId !== session.roleId) return { error: "沒有權限操作這份來源。" };
+  if (source.docStatus !== "PROCESSING") return { error: "目前沒有正在產生的結構化文件。" };
+
+  const hasDocs = (await prisma.kmEntry.count({ where: { sourceId, kind: "DOC" } })) > 0;
+  await prisma.kmSource.update({
+    where: { id: sourceId },
+    data: hasDocs
+      ? { docStatus: "DONE", docStartedAt: null, docErrorMessage: null }
+      : { docStatus: "FAILED", docStartedAt: null, docErrorMessage: "已手動停止。" },
+  });
+
+  revalidatePath(`/km/new/${sourceId}`);
+  return { success: hasDocs ? "已停止，保留上一版結構化文件，可以重新產生。" : "已停止，可以重新產生。" };
+}
