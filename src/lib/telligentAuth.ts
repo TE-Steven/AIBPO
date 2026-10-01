@@ -67,7 +67,7 @@ export async function refreshAccessToken(
     const detail = maskSecrets(`HTTP ${res.status}：${reason}`, [target.clientSecret, refreshToken]);
     if (json.error === "invalid_client") throw new Error(`換 token 失敗：client_id／client_secret 不正確（${detail}）`);
     throw new BotTokenError(
-      `refresh token 換不到新的 access token（${detail}）。每支 refresh token 只能用一次：如果這支之前貼過（包括伺服器重新啟動前），請重新登入取得新的一支；也請確認有完整複製。`,
+      `refresh token 換不到新的 access token（${detail}）。每支 refresh token 只能用一次，而且不能同時給瀏覽器和 AIBPO 用：請開無痕視窗登入、F12 複製 refresh token 後立刻關掉無痕視窗（不要按登出），再貼到這裡（只貼一次）。`,
     );
   }
   return { accessToken: json.access_token, refreshToken: json.refresh_token ?? refreshToken };

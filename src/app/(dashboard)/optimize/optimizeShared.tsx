@@ -163,7 +163,7 @@ export function TokenField({ value, onChange }: { value: string; onChange: (v: s
       <p className="mt-1.5 text-xs text-slate-400">
         token 只放在伺服器記憶體裡，不會存進資料庫。
         {canRefresh
-          ? "貼 refresh token 時系統會自動換新的 access token，跑再久都不會因過期暫停；貼 access token 則過期時自動暫停，貼新的就從中斷的地方繼續。"
+          ? "貼 refresh token 時系統會自動換新的 access token，跑再久都不會因過期暫停；貼 access token 則過期時自動暫停，貼新的就從中斷的地方繼續。取得 refresh token 建議：開無痕視窗登入 → F12 複製 → 立刻關掉無痕視窗（不要按登出），每支只貼一次。"
           : "過期時任務會自動暫停，貼新的 token 就從中斷的地方繼續。"}
       </p>
       {refresh && (
