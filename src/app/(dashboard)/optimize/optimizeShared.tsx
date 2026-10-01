@@ -324,11 +324,17 @@ export function ScoreBar({ value, target }: { value: number | null; target: numb
 
 export function ResultsModal({ versionId, title, onClose }: { versionId: string; title: string; onClose: () => void }) {
   const [results, setResults] = useState<RunResultView[] | null>(null);
-  const [filter, setFilter] = useState<"wrong" | "all">("wrong");
+  const [filter, setFilter] = useState<"wrong" | "match" | "all">("wrong");
   useEffect(() => {
     getRunResultsAction(versionId).then(setResults);
   }, [versionId]);
-  const shown = (results ?? []).filter((r) => filter === "all" || r.verdict !== "MATCH");
+  const all = results ?? [];
+  const matched = all.filter((r) => r.verdict === "MATCH");
+  // 不一致／未回答：AI 判定不一致，或機器人沒回答、逾時、比對失敗
+  const wrong = all.filter((r) => r.verdict !== "MATCH");
+  const shown = filter === "match" ? matched : filter === "wrong" ? wrong : all;
+  const emptyText =
+    all.length === 0 ? "這一輪還沒有測試結果。" : filter === "match" ? "這一輪沒有答對的題目。" : "這一輪全部答對。";
   return (
     <Modal title={title} onClose={onClose} wide>
       <div className="mb-3 flex items-center gap-2 text-xs">
@@ -336,15 +342,16 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
           value={filter}
           onChange={setFilter}
           options={[
-            { value: "wrong", label: "只看答錯" },
-            { value: "all", label: "全部" },
+            { value: "wrong", label: "不一致／未回答", hint: results ? String(wrong.length) : "" },
+            { value: "match", label: "一致", hint: results ? String(matched.length) : "" },
+            { value: "all", label: "全部", hint: results ? String(all.length) : "" },
           ]}
         />
       </div>
       {results === null ? (
         <p className="text-xs text-slate-500">載入中…</p>
       ) : shown.length === 0 ? (
-        <p className="text-xs text-slate-500">{results.length === 0 ? "這一輪還沒有測試結果。" : "這一輪全部答對。"}</p>
+        <p className="text-xs text-slate-500">{emptyText}</p>
       ) : (
         <div className="space-y-3">
           {shown.map((r) => (
@@ -355,7 +362,7 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
                     r.verdict === "MATCH" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
                   }`}
                 >
-                  {r.verdict === "MATCH" ? "一致" : r.verdict === "MISMATCH" ? "不一致" : "沒有結果"}
+                  {r.verdict === "MATCH" ? "一致" : r.verdict === "MISMATCH" ? "不一致" : "未回答"}
                 </span>
                 {r.isSimilar && <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">相似題</span>}
                 <p className="font-medium text-slate-800">{r.question}</p>
