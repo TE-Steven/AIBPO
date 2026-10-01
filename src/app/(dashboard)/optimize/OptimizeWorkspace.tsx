@@ -221,7 +221,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
             <StepperField label="連續沒進步就停" hint="比最佳的一輪連續幾輪沒進步" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
             <StepperField
               label="呼叫學習後至少等"
-              hint="呼叫後台學習 API 後至少等這麼久才開始問，同時也會等後台顯示學習完成（0–30 分）"
+              hint="呼叫學習 API 後等這麼久（也會等後台顯示學習完成）再試問第一題；機器人沒回答就再等同樣時間重試，有回答才開始正式測試（0–30 分）"
               value={learnWaitMinutes}
               onChange={setLearnWaitMinutes}
               min={0}

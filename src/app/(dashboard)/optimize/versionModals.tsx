@@ -92,7 +92,7 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
         <StepperField label="連續沒進步就停" hint="含起點版本的分數" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
         <StepperField
           label="呼叫學習後至少等"
-          hint="同時也會等後台顯示學習完成（0–30 分）"
+          hint="之後試問第一題，沒回答就再等同樣時間重試（0–30 分）"
           value={learnWaitMinutes}
           onChange={setLearnWaitMinutes}
           min={0}

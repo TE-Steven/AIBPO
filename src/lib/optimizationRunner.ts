@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { anthropic, recordApiUsage } from "@/lib/anthropic";
 import { findAiModel } from "@/lib/aiModels";
 import { companyIdForRole } from "@/lib/company";
-import { BotTokenError, getBotTestTarget, readTokenCompany, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
+import { askBot, BotTokenError, getBotTestTarget, readTokenCompany, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
 import { runBotJobs, TOKEN_SKIPPED_MESSAGE } from "@/lib/botTestRunner";
 import { refreshAccessToken, type TokenCredentials } from "@/lib/telligentAuth";
 import { getPromptConfig } from "@/lib/promptConfigStore";
@@ -536,6 +536,25 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
     await setStep(job.id, `第 ${n} 輪：後台已學習完成，呼叫學習後要等滿 ${job.learnWaitMinutes} 分鐘才開始問（剩約 ${left} 分鐘）`);
     if (await isStopRequested(job.id)) return; // 迴圈下一圈會把任務標成已停止
     await new Promise((r) => setTimeout(r, Math.min(15_000, until - Date.now())));
+  }
+
+  // 先試問第一題：機器人有回答才開始正式測試；完全沒回（逾時、出錯）就再等同樣的分鐘數再試，直到有回答或使用者按停止。
+  // 回「尚未學習到相關知識」這類句子也算有回答，否則遇到本來就答不出來的題目會永遠等下去。
+  const probe = await prisma.optimizationQuestion.findFirst({ where: { jobId: job.id }, orderBy: { order: "asc" } });
+  if (probe) {
+    const retryMs = Math.max(1, job.learnWaitMinutes) * 60_000;
+    for (let attempt = 1; ; attempt++) {
+      await setStep(job.id, `第 ${n} 輪：試問第一題，確認機器人已經能回答${attempt > 1 ? `（第 ${attempt} 次）` : ""}`);
+      const result = await askBot(ctx.target, token, probe.question);
+      if (result.status === "ANSWERED") break;
+      const next = Date.now() + retryMs;
+      while (Date.now() < next) {
+        const left = Math.ceil((next - Date.now()) / 60_000);
+        await setStep(job.id, `第 ${n} 輪：試問第一題機器人沒有回答，約 ${left} 分鐘後再試（已試 ${attempt} 次）`);
+        if (await isStopRequested(job.id)) return;
+        await new Promise((r) => setTimeout(r, Math.min(15_000, next - Date.now())));
+      }
+    }
   }
 
   await prisma.optimizationJob.update({ where: { id: job.id }, data: { resumeStep: "TEST" } });
