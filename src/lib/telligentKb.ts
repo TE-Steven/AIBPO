@@ -29,7 +29,8 @@ function resolvePath(target: BotTestTarget, token: string, path: string): string
   return `${target.gatewayBaseUrl}${path.replace("{code}", encodeURIComponent(companyCode))}`;
 }
 
-async function request(url: string, token: string, init: RequestInit): Promise<unknown> {
+// label：哪一支 API（錯誤訊息用）。失敗時訊息帶上方法與路徑（不含 token），方便對照後台 log。
+async function request(url: string, token: string, init: RequestInit, label: string): Promise<unknown> {
   const res = await fetch(url, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }) },
@@ -37,7 +38,14 @@ async function request(url: string, token: string, init: RequestInit): Promise<u
   });
   if (res.status === 401 || res.status === 403) throw new BotTokenError("token 無效或已過期，請換一個新的 token。");
   const text = await res.text();
-  if (!res.ok) throw new KnowledgeApiError(maskToken(`知識庫 API 回應 HTTP ${res.status}：${text.slice(0, 300)}`, token));
+  if (!res.ok) {
+    const { pathname, search } = new URL(url);
+    const detail = text.trim() ? text.slice(0, 300) : "（沒有回應內容）";
+    const sent = typeof init.body === "string" ? `｜送出 ${init.body.slice(0, 300)}` : "";
+    throw new KnowledgeApiError(
+      maskToken(`知識庫 API（${label}）回應 HTTP ${res.status}：${detail}｜${init.method ?? "GET"} ${pathname}${search}${sent}`, token),
+    );
+  }
   try {
     return text ? JSON.parse(text) : {};
   } catch {
@@ -49,7 +57,7 @@ async function request(url: string, token: string, init: RequestInit): Promise<u
 export async function uploadMarkdown(target: BotTestTarget, token: string, markdown: string, fileName: string): Promise<string> {
   const form = new FormData();
   form.append("file", new Blob([markdown], { type: "text/markdown" }), fileName);
-  const json = (await request(resolvePath(target, token, target.uploadPath), token, { method: "POST", body: form })) as {
+  const json = (await request(resolvePath(target, token, target.uploadPath), token, { method: "POST", body: form }, "上傳檔案")) as {
     success?: boolean;
     url?: string;
     message?: string | null;
@@ -77,7 +85,7 @@ export async function createKnowledge(
       extensionSources: [],
       sourceUrlQueryString: [],
     }),
-  })) as { id?: string; data?: { id?: string } };
+  }, "新增知識")) as { id?: string; data?: { id?: string } };
   const directId = json?.id ?? json?.data?.id;
   if (typeof directId === "string" && directId) return directId;
 
@@ -91,7 +99,7 @@ export async function listKnowledge(target: BotTestTarget, token: string, keywor
   const all: KnowledgeItem[] = [];
   for (let page = 1; page <= 20; page++) {
     const params = new URLSearchParams({ platformId: target.knowledgePlatformId, keyword, page: String(page), limit: "50" });
-    const json = (await request(`${resolvePath(target, token, target.knowledgePath)}/list?${params}`, token, { method: "GET" })) as {
+    const json = (await request(`${resolvePath(target, token, target.knowledgePath)}/list?${params}`, token, { method: "GET" }, "查詢知識列表")) as {
       items?: Partial<KnowledgeItem>[];
       totalPages?: number;
     };
@@ -123,13 +131,13 @@ export async function findKnowledgeByName(target: BotTestTarget, token: string, 
 
 // 回傳 { learnableCount, ignoredCount }：已經在學習中的會被忽略
 export async function learnKnowledge(target: BotTestTarget, token: string, ids: string[]): Promise<void> {
-  await request(`${resolvePath(target, token, target.knowledgePath)}/learn`, token, { method: "POST", body: JSON.stringify({ ids }) });
+  await request(`${resolvePath(target, token, target.knowledgePath)}/learn`, token, { method: "POST", body: JSON.stringify({ ids }) }, "送出學習");
 }
 
 // 刪除是非同步的：送出後狀態先變 3（operationType 1），過一陣子才從列表消失
 export async function deleteKnowledge(target: BotTestTarget, token: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  await request(`${resolvePath(target, token, target.knowledgePath)}/delete`, token, { method: "POST", body: JSON.stringify({ ids }) });
+  await request(`${resolvePath(target, token, target.knowledgePath)}/delete`, token, { method: "POST", body: JSON.stringify({ ids }) }, "刪除知識");
 }
 
 // 等刪除完成（從列表消失），避免舊知識還在影響下一輪的測試；逾時就不再等（已標成刪除中）
