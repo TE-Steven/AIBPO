@@ -23,12 +23,15 @@ import {
 import {
   createKnowledge,
   deleteKnowledge,
+  AIBPO_KNOWLEDGE_PREFIX,
+  DELETING_STATUS,
   findKnowledgeByName,
+  getAibpoKnowledge,
   isLearned,
   KnowledgeApiError,
   learnKnowledge,
-  listKnowledge,
   uploadMarkdown,
+  waitUntilDeleted,
   waitUntilLearned,
 } from "@/lib/telligentKb";
 
@@ -330,6 +333,7 @@ export async function clearRecordedBackendKnowledge(params: {
   target: BotTestTarget;
   token: string;
   exceptVersionId?: string;
+  waitDeleted?: boolean;
 }): Promise<number> {
   const roles = await prisma.role.findMany({ where: { companyId: params.companyId }, select: { id: true } });
   const stale = await prisma.kbVersion.findMany({
@@ -340,19 +344,21 @@ export async function clearRecordedBackendKnowledge(params: {
     },
     select: { id: true, backendKnowledgeIds: true },
   });
-  let deleted = 0;
+  const deletedIds: string[] = [];
   for (const v of stale) {
     const ids = asIds(v.backendKnowledgeIds);
     if (ids.length > 0) await deleteKnowledge(params.target, params.token, ids);
     await prisma.kbVersion.update({ where: { id: v.id }, data: { backendKnowledgeIds: Prisma.DbNull } });
-    deleted += ids.length;
+    deletedIds.push(...ids);
   }
-  return deleted;
+  // 後台刪除是非同步的：等它真的消失再往下做（例如上傳下一版），避免新舊兩版同時影響機器人回答
+  if (deletedIds.length > 0 && params.waitDeleted) await waitUntilDeleted(params.target, params.token, deletedIds);
+  return deletedIds.length;
 }
 
 export function backendKnowledgeName(label: string, versionId: string, runIndex: number | null): string {
   const safe = label.replace(/[\\/:*?"<>|]/g, "_").slice(0, 30);
-  return `AIBPO-${safe}-${versionId.slice(-6)}${runIndex ? `-r${runIndex}` : ""}`;
+  return `${AIBPO_KNOWLEDGE_PREFIX}${safe}-${versionId.slice(-6)}${runIndex ? `-r${runIndex}` : ""}`;
 }
 
 // 上傳一個版本的 md 到後台並新增知識，記下 id（之後只刪這一批）。已上傳過（例如中斷後繼續）就沿用。
@@ -386,7 +392,7 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
 
   if (asIds(version.backendKnowledgeIds).length === 0) {
     await setStep(job.id, `第 ${n} 輪：刪除後台上一版`);
-    await clearRecordedBackendKnowledge({ companyId: ctx.companyId, target: ctx.target, token, exceptVersionId: version.id });
+    await clearRecordedBackendKnowledge({ companyId: ctx.companyId, target: ctx.target, token, exceptVersionId: version.id, waitDeleted: true });
   }
   const ids = await uploadVersionToBackend({
     target: ctx.target,
@@ -397,8 +403,8 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
   });
 
   await setStep(job.id, `第 ${n} 輪：後台學習中`);
-  const item = (await listKnowledge(ctx.target, token)).find((i) => i.id === ids[0]);
-  if (!item) {
+  const item = await getAibpoKnowledge(ctx.target, token, ids[0]);
+  if (!item || item.status === DELETING_STATUS) {
     // 後台的知識被人刪掉了：清掉紀錄，下一圈重新上傳
     await prisma.kbVersion.update({ where: { id: version.id }, data: { backendKnowledgeIds: Prisma.DbNull } });
     throw new Error("後台找不到這一輪上傳的知識（可能被手動刪除），請重試。");

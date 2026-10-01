@@ -12,7 +12,11 @@ export type KnowledgeItem = {
   status: number;
   lastTrainingTime: string | null;
   creationTime: string | null;
+  operationType: number;
 };
+
+// AIBPO 上傳的知識名稱一律用這個開頭，查詢時用它當關鍵字（後台知識很多時，不帶關鍵字的第一頁可能找不到）
+export const AIBPO_KNOWLEDGE_PREFIX = "AIBPO-";
 
 export class KnowledgeApiError extends Error {}
 
@@ -54,7 +58,7 @@ export async function uploadMarkdown(target: BotTestTarget, token: string, markd
   return json.url;
 }
 
-// 新增一筆生成式知識（type 4 = 檔案網址），回傳知識 id（API 有回傳就直接用，沒有就用唯一名稱查）
+// 新增一筆生成式知識（type 4 = 檔案網址），回傳知識 id。實測新增 API 只回 true，所以用唯一名稱查回 id。
 export async function createKnowledge(
   target: BotTestTarget,
   token: string,
@@ -82,21 +86,34 @@ export async function createKnowledge(
   return found.id;
 }
 
-export async function listKnowledge(target: BotTestTarget, token: string, keyword = ""): Promise<KnowledgeItem[]> {
-  const params = new URLSearchParams({ platformId: target.knowledgePlatformId, keyword, page: "1", limit: "50" });
-  const json = (await request(`${resolvePath(target, token, target.knowledgePath)}/list?${params}`, token, { method: "GET" })) as {
-    items?: Partial<KnowledgeItem>[];
-  };
-  return (json.items ?? [])
-    .filter((i): i is Partial<KnowledgeItem> & { id: string } => typeof i.id === "string")
-    .map((i) => ({
-      id: i.id,
-      name: i.name ?? "",
-      sourceName: i.sourceName ?? null,
-      status: Number(i.status ?? -1),
-      lastTrainingTime: i.lastTrainingTime ?? null,
-      creationTime: i.creationTime ?? null,
-    }));
+// 關鍵字查詢（實測是部分比對），會把每一頁都撈完
+export async function listKnowledge(target: BotTestTarget, token: string, keyword: string): Promise<KnowledgeItem[]> {
+  const all: KnowledgeItem[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const params = new URLSearchParams({ platformId: target.knowledgePlatformId, keyword, page: String(page), limit: "50" });
+    const json = (await request(`${resolvePath(target, token, target.knowledgePath)}/list?${params}`, token, { method: "GET" })) as {
+      items?: Partial<KnowledgeItem>[];
+      totalPages?: number;
+    };
+    for (const i of json.items ?? []) {
+      if (typeof i.id !== "string") continue;
+      all.push({
+        id: i.id,
+        name: i.name ?? "",
+        sourceName: i.sourceName ?? null,
+        status: Number(i.status ?? -1),
+        lastTrainingTime: i.lastTrainingTime ?? null,
+        creationTime: i.creationTime ?? null,
+        operationType: Number(i.operationType ?? 0),
+      });
+    }
+    if (!json.totalPages || page >= json.totalPages) break;
+  }
+  return all;
+}
+
+export async function getAibpoKnowledge(target: BotTestTarget, token: string, id: string): Promise<KnowledgeItem | null> {
+  return (await listKnowledge(target, token, AIBPO_KNOWLEDGE_PREFIX)).find((i) => i.id === id) ?? null;
 }
 
 export async function findKnowledgeByName(target: BotTestTarget, token: string, name: string): Promise<KnowledgeItem | null> {
@@ -104,17 +121,31 @@ export async function findKnowledgeByName(target: BotTestTarget, token: string, 
   return items.find((i) => i.name === name) ?? null;
 }
 
+// 回傳 { learnableCount, ignoredCount }：已經在學習中的會被忽略
 export async function learnKnowledge(target: BotTestTarget, token: string, ids: string[]): Promise<void> {
   await request(`${resolvePath(target, token, target.knowledgePath)}/learn`, token, { method: "POST", body: JSON.stringify({ ids }) });
 }
 
+// 刪除是非同步的：送出後狀態先變 3（operationType 1），過一陣子才從列表消失
 export async function deleteKnowledge(target: BotTestTarget, token: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   await request(`${resolvePath(target, token, target.knowledgePath)}/delete`, token, { method: "POST", body: JSON.stringify({ ids }) });
 }
 
-// 學習完成的判斷：有 lastTrainingTime 且狀態為「已完成」。狀態碼由實測確認（範例：已學習的是 2、剛新增未學習的是 3）。
+// 等刪除完成（從列表消失），避免舊知識還在影響下一輪的測試；逾時就不再等（已標成刪除中）
+export async function waitUntilDeleted(target: BotTestTarget, token: string, ids: string[], timeoutMs = 5 * 60_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const remaining = (await listKnowledge(target, token, AIBPO_KNOWLEDGE_PREFIX)).filter((i) => ids.includes(i.id));
+    if (remaining.length === 0) return true;
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
+}
+
+// 實測狀態碼：0＝新增未學習、1＝學習中、2＝已學習（有 lastTrainingTime）、3＝刪除中（operationType 1）
 export const LEARNED_STATUSES = new Set([2]);
+export const DELETING_STATUS = 3;
 
 // 自動優化每一輪都是新上傳的知識，所以只要有 lastTrainingTime 就一定是這一輪學的，不用比對時間
 export function isLearned(item: KnowledgeItem): boolean {
@@ -130,8 +161,8 @@ export async function waitUntilLearned(
 ): Promise<KnowledgeItem> {
   const deadline = Date.now() + (options.timeoutMs ?? 20 * 60_000);
   for (;;) {
-    const item = (await listKnowledge(target, token)).find((i) => i.id === id);
-    if (!item) throw new KnowledgeApiError("後台找不到剛新增的知識，可能已被刪除。");
+    const item = await getAibpoKnowledge(target, token, id);
+    if (!item || item.status === DELETING_STATUS) throw new KnowledgeApiError("後台找不到剛新增的知識，可能已被刪除。");
     options.onStatus?.(item.status);
     if (isLearned(item)) return item;
     if (Date.now() > deadline) throw new KnowledgeApiError(`等學習完成超過時間（最後狀態 ${item.status}）。`);
