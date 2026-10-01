@@ -12,6 +12,10 @@ export type BotTestTarget = {
   knowledgePlatformId: string;
   uploadPath: string;
   knowledgePath: string;
+  // 自動換 token（refresh token 換 access token）：token 網址留空就用 {送題網址}/oauth2api/connect/token
+  tokenUrl: string;
+  clientId: string;
+  clientSecret: string;
 };
 
 export const DEFAULT_UPLOAD_PATH = "/{code}/file/api/file/upload";
@@ -24,6 +28,9 @@ export const DEFAULT_BOT_TEST_TARGET: BotTestTarget = {
   knowledgePlatformId: "",
   uploadPath: DEFAULT_UPLOAD_PATH,
   knowledgePath: DEFAULT_KNOWLEDGE_PATH,
+  tokenUrl: "",
+  clientId: "",
+  clientSecret: "",
 };
 
 // 送題後等多久才去撈答案、撈不到再隔多久重試、最多重試幾次。
@@ -44,6 +51,9 @@ export async function getBotTestTarget(companyId: string): Promise<BotTestTarget
       knowledgePlatformId: parsed.knowledgePlatformId?.trim() ?? "",
       uploadPath: parsed.uploadPath?.trim() || DEFAULT_UPLOAD_PATH,
       knowledgePath: parsed.knowledgePath?.trim() || DEFAULT_KNOWLEDGE_PATH,
+      tokenUrl: parsed.tokenUrl?.trim() ?? "",
+      clientId: parsed.clientId?.trim() ?? "",
+      clientSecret: parsed.clientSecret?.trim() ?? "",
     };
   } catch {
     return null;

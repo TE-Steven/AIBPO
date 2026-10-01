@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   startOptimizationAction,
@@ -63,6 +63,14 @@ const STATUS: Record<string, { label: string; className: string }> = {
   FAILED: { label: "發生錯誤", className: "bg-rose-50 text-rose-700 ring-rose-200" },
 };
 
+// 公司有沒有設定自動換 token（client_id／client_secret）：有的話可以貼 refresh token
+const CanRefreshContext = createContext(false);
+
+// refresh token 是加密過的 JWE（5 段），access token 是 JWT（3 段）
+function isRefreshToken(token: string) {
+  return token.trim().replace(/^Bearer\s+/i, "").split(".").length === 5;
+}
+
 function tokenMinutesLeft(token: string): number | null {
   try {
     const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
@@ -101,7 +109,9 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 }
 
 function TokenField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const minutesLeft = value ? tokenMinutesLeft(value.trim().replace(/^Bearer\s+/i, "")) : null;
+  const canRefresh = useContext(CanRefreshContext);
+  const refresh = value.trim() ? isRefreshToken(value) : false;
+  const minutesLeft = value && !refresh ? tokenMinutesLeft(value.trim().replace(/^Bearer\s+/i, "")) : null;
   return (
     <div>
       <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
@@ -113,10 +123,20 @@ function TokenField({ value, onChange }: { value: string; onChange: (v: string) 
         autoComplete="off"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="貼上 telligent 的 Bearer token"
+        placeholder={canRefresh ? "貼上 refresh token（建議，可自動續期）或 access token" : "貼上 telligent 的 Bearer token"}
         className={inputClass}
       />
-      <p className="mt-1.5 text-xs text-slate-400">token 只放在伺服器記憶體裡，不會存進資料庫；過期時任務會自動暫停，貼新的 token 就從中斷的地方繼續。</p>
+      <p className="mt-1.5 text-xs text-slate-400">
+        token 只放在伺服器記憶體裡，不會存進資料庫。
+        {canRefresh
+          ? "貼 refresh token 時系統會自動換新的 access token，跑再久都不會因過期暫停；貼 access token 則過期時自動暫停，貼新的就從中斷的地方繼續。"
+          : "過期時任務會自動暫停，貼新的 token 就從中斷的地方繼續。"}
+      </p>
+      {refresh && (
+        <p className={`mt-1 text-xs ${canRefresh ? "text-emerald-700" : "text-rose-600"}`}>
+          {canRefresh ? "這是 refresh token：會自動續期。" : "這是 refresh token，但這間公司還沒設定自動換 token，請改貼 access token。"}
+        </p>
+      )}
       {minutesLeft !== null && (
         <p className={`mt-1 text-xs ${minutesLeft <= 10 ? "text-rose-600" : "text-slate-500"}`}>
           {minutesLeft <= 0 ? "這個 token 已經過期了" : `這個 token 還有約 ${minutesLeft} 分鐘有效`}
@@ -126,9 +146,12 @@ function TokenField({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
-function tokenUsable(token: string) {
-  const left = token.trim() ? tokenMinutesLeft(token.trim().replace(/^Bearer\s+/i, "")) : null;
-  return Boolean(token.trim()) && (left === null || left > 0);
+function useTokenUsable(token: string) {
+  const canRefresh = useContext(CanRefreshContext);
+  if (!token.trim()) return false;
+  if (isRefreshToken(token)) return canRefresh;
+  const left = tokenMinutesLeft(token.trim().replace(/^Bearer\s+/i, ""));
+  return left === null || left > 0;
 }
 
 function Feedback({ result }: { result: OptimizeActionResult | null }) {
@@ -163,6 +186,7 @@ function TokenActionModal({
   const [token, setToken] = useState("");
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
+  const usable = useTokenUsable(token);
   return (
     <Modal title={title} onClose={onClose}>
       <div className="mb-4 text-xs leading-relaxed text-slate-600">{description}</div>
@@ -177,7 +201,7 @@ function TokenActionModal({
         {!result?.success && (
           <button
             type="button"
-            disabled={pending || !tokenUsable(token)}
+            disabled={pending || !usable}
             onClick={() =>
               startTransition(async () => {
                 const r = await onSubmit(token);
@@ -284,7 +308,8 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const questionTotal = questionCount * (1 + similarCount);
   const runMinutes = estimateRunMinutes(questionTotal);
   const totalTwd = Math.round((estimateRunUsd(questionTotal) * maxRuns + 0.05) * 32);
-  const ready = contentCount > 0 && questionCount > 0 && tokenUsable(token);
+  const usable = useTokenUsable(token);
+  const ready = contentCount > 0 && questionCount > 0 && usable;
 
   function start() {
     setResult(null);
@@ -649,19 +674,30 @@ function JobCard({ job }: { job: JobView }) {
   );
 }
 
-export function OptimizeWorkspace({
+export function OptimizeWorkspace(props: WorkspaceProps) {
+  return (
+    <CanRefreshContext.Provider value={props.canRefresh}>
+      <Workspace {...props} />
+    </CanRefreshContext.Provider>
+  );
+}
+
+type WorkspaceProps = {
+  targetReady: boolean;
+  canRefresh: boolean;
+  sources: SourceOption[];
+  testCaseCount: number;
+  jobs: JobView[];
+  deployedVersion: { id: string; name: string } | null;
+};
+
+function Workspace({
   targetReady,
   sources,
   testCaseCount,
   jobs,
   deployedVersion,
-}: {
-  targetReady: boolean;
-  sources: SourceOption[];
-  testCaseCount: number;
-  jobs: JobView[];
-  deployedVersion: { id: string; name: string } | null;
-}) {
+}: WorkspaceProps) {
   const router = useRouter();
   const hasActive = jobs.some((j) => j.status === "RUNNING" || j.status === "PAUSED_TOKEN");
   const hasRunning = jobs.some((j) => j.status === "RUNNING");

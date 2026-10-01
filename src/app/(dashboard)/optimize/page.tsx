@@ -104,6 +104,7 @@ export default async function OptimizePage() {
       </div>
       <OptimizeWorkspace
         targetReady={Boolean(target?.knowledgePlatformId)}
+        canRefresh={Boolean(target?.clientId && target?.clientSecret)}
         sources={sourceOptions}
         testCaseCount={testCaseCount}
         jobs={jobViews}

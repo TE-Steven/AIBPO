@@ -120,7 +120,12 @@ export default async function PlatformCompanyDetailPage({ params }: { params: Pr
           這間公司在 KM 來源頁做「機器人測試」時，會把題目送到這組 API。
           {!botTestTarget && <span className="ml-1 text-amber-600">尚未設定，公司成員目前無法使用機器人測試。</span>}
         </p>
-        <BotTestTargetForm companyId={id} target={botTestTarget ?? DEFAULT_BOT_TEST_TARGET} />
+        {/* client_secret 不送到瀏覽器，只告訴表單有沒有設定過 */}
+        <BotTestTargetForm
+          companyId={id}
+          target={{ ...(botTestTarget ?? DEFAULT_BOT_TEST_TARGET), clientSecret: "" }}
+          hasClientSecret={Boolean(botTestTarget?.clientSecret)}
+        />
       </div>
     </div>
   );

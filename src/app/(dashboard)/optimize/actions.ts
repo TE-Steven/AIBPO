@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { BotTokenError, decodeTokenClaims, getBotTestTarget } from "@/lib/botTest";
+import { BotTokenError, getBotTestTarget, type BotTestTarget } from "@/lib/botTest";
+import { resolveTokenInput, type TokenCredentials } from "@/lib/telligentAuth";
 import { KnowledgeApiError, learnKnowledge } from "@/lib/telligentKb";
 import {
   ACTIVE_JOB_STATUSES,
@@ -17,17 +18,12 @@ export type OptimizeActionResult = { success?: string; error?: string };
 
 const PATH = "/optimize";
 
-function cleanToken(raw: string): string {
-  return raw.trim().replace(/^Bearer\s+/i, "");
-}
-
-function checkToken(token: string): string | null {
-  if (!token) return "請填 token。";
+// 使用者貼的 token：access token 直接用；refresh token 先換一支 access token（同時驗證能不能用）
+async function credentialsFor(target: BotTestTarget, raw: string): Promise<{ creds: TokenCredentials } | { error: string }> {
   try {
-    decodeTokenClaims(token);
-    return null;
+    return { creds: await resolveTokenInput(target, raw) };
   } catch (err) {
-    return err instanceof BotTokenError ? err.message : "token 格式不正確。";
+    return { error: errorMessage(err) };
   }
 }
 
@@ -71,13 +67,11 @@ export async function startOptimizationAction(input: {
   token: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
-  const token = cleanToken(input.token);
-  const tokenError = checkToken(token);
-  if (tokenError) return { error: tokenError };
-
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
   if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
+  const tk = await credentialsFor(t.target, input.token);
+  if ("error" in tk) return { error: tk.error };
 
   const scope = input.scope === "KNOWLEDGE" ? "KNOWLEDGE" : "SOURCE";
   const contentKind = input.contentKind === "DOC" ? "DOC" : "FAQ";
@@ -123,7 +117,7 @@ export async function startOptimizationAction(input: {
       currentStep: "排隊中",
     },
   });
-  launchOptimizationJob(job.id, token);
+  launchOptimizationJob(job.id, tk.creds);
 
   revalidatePath(PATH);
   return { success: "已開始自動優化，可以關掉頁面，晚點回來看結果。" };
@@ -157,15 +151,16 @@ export async function stopOptimizationAction(jobId: string): Promise<OptimizeAct
 // 暫停（token 過期、伺服器重啟）或失敗後，貼新的 token 從中斷的那一步繼續
 export async function resumeOptimizationAction(jobId: string, rawToken: string): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
-  const token = cleanToken(rawToken);
-  const tokenError = checkToken(token);
-  if (tokenError) return { error: tokenError };
   const job = await ownJob(jobId, session.roleId);
   if (!job) return { error: "找不到這個任務。" };
+  const t = await knowledgeTarget(session.companyId);
+  if ("error" in t) return { error: t.error };
+  const tk = await credentialsFor(t.target, rawToken);
+  if ("error" in tk) return { error: tk.error };
 
   if (job.status === "RUNNING") {
     if (isJobLoopRunning(jobId)) {
-      launchOptimizationJob(jobId, token); // 只換 token
+      launchOptimizationJob(jobId, tk.creds); // 只換 token
       return { success: "已更新 token。" };
     }
   } else if (!["PAUSED_TOKEN", "FAILED"].includes(job.status)) {
@@ -176,7 +171,7 @@ export async function resumeOptimizationAction(jobId: string, rawToken: string):
     where: { id: jobId },
     data: { status: "RUNNING", stopRequested: false, errorMessage: null, currentStep: "繼續執行中" },
   });
-  launchOptimizationJob(jobId, token);
+  launchOptimizationJob(jobId, tk.creds);
   revalidatePath(PATH);
   return { success: "已繼續執行。" };
 }
@@ -195,15 +190,14 @@ export async function deleteOptimizationJobAction(jobId: string): Promise<Optimi
 // 把挑中的版本放到後台：先刪掉 AIBPO 先前上傳的那批 → 上傳這一版 → 送出學習
 export async function deployVersionAction(versionId: string, rawToken: string): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
-  const token = cleanToken(rawToken);
-  const tokenError = checkToken(token);
-  if (tokenError) return { error: tokenError };
-
   const version = await prisma.kbVersion.findUnique({ where: { id: versionId } });
   if (!version || version.roleId !== session.roleId) return { error: "找不到這個版本。" };
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
   if (await activeJobInCompany(session.companyId)) return { error: "有進行中（或暫停中）的自動優化，請先停止再部署。" };
+  const tk = await credentialsFor(t.target, rawToken);
+  if ("error" in tk) return { error: tk.error };
+  const token = tk.creds.accessToken;
 
   try {
     await clearRecordedBackendKnowledge({ companyId: session.companyId, target: t.target, token, exceptVersionId: version.id });
@@ -223,12 +217,12 @@ export async function deployVersionAction(versionId: string, rawToken: string): 
 // 把 AIBPO 上傳到後台的知識全部移除（不碰後台原有的知識）
 export async function clearBackendAction(rawToken: string): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
-  const token = cleanToken(rawToken);
-  const tokenError = checkToken(token);
-  if (tokenError) return { error: tokenError };
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
   if (await activeJobInCompany(session.companyId)) return { error: "有進行中（或暫停中）的自動優化，請先停止。" };
+  const tk = await credentialsFor(t.target, rawToken);
+  if ("error" in tk) return { error: tk.error };
+  const token = tk.creds.accessToken;
   try {
     const count = await clearRecordedBackendKnowledge({ companyId: session.companyId, target: t.target, token });
     revalidatePath(PATH);

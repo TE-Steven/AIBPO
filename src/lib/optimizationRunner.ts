@@ -6,6 +6,7 @@ import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
 import { companyIdForRole } from "@/lib/company";
 import { BotTokenError, getBotTestTarget, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
 import { runBotJobs, TOKEN_SKIPPED_MESSAGE } from "@/lib/botTestRunner";
+import { refreshAccessToken, type TokenCredentials } from "@/lib/telligentAuth";
 import { getPromptConfig } from "@/lib/promptConfigStore";
 import { resolveOptions, type PromptConfigData } from "@/lib/promptConfig";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
@@ -34,14 +35,17 @@ import {
 // 自動優化的背景迴圈：每一輪 上傳 md → 後台學習 → 全部題目問機器人＋AI 比對 → 算分 → 沒達標就請 Claude 依答錯清單改整份 md。
 // 每一步做完都寫回 DB（resumeStep），所以暫停（token 過期、伺服器重啟）後貼新 token 可以從中斷的那一步繼續。
 // token 只放在這個行程的記憶體裡，不進 DB；伺服器重啟時 instrumentation 會把 RUNNING 的任務標成 PAUSED_TOKEN。
+// 貼的是 refresh token 時，access token 快過期就自動換新的，不用暫停。
 
 // 跟 Prisma client 一樣掛在 globalThis：開發模式熱更新後，server action 跟背景迴圈仍然看得到同一份
-type RunnerState = { tokens: Map<string, string>; running: Set<string> };
+type RunnerState = { tokens: Map<string, TokenCredentials>; running: Set<string> };
 const globalForRunner = globalThis as unknown as { aibpoOptimization?: RunnerState };
 const state: RunnerState = (globalForRunner.aibpoOptimization ??= { tokens: new Map(), running: new Set() });
 
-// token 剩不到這麼久就先暫停，避免做到一半才失效
+// 沒有 refresh token 時：access token 剩不到這麼久就先暫停，避免做到一半才失效
 const TOKEN_MIN_REMAINING_MS = 3 * 60_000;
+// 有 refresh token 時：每一步開始前，剩不到這麼久就先換新的（一步最長約 20 分鐘）
+const TOKEN_REFRESH_BEFORE_MS = 30 * 60_000;
 // 後台學習完成後，等一下再開始問，讓新知識生效
 const AFTER_LEARN_DELAY_MS = 30_000;
 
@@ -52,8 +56,8 @@ export function isJobLoopRunning(jobId: string): boolean {
 }
 
 // 啟動（或繼續）一個任務的背景迴圈；已經在跑就只更新 token
-export function launchOptimizationJob(jobId: string, token: string): void {
-  state.tokens.set(jobId, token);
+export function launchOptimizationJob(jobId: string, creds: TokenCredentials): void {
+  state.tokens.set(jobId, creds);
   if (state.running.has(jobId)) return;
   state.running.add(jobId);
   void runLoop(jobId)
@@ -90,7 +94,16 @@ async function pause(jobId: string, message: string) {
   await prisma.optimizationJob.update({ where: { id: jobId }, data: { status: "PAUSED_TOKEN", currentStep: message } });
 }
 
+// 有 refresh token 就換一支新的 access token（refresh token 也會換新，要存回去）
+async function refreshJobToken(jobId: string, creds: TokenCredentials, target: BotTestTarget): Promise<TokenCredentials> {
+  if (!creds.refreshToken) throw new BotTokenError("token 已過期，請貼新的 token 繼續。");
+  const next = await refreshAccessToken(target, creds.refreshToken);
+  state.tokens.set(jobId, next);
+  return next;
+}
+
 async function runLoop(jobId: string): Promise<void> {
+  let lastForcedRefresh = 0;
   for (;;) {
     const job = await prisma.optimizationJob.findUnique({ where: { id: jobId } });
     if (!job || job.status !== "RUNNING") return;
@@ -98,19 +111,23 @@ async function runLoop(jobId: string): Promise<void> {
       await prisma.optimizationJob.update({ where: { id: jobId }, data: { status: "STOPPED", stopReason: "使用者停止", currentStep: "已停止" } });
       return;
     }
-    const token = state.tokens.get(jobId);
-    if (!token) {
+    let creds = state.tokens.get(jobId);
+    if (!creds) {
       await pause(jobId, "token 不在伺服器記憶體裡（可能伺服器重新啟動），請貼新的 token 繼續。");
-      return;
-    }
-    const exp = tokenExpiresAt(token);
-    if (exp && exp - Date.now() < TOKEN_MIN_REMAINING_MS) {
-      await pause(jobId, "token 快過期了，請貼新的 token 繼續。");
       return;
     }
 
     try {
       const ctx = await loadContext(job);
+      const exp = tokenExpiresAt(creds.accessToken);
+      const remaining = exp ? exp - Date.now() : Number.POSITIVE_INFINITY;
+      if (creds.refreshToken && remaining < TOKEN_REFRESH_BEFORE_MS) {
+        creds = await refreshJobToken(jobId, creds, ctx.target);
+      } else if (!creds.refreshToken && remaining < TOKEN_MIN_REMAINING_MS) {
+        await pause(jobId, "token 快過期了，請貼新的 token 繼續。");
+        return;
+      }
+      const token = creds.accessToken;
       if (job.resumeStep === "PREPARE") await stepPrepare(job, ctx);
       else if (job.resumeStep === "UPLOAD") await stepUpload(job, ctx, token);
       else if (job.resumeStep === "TEST") await stepTest(job, ctx, token);
@@ -118,6 +135,18 @@ async function runLoop(jobId: string): Promise<void> {
       else throw new Error(`不認得的步驟 ${job.resumeStep}`);
     } catch (err) {
       if (err instanceof BotTokenError) {
+        // 做到一半 token 失效：有 refresh token 就換新的再從這一步繼續（剛換過還失效就不再硬換，改暫停）
+        if (creds.refreshToken && Date.now() - lastForcedRefresh > 2 * 60_000) {
+          lastForcedRefresh = Date.now();
+          try {
+            const target = (await loadContext(job)).target;
+            await refreshJobToken(jobId, creds, target);
+            continue;
+          } catch (refreshErr) {
+            await pause(jobId, `${errorText(refreshErr)}（貼新的 token 會從這一步繼續）`);
+            return;
+          }
+        }
         await pause(jobId, `${err.message}（貼新的 token 會從這一步繼續）`);
         return;
       }
