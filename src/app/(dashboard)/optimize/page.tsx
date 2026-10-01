@@ -143,7 +143,7 @@ export default async function OptimizePage() {
       </div>
       <OptimizeWorkspace
         targetReady={Boolean(target?.knowledgePlatformId)}
-        canRefresh={Boolean(target?.clientId && target?.clientSecret)}
+        canRefresh={Boolean(target?.clientId && target?.clientSecret && target?.tokenCompanyId && target?.tokenCompanyCode)}
         usageStats={{ judge: judgeTokens, revise: reviseTokens }}
         sources={sourceOptions}
         testCaseCount={testCaseCount}

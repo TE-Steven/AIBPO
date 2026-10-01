@@ -16,6 +16,9 @@ export type BotTestTarget = {
   tokenUrl: string;
   clientId: string;
   clientSecret: string;
+  // 換 token 時要一起帶的公司資訊（telligent 的 token 服務沒帶會回 HTTP 500）
+  tokenCompanyId: string;
+  tokenCompanyCode: string;
 };
 
 export const DEFAULT_UPLOAD_PATH = "/{code}/file/api/file/upload";
@@ -31,6 +34,8 @@ export const DEFAULT_BOT_TEST_TARGET: BotTestTarget = {
   tokenUrl: "",
   clientId: "",
   clientSecret: "",
+  tokenCompanyId: "",
+  tokenCompanyCode: "",
 };
 
 // 送題後等多久才去撈答案、撈不到再隔多久重試、最多重試幾次。
@@ -54,6 +59,8 @@ export async function getBotTestTarget(companyId: string): Promise<BotTestTarget
       tokenUrl: parsed.tokenUrl?.trim() ?? "",
       clientId: parsed.clientId?.trim() ?? "",
       clientSecret: parsed.clientSecret?.trim() ?? "",
+      tokenCompanyId: parsed.tokenCompanyId?.trim() ?? "",
+      tokenCompanyCode: parsed.tokenCompanyCode?.trim() ?? "",
     };
   } catch {
     return null;
@@ -68,6 +75,18 @@ type TokenClaims = {
   companyId: string;
   companyCode: string;
 };
+
+// 讀 token 裡的公司資訊，不檢查過期也不丟錯（自動續期時從上一支 access token 帶出 companyId／company_code）
+export function readTokenCompany(token: string): { companyId: string; companyCode: string } | null {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
+    const companyId = String(payload.company ?? "");
+    const companyCode = String(payload.company_code ?? "");
+    return companyId && companyCode ? { companyId, companyCode } : null;
+  } catch {
+    return null;
+  }
+}
 
 // token 的到期時間（毫秒）；讀不到就回傳 null。自動優化用它在 token 快過期前先暫停。
 export function tokenExpiresAt(token: string): number | null {

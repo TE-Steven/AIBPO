@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { anthropic, recordApiUsage } from "@/lib/anthropic";
 import { findAiModel } from "@/lib/aiModels";
 import { companyIdForRole } from "@/lib/company";
-import { BotTokenError, getBotTestTarget, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
+import { BotTokenError, getBotTestTarget, readTokenCompany, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
 import { runBotJobs, TOKEN_SKIPPED_MESSAGE } from "@/lib/botTestRunner";
 import { refreshAccessToken, type TokenCredentials } from "@/lib/telligentAuth";
 import { getPromptConfig } from "@/lib/promptConfigStore";
@@ -105,7 +105,7 @@ async function pause(jobId: string, message: string) {
 // 有 refresh token 就換一支新的 access token（refresh token 也會換新，要存回去）
 async function refreshJobToken(jobId: string, creds: TokenCredentials, target: BotTestTarget): Promise<TokenCredentials> {
   if (!creds.refreshToken) throw new BotTokenError("token 已過期，請貼新的 token 繼續。");
-  const next = await refreshAccessToken(target, creds.refreshToken);
+  const next = await refreshAccessToken(target, creds.refreshToken, readTokenCompany(creds.accessToken));
   state.tokens.set(jobId, next);
   return next;
 }

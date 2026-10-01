@@ -100,6 +100,8 @@ export async function saveBotTestTargetAction(
   const tokenUrl = tokenUrlRaw ? normalizeHttpsUrl(tokenUrlRaw) : "";
   if (tokenUrl === null) return { error: "token 網址必須是 https:// 開頭。" };
   const clientId = String(formData.get("clientId") ?? "").trim();
+  const tokenCompanyId = String(formData.get("tokenCompanyId") ?? "").trim();
+  const tokenCompanyCode = String(formData.get("tokenCompanyCode") ?? "").trim();
   // client_secret 不會回傳到畫面上：留空＝沿用原本的設定，勾選清除才刪掉
   const existing = await getBotTestTarget(companyId);
   const secretInput = String(formData.get("clientSecret") ?? "").trim();
@@ -118,6 +120,8 @@ export async function saveBotTestTargetAction(
       tokenUrl,
       clientId,
       clientSecret,
+      tokenCompanyId,
+      tokenCompanyCode,
     }),
   );
   revalidatePath(`/platform/companies/${companyId}`);

@@ -20,7 +20,7 @@ export function cleanTokenInput(raw: string): string {
 }
 
 export function canRefreshToken(target: BotTestTarget): boolean {
-  return Boolean(target.clientId && target.clientSecret);
+  return Boolean(target.clientId && target.clientSecret && target.tokenCompanyId && target.tokenCompanyCode);
 }
 
 function tokenEndpoint(target: BotTestTarget): string {
@@ -31,16 +31,27 @@ function maskSecrets(message: string, secrets: string[]): string {
   return secrets.filter(Boolean).reduce((m, s) => m.split(s).join("***"), message);
 }
 
-export async function refreshAccessToken(target: BotTestTarget, refreshToken: string): Promise<TokenCredentials> {
-  if (!canRefreshToken(target)) throw new BotTokenError("這間公司還沒設定自動換 token（client_id／client_secret），請改貼 access token。");
+// company：上一支 access token 裡的公司資訊（自動續期時用）；第一次換（使用者剛貼 refresh token）用公司設定的值
+export async function refreshAccessToken(
+  target: BotTestTarget,
+  refreshToken: string,
+  company?: { companyId: string; companyCode: string } | null,
+): Promise<TokenCredentials> {
+  if (!canRefreshToken(target)) {
+    throw new BotTokenError("這間公司還沒設定完整的自動換 token（client_id、client_secret、companyId、company_code），請改貼 access token。");
+  }
   const res = await fetch(tokenEndpoint(target), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    // telligent 的 token 服務除了標準欄位，還要 scope 與公司資訊，少了會回 HTTP 500
     body: new URLSearchParams({
       grant_type: "refresh_token",
       client_id: target.clientId,
       client_secret: target.clientSecret,
       refresh_token: refreshToken,
+      scope: "offline_access",
+      companyId: company?.companyId || target.tokenCompanyId,
+      company_code: company?.companyCode || target.tokenCompanyCode,
     }),
     signal: AbortSignal.timeout(30_000),
   });

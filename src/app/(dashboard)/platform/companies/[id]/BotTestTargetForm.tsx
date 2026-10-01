@@ -62,7 +62,7 @@ export function BotTestTargetForm({
         <div className="sm:col-span-2 border-t border-slate-100 pt-4">
           <p className="text-sm font-semibold text-slate-800">自動換 token（選填）</p>
           <p className="mt-0.5 text-xs text-slate-400">
-            填了之後，自動優化可以貼 refresh token：系統會自己換新的 access token，跑很久也不會因為 token 過期而暫停。
+            五個都填了之後，自動優化可以貼 refresh token：系統會自己換新的 access token，跑很久也不會因為 token 過期而暫停。
           </p>
         </div>
         <div className="sm:col-span-2">
@@ -95,6 +95,23 @@ export function BotTestTargetForm({
               清除已設定的 client_secret
             </label>
           )}
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">companyId</label>
+          <input
+            name="tokenCompanyId"
+            type="text"
+            autoComplete="off"
+            defaultValue={target.tokenCompanyId}
+            placeholder="例：97010d74-4852-11f1-962f-00ff95512fa4"
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-slate-400">換 token 時要一起帶的公司 ID（token 裡的 company）。</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">company_code</label>
+          <input name="tokenCompanyCode" type="text" autoComplete="off" defaultValue={target.tokenCompanyCode} placeholder="例：edenred" className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">token 裡的 company_code。</p>
         </div>
       </div>
       {(state.success || state.error) && (
