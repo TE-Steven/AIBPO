@@ -298,7 +298,7 @@ function VersionRow({
               <p className="whitespace-pre-wrap text-slate-700">{version.settings.guidelines || "（未設定）"}</p>
             </div>
             <div>
-              <p className="mb-1 text-xs font-bold tracking-wider text-slate-400">Prompt 管理中改過的規則</p>
+              <p className="mb-1 text-xs font-bold tracking-wider text-slate-400">參數管理中改過的規則</p>
               <p className="text-slate-700">
                 {version.settings.modifiedRules.length > 0 ? version.settings.modifiedRules.join("、") : "（全部使用預設）"}
               </p>

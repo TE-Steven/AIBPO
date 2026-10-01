@@ -1,7 +1,7 @@
 import type { PromptOptions } from "@/lib/promptConfig";
 
 // 知識列表匯出與知識庫版本共用的 markdown 組法（純函式）。
-// 格式依公司在 Prompt 管理的設定：frontmatter、分組、FAQ 題目格式（是否含結構化文件由呼叫端先篩選）。
+// 格式依公司在 參數管理的設定：frontmatter、分組、FAQ 題目格式（是否含結構化文件由呼叫端先篩選）。
 
 export type ExportEntry = {
   kind: string; // FAQ / DOC

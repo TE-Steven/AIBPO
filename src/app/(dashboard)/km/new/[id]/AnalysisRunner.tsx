@@ -23,7 +23,7 @@ export function AnalysisRunner({
   hasTallies: boolean;
   // 有子分類的第一層分類：勾選 Tally 時會依這些範本另外產出結構化文件
   templateNames: string[];
-  // FAQ 題數預設值（來自 Prompt 管理的設定）
+  // FAQ 題數預設值（來自 參數管理的設定）
   defaultCountMin?: number;
   defaultCountMax?: number;
 }) {

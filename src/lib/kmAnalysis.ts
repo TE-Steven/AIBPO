@@ -35,7 +35,7 @@ function ruleLines(config: PromptConfigData | undefined, ids: string[]): string 
 }
 
 // FAQ 分析的提示詞。結構化文件另外用 buildDocumentsSystemPrompt 分開產生（兩者一起輸出時太長容易被截斷、互相拖累）。
-// 文字與開關來自公司的提示詞設定（Prompt 管理），沒設定的部分用預設。
+// 文字與開關來自公司的提示詞設定（參數管理），沒設定的部分用預設。
 export function buildSystemPrompt(params: {
   dimensions: string[];
   // 分類的完整路徑（大 > 中 > 小），讓 AI 替每題 FAQ 建議歸類

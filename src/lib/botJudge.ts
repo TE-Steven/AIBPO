@@ -8,7 +8,7 @@ import type { PromptConfigData } from "@/lib/promptConfig";
 
 export type JudgeResult = { verdict: "MATCH" | "MISMATCH" | "ERROR"; reason: string | null };
 
-// 比對用的系統提示詞由 Prompt 管理的設定組成（buildJudgeSystemPrompt，規則 J1–J4）
+// 比對用的系統提示詞由 參數管理的設定組成（buildJudgeSystemPrompt，規則 J1–J4）
 
 const JUDGE_SCHEMA = {
   type: "object",
@@ -25,7 +25,7 @@ export async function judgeBotAnswer(params: {
   expectedAnswer: string;
   botAnswer: string;
   roleId: string;
-  // 公司在 Prompt 管理調整的比對標準；沒給就用預設
+  // 公司在 參數管理調整的比對標準；沒給就用預設
   config?: PromptConfigData;
 }): Promise<JudgeResult> {
   try {

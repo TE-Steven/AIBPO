@@ -66,7 +66,7 @@ export function assembleTallyDocuments(
   templates: TallyTemplate[],
   config?: PromptConfigData,
 ): GeneratedDocument[] {
-  // Prompt 管理關掉「通用規則」「相關項目」時，就算 AI 還是回傳了也不採用
+  // 參數管理關掉「通用規則」「相關項目」時，就算 AI 還是回傳了也不採用
   const useShared = Boolean(ruleText(config, "D11"));
   const useRelations = Boolean(ruleText(config, "D14"));
   const { docMissingText } = resolveOptions(config);

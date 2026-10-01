@@ -55,7 +55,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         ? [
             { href: "/settings/users", label: "帳號管理", icon: "users" },
             { href: "/settings/roles", label: "角色管理", icon: "shield-check" },
-            { href: "/settings/prompts", label: "Prompt管理", icon: "sparkles" },
+            { href: "/settings/prompts", label: "參數管理", icon: "sparkles" },
           ]
         : [];
 

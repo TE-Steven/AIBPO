@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return new Response("沒有選擇任何 KM 項目", { status: 400 });
   }
 
-  // 匯出格式依公司在 Prompt 管理的設定（frontmatter、分組、題目格式、是否含結構化文件）
+  // 匯出格式依公司在 參數管理的設定（frontmatter、分組、題目格式、是否含結構化文件）
   const options = resolveOptions(session.kind === "user" ? await getPromptConfig(session.companyId) : undefined);
 
   const entries = await prisma.kmEntry.findMany({
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   if (entries.length === 0) {
     return new Response(
-      options.exportIncludeDocs ? "找不到可匯出的 KM 項目" : "找不到可匯出的 KM 項目（Prompt 管理設定為不匯出結構化文件）",
+      options.exportIncludeDocs ? "找不到可匯出的 KM 項目" : "找不到可匯出的 KM 項目（參數管理設定為不匯出結構化文件）",
       { status: 404 },
     );
   }
