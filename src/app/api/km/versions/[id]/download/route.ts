@@ -22,13 +22,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (format === "pdf") {
     const settings = (version.settings ?? {}) as { promptConfig?: PromptConfigData };
-    const markdown = buildKnowledgeMarkdown({
-      entries: version.entries as unknown as ExportEntry[],
-      options: resolveOptions(settings.promptConfig),
-      format: "pdf",
-      exportedAt: version.createdAt,
-      title: `KM 知識庫 ${version.name}`,
-    });
+    // 自動優化的版本是 AI 改過的整份 md，跟題目快照不同，PDF 直接用凍結的全文排版
+    const markdown = version.jobId
+      ? version.markdown
+      : buildKnowledgeMarkdown({
+          entries: version.entries as unknown as ExportEntry[],
+          options: resolveOptions(settings.promptConfig),
+          format: "pdf",
+          exportedAt: version.createdAt,
+          title: `KM 知識庫 ${version.name}`,
+        });
     const buffer = await generateRagPdf(markdown, `KM 知識庫 ${version.name}`);
     return new Response(new Uint8Array(buffer), { headers: { "Content-Type": "application/pdf", "Content-Disposition": disposition } });
   }

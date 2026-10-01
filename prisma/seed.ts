@@ -33,6 +33,9 @@ const AGENT_CHILDREN = [
   { key: "agent-drafts", label: "Workflow 草稿", path: "/agents/drafts", icon: "sparkles", order: 3 },
 ];
 
+// 自動優化是獨立的第一層選單，排在 AI Agent 下面。
+const OPTIMIZE_MENU = { key: "optimize", label: "自動優化", path: "/optimize", icon: "sparkles", order: 6 };
+
 // 多租戶化之後，公司／角色／使用者都是自助註冊或超級管理員代開時才建立（見 src/lib/companyProvisioning.ts），
 // 這份 seed 只負責準備全站共用的選單目錄本身——新公司建立時會把當下所有 Menu 整包授權給它的第一個角色。
 // 注意：Render 的啟動指令每次部署都會重跑這個 seed，所以這裡絕對不能建立 Company/Role/User，
@@ -71,6 +74,21 @@ async function main() {
       where: { key: m.key },
       update: { label: m.label, path: m.path, icon: m.icon, order: m.order, parentId: agentParentMenu.id },
       create: { ...m, parentId: agentParentMenu.id },
+    });
+  }
+
+  // 第一次建立時，把它授權給已經看得到「來源管理」的角色（之後角色權限由公司管理員自己調整，不再自動加）
+  const optimizeExisted = await prisma.menu.findUnique({ where: { key: OPTIMIZE_MENU.key }, select: { id: true } });
+  const optimizeMenu = await prisma.menu.upsert({
+    where: { key: OPTIMIZE_MENU.key },
+    update: { label: OPTIMIZE_MENU.label, path: OPTIMIZE_MENU.path, icon: OPTIMIZE_MENU.icon, order: OPTIMIZE_MENU.order },
+    create: OPTIMIZE_MENU,
+  });
+  if (!optimizeExisted) {
+    const kmRoles = await prisma.roleMenu.findMany({ where: { menu: { key: "km-new" } }, select: { roleId: true } });
+    await prisma.roleMenu.createMany({
+      data: kmRoles.map((r) => ({ roleId: r.roleId, menuId: optimizeMenu.id })),
+      skipDuplicates: true,
     });
   }
 

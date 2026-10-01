@@ -14,6 +14,7 @@ import {
   type RuleDef,
 } from "@/lib/promptConfig";
 import { buildSystemPrompt, buildDocumentsSystemPrompt, buildRagSystemPrompt, buildJudgeSystemPrompt } from "@/lib/kmAnalysis";
+import { buildRevisionSystemPrompt, buildSimilarQuestionsSystemPrompt } from "@/lib/optimizationPrompts";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import type { Tally } from "@/generated/prisma/client";
 import { savePromptConfigAction } from "./actions";
@@ -28,6 +29,7 @@ const TABS: { id: Tab; label: string; desc: string }[] = [
   { id: "doc", label: SECTION_LABELS.doc, desc: "依分類範本產生結構化文件時使用（分析時勾選 Tally，或來源頁重新產生）。" },
   { id: "rag", label: SECTION_LABELS.rag, desc: "來源頁「產生 RAG 內容」時使用，對應 .md 的 12 項檢核。" },
   { id: "judge", label: SECTION_LABELS.judge, desc: "機器人測試時，AI 比對標準答案與機器人回答的標準。" },
+  { id: "optimize", label: SECTION_LABELS.optimize, desc: "自動優化時，AI 依答錯的題目修改 md、以及產生相似題的規則。" },
   { id: "options", label: "數值與匯出", desc: "FAQ 題數預設、結構化文件顯示方式、知識列表匯出格式。" },
 ];
 
@@ -63,6 +65,15 @@ function buildPreview(section: PromptSection, config: PromptConfigData, guidelin
       return buildRagSystemPrompt({ docId: "（來源 ID）", sourceDescription: "PDF 上傳", guidelines, config });
     case "judge":
       return buildJudgeSystemPrompt(config);
+    case "optimize":
+      return `【修改 md 的提示詞】
+
+${buildRevisionSystemPrompt({ guidelines, config })}
+
+
+【產生相似題的提示詞】
+
+${buildSimilarQuestionsSystemPrompt({ count: 3, config })}`;
   }
 }
 

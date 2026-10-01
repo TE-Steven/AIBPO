@@ -33,20 +33,21 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company         Company             @relation(fields: [companyId], references: [id])
-  memberships     CompanyMembership[]
-  roleMenus       RoleMenu[]
-  tallies         Tally[]
-  dimensions      Dimension[]
-  kmSources       KmSource[]
-  kmEntries       KmEntry[]
-  skills          Skill[]
-  agents          Agent[]
-  agentDrafts     AgentDraft[]
-  botTestRuns     BotTestRun[]
-  kbVersions      KbVersion[]
-  testCases       TestCase[]
-  versionTestRuns VersionTestRun[]
+  company          Company             @relation(fields: [companyId], references: [id])
+  memberships      CompanyMembership[]
+  roleMenus        RoleMenu[]
+  tallies          Tally[]
+  dimensions       Dimension[]
+  kmSources        KmSource[]
+  kmEntries        KmEntry[]
+  skills           Skill[]
+  agents           Agent[]
+  agentDrafts      AgentDraft[]
+  botTestRuns      BotTestRun[]
+  kbVersions       KbVersion[]
+  testCases        TestCase[]
+  versionTestRuns  VersionTestRun[]
+  optimizationJobs OptimizationJob[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -190,10 +191,11 @@ model KmSource {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  role     Role         @relation(fields: [roleId], references: [id])
-  entries  KmEntry[]
-  drafts   AgentDraft[]
-  botTests BotTestRun[]
+  role             Role              @relation(fields: [roleId], references: [id])
+  entries          KmEntry[]
+  drafts           AgentDraft[]
+  botTests         BotTestRun[]
+  optimizationJobs OptimizationJob[]
 
   @@index([roleId])
   @@map("aibpo_km_sources")
@@ -252,25 +254,34 @@ model BotTestResult {
 // 知識庫版本：某一刻知識列表的快照（凍結的題目＋匯出全文＋當時設定）。
 // 使用者下載這一版的檔案上傳到 chatbot，再用固定測試題庫測這一版，跟其他版本比較。
 model KbVersion {
-  id          String   @id @default(cuid())
-  roleId      String
-  name        String
-  note        String?  @db.Text
-  createdById String
+  id                  String   @id @default(cuid())
+  roleId              String
+  name                String
+  note                String?  @db.Text
+  createdById         String
   // 凍結的匯出全文（下載 .md／PDF 都用這份，之後題目被改也不影響這一版）
-  markdown    String   @db.Text
+  markdown            String   @db.Text
   // 凍結的題目快照：[{ kind, question, answer, tallyPath, sourceTitle }]
-  entries     Json
-  entryCount  Int
+  entries             Json
+  entryCount          Int
   // 建立當下的 Prompt 管理設定、最高準則、分類描述，日後追查版本差異用
-  settings    Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  settings            Json
+  // 自動優化產生的版本：屬於哪個任務、第幾輪；上傳到後台拿到的知識 id（下一輪上傳前只刪這一批）；三種分數（0–100）
+  jobId               String?
+  runIndex            Int?
+  backendKnowledgeIds Json?
+  scoreAll            Int?
+  scoreOriginal       Int?
+  scoreSimilar        Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   role     Role             @relation(fields: [roleId], references: [id])
+  job      OptimizationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
   testRuns VersionTestRun[]
 
   @@index([roleId])
+  @@index([jobId])
   @@map("aibpo_kb_versions")
 }
 
@@ -334,12 +345,73 @@ model VersionTestResult {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  run      VersionTestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  testCase TestCase?      @relation(fields: [testCaseId], references: [id], onDelete: SetNull)
+  // 自動優化任務的題目（原題或相似題）
+  jobQuestionId String?
+
+  run         VersionTestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase    TestCase?             @relation(fields: [testCaseId], references: [id], onDelete: SetNull)
+  jobQuestion OptimizationQuestion? @relation(fields: [jobQuestionId], references: [id], onDelete: SetNull)
 
   @@index([runId])
   @@index([testCaseId])
+  @@index([jobQuestionId])
   @@map("aibpo_version_test_results")
+}
+
+// 全自動優化任務：產生 md → 上傳後台 → 學習 → 測試 → AI 修改 → 再測，直到達標或達到上限。
+// 每一輪存成一個 KbVersion（含分數與上傳到後台的知識 id）。token 只在伺服器記憶體裡，不存 DB。
+model OptimizationJob {
+  id             String   @id @default(cuid())
+  roleId         String
+  // 範圍：SOURCE＝某個 KM 來源產出的題目；KNOWLEDGE＝知識列表裡已確認的題目（可只取某個來源）
+  scope          String   @default("SOURCE")
+  sourceId       String?
+  // 開始時選定的 KM 題目 id（內容與題目都從這批來，跟來源管理／知識列表一致）
+  entryIds       Json
+  createdById    String
+  contentKind    String // FAQ / DOC
+  questionSource String // ENTRIES（這批 FAQ）/ TEST_BANK
+  maxRuns        Int
+  targetScore    Int // 0–100
+  similarCount   Int
+  stallRuns      Int // 連續幾輪沒進步就停
+  status         String   @default("RUNNING") // RUNNING / PAUSED_TOKEN / DONE / STOPPED / FAILED
+  currentRun     Int      @default(0)
+  currentStep    String?
+  // 中斷後從哪一步繼續：PREPARE / UPLOAD / TEST / REVISE
+  resumeStep     String   @default("PREPARE")
+  stopRequested  Boolean  @default(false)
+  stopReason     String?
+  errorMessage   String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  role      Role                   @relation(fields: [roleId], references: [id])
+  source    KmSource?              @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  questions OptimizationQuestion[]
+  versions  KbVersion[]
+
+  @@index([roleId])
+  @@index([sourceId])
+  @@map("aibpo_optimization_jobs")
+}
+
+// 自動優化的固定題目：原題＋第一輪前產生一次的相似題（同一個標準答案），每一輪都用同一套
+model OptimizationQuestion {
+  id             String   @id @default(cuid())
+  jobId          String
+  order          Int
+  question       String   @db.Text
+  expectedAnswer String   @db.Text
+  isSimilar      Boolean  @default(false)
+  parentId       String?
+  createdAt      DateTime @default(now())
+
+  job     OptimizationJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  results VersionTestResult[]
+
+  @@index([jobId])
+  @@map("aibpo_optimization_questions")
 }
 
 // AI 從來源分析出來的每一則 FAQ（題目/答案都可以再編輯）。

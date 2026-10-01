@@ -32,6 +32,25 @@ export function BotTestTargetForm({ companyId, target }: { companyId: string; ta
           <input name="platformId" type="text" required defaultValue={target.platformId} className={inputClass} />
           <p className="mt-1 text-xs text-slate-400">要測試的機器人所在的 channel ID；公司代碼等資訊會從測試時填的 token 自動帶入。</p>
         </div>
+        <div className="sm:col-span-2 border-t border-slate-100 pt-4">
+          <p className="text-sm font-semibold text-slate-800">自動優化：知識庫 API</p>
+          <p className="mt-0.5 text-xs text-slate-400">「自動優化」會把 md 上傳到這個知識庫、觸發學習、測完再刪除。沒填知識庫 platformId 就不能使用自動優化。</p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">知識庫 platformId</label>
+          <input name="knowledgePlatformId" type="text" defaultValue={target.knowledgePlatformId} placeholder="例：3b27f20f-4918-11f1-a1eb-4201ac1ac022" className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">跟上面聊天用的 channel 不一樣，是知識庫（生成式知識）所在的 platform。</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">上傳檔案路徑</label>
+          <input name="uploadPath" type="text" defaultValue={target.uploadPath} className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">接在取答案網址（Gateway）後面；{"{code}"} 會換成 token 的公司代碼。</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">知識庫 API 路徑</label>
+          <input name="knowledgePath" type="text" defaultValue={target.knowledgePath} className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">新增／列表（/list）／學習（/learn）／刪除（/delete）都接在這個路徑後面。</p>
+        </div>
       </div>
       {(state.success || state.error) && (
         <p

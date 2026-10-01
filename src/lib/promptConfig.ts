@@ -1,8 +1,8 @@
 // KM 提示詞與參數設定：每條規則一個編號（對應說明文件的 F/D/R/J 編號），可開關、可改文字。
-// 預設值＝程式原本寫死的提示詞；公司在「Prompt 管理」改過的部分存在 SystemSetting（km_prompt_config），執行時覆蓋預設。
+// 預設值＝程式原本寫死的提示詞；公司在「參數管理」改過的部分存在 SystemSetting（km_prompt_config），執行時覆蓋預設。
 // 這個檔案是純資料＋純函式，伺服器（組 prompt）和設定頁（編輯、預覽）共用。
 
-export type PromptSection = "faq" | "doc" | "rag" | "judge";
+export type PromptSection = "faq" | "doc" | "rag" | "judge" | "optimize";
 
 export type RuleDef = {
   id: string;
@@ -650,6 +650,112 @@ export const RULES: RuleDef[] = [
     toggleable: false,
     editable: true,
   },
+
+
+  // ---------------- 自動優化：AI 修改 md ----------------
+  {
+    id: "opt.intro",
+    section: "optimize",
+    group: "修改 md：角色與任務",
+    label: "角色與任務說明",
+    defaultText:
+      "你是知識庫優化助手。使用者會提供原始文件、目前上傳給客服機器人的知識 md，以及機器人答錯的題目清單（題目、標準答案、機器人實際回答、錯誤原因）。請修改這份 md，讓客服機器人之後能正確回答這些問題，以及意思相同的其他問法。",
+    toggleable: false,
+    editable: true,
+  },
+  { id: "opt.language", section: "optimize", group: "修改 md：角色與任務", label: "語言", defaultText: LANGUAGE_TEXT, toggleable: false, editable: true },
+  {
+    id: "O1",
+    section: "optimize",
+    group: "修改 md：規則",
+    label: "只用原文資訊",
+    defaultText: "只能使用原始文件裡有的資訊修改或補充，原文沒有的內容一律不能寫進去；標準答案若跟原文衝突，以原文為準",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "O2",
+    section: "optimize",
+    group: "修改 md：規則",
+    label: "補上漏掉的關鍵資訊",
+    defaultText: "先找出機器人答不出或答錯的原因：md 缺少、寫得不清楚或分散在不同段落的關鍵資訊（數字、條件、步驟、例外），補進或整理到最相關的段落",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "O3",
+    section: "optimize",
+    group: "修改 md：規則",
+    label: "補上口語問法",
+    defaultText: "在相關段落補上客人可能的口語問法與同義說法（例如「刷臉打不開」＝人臉辨識異常），讓不同問法都能對應到這段內容",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "O4",
+    section: "optimize",
+    group: "修改 md：規則",
+    label: "保留結構、避免退步",
+    defaultText: "保留 md 原本的結構與標題層級，只修改需要改的地方；跟已經答對的題目有關的內容不要刪除或改變意思，避免這些題目退步",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "O5",
+    section: "optimize",
+    group: "修改 md：規則",
+    label: "不要貼題目",
+    defaultText: "不要把測試題目或標準答案原封不動整段貼進 md，要寫成知識本身的敘述",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "O6",
+    section: "optimize",
+    group: "修改 md：規則",
+    label: "段落自足",
+    defaultText: "每個段落都要能單獨看懂：寫出品牌或產品名稱，不要用「上述」「如前所述」這類依賴上下文的指代",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "O7",
+    section: "optimize",
+    group: "修改 md：輸出格式",
+    label: "直接輸出完整 md",
+    defaultText: "直接輸出修改後的完整 md 全文，不要加說明、開場白、結語，也不要用程式碼區塊或 json 包起來；回應的第一個字就必須是 md 內容",
+    toggleable: false,
+    editable: false,
+  },
+
+  // ---------------- 自動優化：產生相似題 ----------------
+  {
+    id: "sim.intro",
+    section: "optimize",
+    group: "產生相似題",
+    label: "任務說明",
+    defaultText: "你是客服測試題目設計助手。請為每一題原始問題，各寫出指定數量、意思相同但用不同說法的客人問題，用來測試客服機器人能不能理解不同問法。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "S1",
+    section: "optimize",
+    group: "產生相似題",
+    label: "像真實客人的問法",
+    defaultText: "相似題要像真實客人會問的口語說法：可以換用詞、換句型、加入使用情境或省略主詞，但詢問的重點與答案必須跟原題完全相同",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "S2",
+    section: "optimize",
+    group: "產生相似題",
+    label: "不改變問題範圍",
+    defaultText: "不要擴大或縮小問題的範圍，不要多問或少問，也不要變成另一個問題；用繁體中文",
+    toggleable: true,
+    editable: true,
+  },
 ];
 
 const RULE_BY_ID = new Map(RULES.map((r) => [r.id, r]));
@@ -659,6 +765,7 @@ export const SECTION_LABELS: Record<PromptSection, string> = {
   doc: "結構化文件",
   rag: "RAG 內容",
   judge: "AI 比對",
+  optimize: "自動優化",
 };
 
 export function ruleDef(id: string): RuleDef {

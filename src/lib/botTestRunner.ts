@@ -2,9 +2,9 @@ import { askBot, BotTokenError, type AskResult, type BotTestTarget } from "@/lib
 import { judgeBotAnswer } from "@/lib/botJudge";
 import type { PromptConfigData } from "@/lib/promptConfig";
 
-// 機器人測試的共用執行引擎（來源頁測試與知識庫版本測試共用）：
-// 同時跑 3 題、每題問機器人＋AI 比對、token 失效整批停止、SSE 逐題回報與心跳。
-// 各自的資料表寫入由呼叫端用 callback 提供。
+// 機器人測試的共用執行引擎（來源頁測試、知識庫版本測試、自動優化共用）：
+// 同時跑 3 題、每題問機器人＋AI 比對、token 失效整批停止。
+// runBotJobs 是核心（promise 版，背景任務直接用）；botTestSseResponse 在外面包一層 SSE 逐題回報與心跳。
 
 const CONCURRENCY = 3;
 
@@ -32,8 +32,7 @@ function resultData(r: AskResult): RunnerResultData {
   return { status: r.status, customerId: r.customerId, chatId: null, botAnswer: null, errorMessage: r.errorMessage };
 }
 
-export function botTestSseResponse(params: {
-  runId: string;
+export type RunBotJobsParams = {
   jobs: RunnerJob[];
   target: BotTestTarget;
   token: string;
@@ -41,12 +40,63 @@ export function botTestSseResponse(params: {
   config?: PromptConfigData;
   // 寫入一題的結果（成功或失敗都會呼叫）
   saveResult: (jobId: string, data: RunnerResultData, meta: { completed: boolean }) => Promise<void>;
+  // 每題結果出來後通知（SSE 推播用）
+  onResult?: (jobId: string, data: RunnerResultData) => void;
+  // 每題開始前檢查：回傳 true 就不再送新題目（使用者按停止）
+  shouldStop?: () => Promise<boolean>;
+};
+
+// 回傳 tokenError（token 失效中斷時）與沒送出的題目
+export async function runBotJobs(params: RunBotJobsParams): Promise<{ tokenError: string | null; skipped: string[] }> {
+  const { jobs, target, token, roleId, config } = params;
+  let tokenError: string | null = null;
+  let stopped = false;
+  let next = 0;
+
+  async function worker() {
+    while (!tokenError && !stopped && next < jobs.length) {
+      if (params.shouldStop && (await params.shouldStop())) {
+        stopped = true;
+        break;
+      }
+      const job = jobs[next++];
+      try {
+        const result = await askBot(target, token, job.question);
+        // 拿到回答就請 AI 比對標準答案（沒拿到回答的不比對）
+        const judge =
+          result.status === "ANSWERED"
+            ? await judgeBotAnswer({ question: job.question, expectedAnswer: job.expectedAnswer, botAnswer: result.answer, roleId, config })
+            : null;
+        const data = { ...resultData(result), judgeVerdict: judge?.verdict ?? null, judgeReason: judge?.reason ?? null };
+        await params.saveResult(job.id, data, { completed: true });
+        params.onResult?.(job.id, data);
+      } catch (err) {
+        const message = err instanceof BotTokenError ? err.message : "寫入測試結果失敗";
+        if (err instanceof BotTokenError) tokenError = err.message;
+        const data: RunnerResultData = { status: "ERROR", botAnswer: null, errorMessage: message };
+        await params.saveResult(job.id, data, { completed: false }).catch(() => {});
+        params.onResult?.(job.id, data);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
+  return { tokenError, skipped: jobs.slice(next).map((j) => j.id) };
+}
+
+export function botTestSseResponse(params: {
+  runId: string;
+  jobs: RunnerJob[];
+  target: BotTestTarget;
+  token: string;
+  roleId: string;
+  config?: PromptConfigData;
+  saveResult: RunBotJobsParams["saveResult"];
   // token 失效後沒送出的題目
   markSkipped: (jobIds: string[], message: string) => Promise<void>;
   // 整批結束：tokenError 有值＝token 失效中斷；aborted＝發生非預期錯誤
   onFinish: (outcome: { tokenError: string | null; aborted: boolean }) => Promise<void>;
 }): Response {
-  const { runId, jobs, target, token, roleId, config } = params;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -71,38 +121,14 @@ export function botTestSseResponse(params: {
         }
       }, 15_000);
 
-      send("start", { runId, total: jobs.length });
-
-      let tokenError: string | null = null;
-      let next = 0;
-
-      async function worker() {
-        while (!tokenError && next < jobs.length) {
-          const job = jobs[next++];
-          try {
-            const result = await askBot(target, token, job.question);
-            // 拿到回答就請 AI 比對標準答案（沒拿到回答的不比對）
-            const judge =
-              result.status === "ANSWERED"
-                ? await judgeBotAnswer({ question: job.question, expectedAnswer: job.expectedAnswer, botAnswer: result.answer, roleId, config })
-                : null;
-            const data = { ...resultData(result), judgeVerdict: judge?.verdict ?? null, judgeReason: judge?.reason ?? null };
-            await params.saveResult(job.id, data, { completed: true });
-            send("result", { id: job.id, ...data });
-          } catch (err) {
-            const message = err instanceof BotTokenError ? err.message : "寫入測試結果失敗";
-            if (err instanceof BotTokenError) tokenError = err.message;
-            await params.saveResult(job.id, { status: "ERROR", botAnswer: null, errorMessage: message }, { completed: false }).catch(() => {});
-            send("result", { id: job.id, status: "ERROR", botAnswer: null, errorMessage: message });
-          }
-        }
-      }
+      send("start", { runId: params.runId, total: params.jobs.length });
 
       try {
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
-
+        const { tokenError, skipped } = await runBotJobs({
+          ...params,
+          onResult: (id, data) => send("result", { id, ...data }),
+        });
         if (tokenError) {
-          const skipped = jobs.slice(next).map((j) => j.id);
           if (skipped.length > 0) {
             await params.markSkipped(skipped, TOKEN_SKIPPED_MESSAGE);
             for (const skippedId of skipped) {

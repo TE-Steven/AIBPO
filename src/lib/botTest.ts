@@ -8,12 +8,22 @@ export type BotTestTarget = {
   workflowBaseUrl: string;
   gatewayBaseUrl: string;
   platformId: string;
+  // 自動優化用的知識庫設定（選填）：知識庫的 platformId 跟聊天 channel 不同；路徑裡的 {code} 會換成 token 的 company_code
+  knowledgePlatformId: string;
+  uploadPath: string;
+  knowledgePath: string;
 };
+
+export const DEFAULT_UPLOAD_PATH = "/{code}/file/api/file/upload";
+export const DEFAULT_KNOWLEDGE_PATH = "/{code}/knowledge/api/GenerativeKnowledge";
 
 export const DEFAULT_BOT_TEST_TARGET: BotTestTarget = {
   workflowBaseUrl: "https://uat.telligentbiz.com",
   gatewayBaseUrl: "https://gw-uat.telligentbiz.com",
   platformId: "",
+  knowledgePlatformId: "",
+  uploadPath: DEFAULT_UPLOAD_PATH,
+  knowledgePath: DEFAULT_KNOWLEDGE_PATH,
 };
 
 // 送題後等多久才去撈答案、撈不到再隔多久重試、最多重試幾次。
@@ -31,6 +41,9 @@ export async function getBotTestTarget(companyId: string): Promise<BotTestTarget
       workflowBaseUrl: parsed.workflowBaseUrl,
       gatewayBaseUrl: parsed.gatewayBaseUrl,
       platformId: parsed.platformId,
+      knowledgePlatformId: parsed.knowledgePlatformId?.trim() ?? "",
+      uploadPath: parsed.uploadPath?.trim() || DEFAULT_UPLOAD_PATH,
+      knowledgePath: parsed.knowledgePath?.trim() || DEFAULT_KNOWLEDGE_PATH,
     };
   } catch {
     return null;
@@ -45,6 +58,17 @@ type TokenClaims = {
   companyId: string;
   companyCode: string;
 };
+
+// token 的到期時間（毫秒）；讀不到就回傳 null。自動優化用它在 token 快過期前先暫停。
+export function tokenExpiresAt(token: string): number | null {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as { exp?: unknown };
+    const exp = Number(payload.exp);
+    return exp ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
 
 // 只讀 token 裡的 claims（不驗簽，驗證交給 telligent 自己的 API），順便先擋掉過期或格式不對的 token。
 export function decodeTokenClaims(token: string): TokenClaims {

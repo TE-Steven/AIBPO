@@ -11,7 +11,7 @@ const COMPANY_ADMIN_PREFIXES = ["/settings/users", "/settings/roles", "/settings
 // 平台維運頁面：只有平台超級管理員能進，一般使用者/公司管理員都不行。
 const PLATFORM_ONLY_PREFIXES = ["/platform"];
 // 租戶業務資料頁面：超級管理員完全不碰租戶資料，一律導去平台總覽頁。
-const TENANT_ONLY_PREFIXES = ["/", "/team", "/km", "/agents", "/skills"];
+const TENANT_ONLY_PREFIXES = ["/", "/team", "/km", "/agents", "/skills", "/optimize"];
 // 任何已登入的人都看得到，不受選單權限矩陣影響。
 const ALWAYS_ALLOWED_PATHS = ["/settings/profile"];
 
