@@ -96,6 +96,7 @@ export default async function OptimizePage() {
     label: jobLabel(j, j.source),
     seq: j.seq,
     judgeModel: j.judgeModel,
+    learnWaitMinutes: j.learnWaitMinutes,
     reviseModel: j.reviseModel,
     models: `比對 ${findAiModel(j.judgeModel).label}・修改 ${findAiModel(j.reviseModel).label}${j.similarCount > 0 && !j.baseVersionId ? `・相似題 ${findAiModel(j.similarModel).label}` : ""}`,
     baseVersionName: j.baseVersionId ? (versionNames.get(j.baseVersionId) ?? "（版本已刪除）") : null,

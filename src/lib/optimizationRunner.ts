@@ -51,8 +51,6 @@ const state: RunnerState = (globalForRunner.aibpoOptimization ??= { tokens: new 
 const TOKEN_MIN_REMAINING_MS = 3 * 60_000;
 // 有 refresh token 時：每一步開始前，剩不到這麼久就先換新的（一步最長約 20 分鐘）
 const TOKEN_REFRESH_BEFORE_MS = 30 * 60_000;
-// 後台學習完成後，等一下再開始問，讓新知識生效
-const AFTER_LEARN_DELAY_MS = 30_000;
 
 export const ACTIVE_JOB_STATUSES = ["RUNNING", "PAUSED_TOKEN"];
 
@@ -507,7 +505,10 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
     throw new Error("後台找不到這一輪上傳的知識（可能被手動刪除），請重試。");
   }
   const notLearned = ids.filter((id) => !isLearned(items.get(id)!));
+  // 從呼叫學習 API 那一刻開始計時（中斷後繼續、已經學完的，從現在重新計時）
+  let learnCalledAt = Date.now();
   if (notLearned.length > 0) {
+    learnCalledAt = Date.now();
     try {
       await learnKnowledge(ctx.target, token, notLearned);
     } catch (err) {
@@ -519,8 +520,15 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
       onProgress: (done, total) =>
         void setStep(job.id, `第 ${n} 輪：後台學習中${total > 1 ? `（完成 ${done}／${total} 份）` : ""}`).catch(() => {}),
     });
-    await setStep(job.id, `第 ${n} 輪：學習完成，稍等一下讓知識生效`);
-    await new Promise((r) => setTimeout(r, AFTER_LEARN_DELAY_MS));
+  }
+
+  // 後台顯示「已學習」不代表機器人已經能用新知識回答：呼叫學習 API 後至少等滿使用者設定的分鐘數才開始問
+  const until = learnCalledAt + job.learnWaitMinutes * 60_000;
+  while (Date.now() < until) {
+    const left = Math.ceil((until - Date.now()) / 60_000);
+    await setStep(job.id, `第 ${n} 輪：後台已學習完成，呼叫學習後要等滿 ${job.learnWaitMinutes} 分鐘才開始問（剩約 ${left} 分鐘）`);
+    if (await isStopRequested(job.id)) return; // 迴圈下一圈會把任務標成已停止
+    await new Promise((r) => setTimeout(r, Math.min(15_000, until - Date.now())));
   }
 
   await prisma.optimizationJob.update({ where: { id: job.id }, data: { resumeStep: "TEST" } });

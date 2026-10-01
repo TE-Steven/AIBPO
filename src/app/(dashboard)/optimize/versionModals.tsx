@@ -36,6 +36,7 @@ export type ContinueBase = {
   contentKind: string;
   judgeModel: string;
   reviseModel: string;
+  learnWaitMinutes: number;
 };
 
 function pctText(v: number | null) {
@@ -53,6 +54,7 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
   const [maxRuns, setMaxRuns] = useState(3);
   const [targetScore, setTargetScore] = useState(base.targetScore);
   const [stallRuns, setStallRuns] = useState(2);
+  const [learnWaitMinutes, setLearnWaitMinutes] = useState(base.learnWaitMinutes);
   const [judgeModel, setJudgeModel] = useState(base.judgeModel);
   const [reviseModel, setReviseModel] = useState(base.reviseModel);
   const [token, setToken] = useState("");
@@ -72,6 +74,7 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
     reviseModel,
     similarModel: judgeModel,
     skipSimilar: true,
+    learnWaitMinutes,
   });
   const maxUsd = base.tested ? plan.judgeRunUsd * maxRuns + plan.reviseUsd * maxRuns : plan.maxUsd;
   // 起點測過：每輪都是「修改→上傳→測試」，共修改 maxRuns 次
@@ -83,10 +86,19 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
         以這一版的 md 當起點，題目（含相似題）沿用原本那一套，分數可以直接跟之前的版本比較。
         {base.tested ? `這一版已經測過（${pctText(base.scoreAll)}），會直接從它答錯的題目開始修改。` : "這一版還沒測過，會先把它上傳測試一次。"}
       </p>
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2">
         <StepperField label="最多跑幾輪" hint="1–10 輪" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
         <StepperField label="目標正確率" hint="任何一輪達到就停" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
         <StepperField label="連續沒進步就停" hint="含起點版本的分數" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
+        <StepperField
+          label="呼叫學習後至少等"
+          hint="同時也會等後台顯示學習完成（0–30 分）"
+          value={learnWaitMinutes}
+          onChange={setLearnWaitMinutes}
+          min={0}
+          max={30}
+          suffix="分鐘"
+        />
       </div>
       <div className="mb-4 divide-y divide-slate-100 rounded-xl border border-slate-200">
         <ModelRow
@@ -116,7 +128,16 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
             disabled={pending || !usable}
             onClick={() =>
               startTransition(async () => {
-                const r = await continueOptimizationAction({ baseVersionId: base.id, maxRuns, targetScore, stallRuns, judgeModel, reviseModel, token });
+                const r = await continueOptimizationAction({
+                  baseVersionId: base.id,
+                  maxRuns,
+                  targetScore,
+                  stallRuns,
+                  learnWaitMinutes,
+                  judgeModel,
+                  reviseModel,
+                  token,
+                });
                 setResult(r);
                 if (r.success) {
                   setToken("");

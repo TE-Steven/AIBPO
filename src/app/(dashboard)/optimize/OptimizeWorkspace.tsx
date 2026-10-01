@@ -60,6 +60,7 @@ export type JobView = {
   models: string;
   judgeModel: string;
   reviseModel: string;
+  learnWaitMinutes: number;
   label: string;
   scope: string;
   contentKind: string;
@@ -97,6 +98,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const [targetScore, setTargetScore] = useState(90);
   const [similarCount, setSimilarCount] = useState(1);
   const [stallRuns, setStallRuns] = useState(2);
+  const [learnWaitMinutes, setLearnWaitMinutes] = useState(5);
   const [judgeModel, setJudgeModel] = useState(DEFAULT_AI_MODEL);
   const [reviseModel, setReviseModel] = useState(DEFAULT_AI_MODEL);
   const [similarModel, setSimilarModel] = useState(DEFAULT_AI_MODEL);
@@ -113,7 +115,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const contentCount = contentKind === "DOC" ? docCount : faqCount;
   const questionCount = questionSource === "TEST_BANK" ? testCaseCount : faqCount;
   const stats = useContext(UsageStatsContext);
-  const plan = estimatePlan({ originals: questionCount, similarCount, maxRuns, contentCount, contentKind, stats, judgeModel, reviseModel, similarModel });
+  const plan = estimatePlan({ originals: questionCount, similarCount, maxRuns, contentCount, contentKind, stats, judgeModel, reviseModel, similarModel, learnWaitMinutes });
   const usable = useTokenUsable(token);
   const ready = contentCount > 0 && questionCount > 0 && usable;
   const measuredNote = plan.measured.judge || plan.measured.revise ? "依這間公司最近的實際用量估算" : "預估值";
@@ -130,6 +132,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
         targetScore,
         similarCount,
         stallRuns,
+        learnWaitMinutes,
         judgeModel,
         reviseModel,
         similarModel,
@@ -216,6 +219,15 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
               suffix="題"
             />
             <StepperField label="連續沒進步就停" hint="比最佳的一輪連續幾輪沒進步" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
+            <StepperField
+              label="呼叫學習後至少等"
+              hint="呼叫後台學習 API 後至少等這麼久才開始問，同時也會等後台顯示學習完成（0–30 分）"
+              value={learnWaitMinutes}
+              onChange={setLearnWaitMinutes}
+              min={0}
+              max={30}
+              suffix="分鐘"
+            />
           </div>
         </Step>
 
@@ -262,7 +274,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
           <SummaryStat label="Claude 費用最多" value={formatTwd(plan.maxUsd)} sub={`比對 ${maxRuns} 輪＋修改 ${Math.max(0, maxRuns - 1)} 次`} />
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-          一輪時間＝刪除舊版＋上傳學習約 {plan.uploadMinutes} 分＋問機器人＋AI 修改約 {plan.reviseMinutes} 分，時間幾乎都花在等機器人回答。每一輪上傳前會先刪除
+          一輪時間＝刪除舊版＋上傳＋學習等待約 {plan.uploadMinutes} 分＋問機器人＋AI 修改約 {plan.reviseMinutes} 分，時間幾乎都花在等機器人回答。每一輪上傳前會先刪除
           AIBPO 上一次上傳到後台的知識（只刪 AIBPO 記下的那批，後台原有的知識不會動）。
         </p>
 
@@ -332,6 +344,7 @@ function JobCard({
       contentKind: job.contentKind,
       judgeModel: job.judgeModel,
       reviseModel: job.reviseModel,
+      learnWaitMinutes: job.learnWaitMinutes,
     };
   }
 
@@ -357,7 +370,7 @@ function JobCard({
           <p className="mt-1 pl-6 text-xs text-slate-500">
             <LocalTime iso={job.createdAt} />・{job.contentKind === "DOC" ? "結構化文件" : "FAQ"}・題目：
             {job.questionSource === "TEST_BANK" ? "測試題庫" : "範圍內 FAQ"} {job.originalCount} 題＋相似題 {job.similarTotal} 題・目標 {job.targetScore}%・最多{" "}
-            {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停・{job.models}
+            {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停・呼叫學習後至少等 {job.learnWaitMinutes} 分・{job.models}
           </p>
         </button>
         <div className="flex shrink-0 items-center gap-2">

@@ -36,7 +36,7 @@ export const USD_TO_TWD = 32;
 
 export type PlanEstimate = {
   questionsPerRun: number;
-  // 時間（分鐘）：刪除舊版＋上傳學習（實測約 2＋2.5 分）、問機器人（每題約 45 秒、同時 3 題）、AI 修改
+  // 時間（分鐘）：刪除舊版＋上傳＋學習等待、問機器人（每題約 45 秒、同時 3 題）、AI 修改
   uploadMinutes: number;
   testMinutes: number;
   reviseMinutes: number;
@@ -61,12 +61,15 @@ export function estimatePlan(params: {
   judgeModel: string;
   reviseModel: string;
   similarModel: string;
+  // 呼叫學習 API 後至少等幾分鐘
+  learnWaitMinutes: number;
   // 從某個版本繼續：題目沿用、不產生相似題；起點版本測過就不用先測一輪
   skipSimilar?: boolean;
 }): PlanEstimate {
   const { originals, similarCount, maxRuns, contentCount, contentKind, stats } = params;
   const questionsPerRun = originals * (1 + similarCount);
-  const uploadMinutes = 5;
+  // 刪除舊版約 2 分＋上傳約 1 分＋學習：呼叫學習後至少等設定的分鐘數（實測學習約 2.5 分，取較長者）
+  const uploadMinutes = 3 + Math.max(3, params.learnWaitMinutes);
   const testMinutes = Math.ceil((Math.ceil(questionsPerRun / 3) * 45) / 60);
   const reviseMinutes = 3;
   const runMinutes = uploadMinutes + testMinutes + reviseMinutes;

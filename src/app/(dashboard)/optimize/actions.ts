@@ -72,6 +72,7 @@ export async function startOptimizationAction(input: {
   targetScore: number;
   similarCount: number;
   stallRuns: number;
+  learnWaitMinutes: number;
   judgeModel: string;
   reviseModel: string;
   similarModel: string;
@@ -126,6 +127,7 @@ export async function startOptimizationAction(input: {
       targetScore: clamp(input.targetScore, 1, 100, 90),
       similarCount: clamp(input.similarCount, 0, 5, 1),
       stallRuns: clamp(input.stallRuns, 1, 10, 2),
+      learnWaitMinutes: clamp(input.learnWaitMinutes, 0, 30, 5),
       judgeModel: cleanAiModel(input.judgeModel),
       reviseModel: cleanAiModel(input.reviseModel),
       similarModel: cleanAiModel(input.similarModel),
@@ -144,6 +146,7 @@ export async function continueOptimizationAction(input: {
   maxRuns: number;
   targetScore: number;
   stallRuns: number;
+  learnWaitMinutes: number;
   judgeModel: string;
   reviseModel: string;
   token: string;
@@ -174,6 +177,7 @@ export async function continueOptimizationAction(input: {
       targetScore: clamp(input.targetScore, 1, 100, from.targetScore),
       similarCount: from.similarCount,
       stallRuns: clamp(input.stallRuns, 1, 10, from.stallRuns),
+      learnWaitMinutes: clamp(input.learnWaitMinutes, 0, 30, from.learnWaitMinutes),
       judgeModel: cleanAiModel(input.judgeModel),
       reviseModel: cleanAiModel(input.reviseModel),
       // 題目沿用起點版本，不會再產生相似題
