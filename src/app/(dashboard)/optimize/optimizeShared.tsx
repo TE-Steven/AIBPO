@@ -15,7 +15,16 @@ export const CanRefreshContext = createContext(false);
 
 // refresh token 是加密過的 JWE（5 段），access token 是 JWT（3 段）
 export function isRefreshToken(token: string) {
-  return token.trim().replace(/^Bearer\s+/i, "").split(".").length === 5;
+  return cleanToken(token).split(".").length === 5;
+}
+
+// 跟後端 cleanTokenInput 一樣：去掉 Bearer、前後引號與所有空白
+export function cleanToken(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^Bearer\s+/i, "")
+    .replace(/^["']+|["']+$/g, "")
+    .replace(/\s+/g, "");
 }
 
 export function tokenMinutesLeft(token: string): number | null {
@@ -136,7 +145,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 export function TokenField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const canRefresh = useContext(CanRefreshContext);
   const refresh = value.trim() ? isRefreshToken(value) : false;
-  const minutesLeft = value && !refresh ? tokenMinutesLeft(value.trim().replace(/^Bearer\s+/i, "")) : null;
+  const minutesLeft = value && !refresh ? tokenMinutesLeft(cleanToken(value)) : null;
   return (
     <div>
       <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
@@ -175,7 +184,7 @@ export function useTokenUsable(token: string) {
   const canRefresh = useContext(CanRefreshContext);
   if (!token.trim()) return false;
   if (isRefreshToken(token)) return canRefresh;
-  const left = tokenMinutesLeft(token.trim().replace(/^Bearer\s+/i, ""));
+  const left = tokenMinutesLeft(cleanToken(token));
   return left === null || left > 0;
 }
 
@@ -324,17 +333,25 @@ export function ScoreBar({ value, target }: { value: number | null; target: numb
 
 export function ResultsModal({ versionId, title, onClose }: { versionId: string; title: string; onClose: () => void }) {
   const [results, setResults] = useState<RunResultView[] | null>(null);
-  const [filter, setFilter] = useState<"wrong" | "match" | "all">("wrong");
+  const [filter, setFilter] = useState<"unanswered" | "mismatch" | "match" | "all">("mismatch");
   useEffect(() => {
     getRunResultsAction(versionId).then(setResults);
   }, [versionId]);
   const all = results ?? [];
   const matched = all.filter((r) => r.verdict === "MATCH");
-  // 不一致／未回答：AI 判定不一致，或機器人沒回答、逾時、比對失敗
-  const wrong = all.filter((r) => r.verdict !== "MATCH");
-  const shown = filter === "match" ? matched : filter === "wrong" ? wrong : all;
+  const mismatched = all.filter((r) => r.verdict === "MISMATCH");
+  // 未回答：機器人沒回答、逾時，或 AI 比對失敗（沒有判定結果）
+  const unanswered = all.filter((r) => r.verdict !== "MATCH" && r.verdict !== "MISMATCH");
+  const shown = filter === "unanswered" ? unanswered : filter === "mismatch" ? mismatched : filter === "match" ? matched : all;
   const emptyText =
-    all.length === 0 ? "這一輪還沒有測試結果。" : filter === "match" ? "這一輪沒有答對的題目。" : "這一輪全部答對。";
+    all.length === 0
+      ? "這一輪還沒有測試結果。"
+      : filter === "unanswered"
+        ? "沒有未回答的題目。"
+        : filter === "mismatch"
+          ? "沒有不一致的題目。"
+          : "這一輪沒有答對的題目。";
+  const count = (list: RunResultView[]) => (results ? String(list.length) : "");
   return (
     <Modal title={title} onClose={onClose} wide>
       <div className="mb-3 flex items-center gap-2 text-xs">
@@ -342,9 +359,10 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
           value={filter}
           onChange={setFilter}
           options={[
-            { value: "wrong", label: "不一致／未回答", hint: results ? String(wrong.length) : "" },
-            { value: "match", label: "一致", hint: results ? String(matched.length) : "" },
-            { value: "all", label: "全部", hint: results ? String(all.length) : "" },
+            { value: "unanswered", label: "未回答", hint: count(unanswered) },
+            { value: "mismatch", label: "不一致", hint: count(mismatched) },
+            { value: "match", label: "一致", hint: count(matched) },
+            { value: "all", label: "全部", hint: count(all) },
           ]}
         />
       </div>
@@ -359,7 +377,11 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
               <div className="flex items-start gap-2">
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${
-                    r.verdict === "MATCH" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                    r.verdict === "MATCH"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : r.verdict === "MISMATCH"
+                        ? "bg-rose-50 text-rose-700"
+                        : "bg-amber-50 text-amber-700"
                   }`}
                 >
                   {r.verdict === "MATCH" ? "一致" : r.verdict === "MISMATCH" ? "不一致" : "未回答"}

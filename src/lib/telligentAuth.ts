@@ -10,8 +10,13 @@ export function isRefreshToken(token: string): boolean {
   return token.split(".").length === 5;
 }
 
+// 貼上時常會帶到前後引號、換行或空白（例如從 JSON 回應複製），一併清掉
 export function cleanTokenInput(raw: string): string {
-  return raw.trim().replace(/^Bearer\s+/i, "");
+  return raw
+    .trim()
+    .replace(/^Bearer\s+/i, "")
+    .replace(/^["']+|["']+$/g, "")
+    .replace(/\s+/g, "");
 }
 
 export function canRefreshToken(target: BotTestTarget): boolean {
@@ -47,9 +52,12 @@ export async function refreshAccessToken(target: BotTestTarget, refreshToken: st
     // 非 JSON 回應，下面統一當失敗處理
   }
   if (!res.ok || !json.access_token) {
-    const detail = maskSecrets(json.error_description || json.error || `HTTP ${res.status}`, [target.clientSecret, refreshToken]);
+    const reason = json.error_description || json.error || text.replace(/\s+/g, " ").slice(0, 200) || "沒有回應內容";
+    const detail = maskSecrets(`HTTP ${res.status}：${reason}`, [target.clientSecret, refreshToken]);
     if (json.error === "invalid_client") throw new Error(`換 token 失敗：client_id／client_secret 不正確（${detail}）`);
-    throw new BotTokenError(`refresh token 無效或已過期，請重新取得（${detail}）`);
+    throw new BotTokenError(
+      `refresh token 換不到新的 access token（${detail}）。每支 refresh token 只能用一次：如果這支之前貼過（包括伺服器重新啟動前），請重新登入取得新的一支；也請確認有完整複製。`,
+    );
   }
   return { accessToken: json.access_token, refreshToken: json.refresh_token ?? refreshToken };
 }
