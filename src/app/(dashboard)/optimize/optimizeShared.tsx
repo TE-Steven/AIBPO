@@ -26,14 +26,82 @@ export function tokenMinutesLeft(token: string): number | null {
   }
 }
 
-// 粗估：後台學習約 5 分鐘（依後台而定）＋每題約 45 秒、同時 3 題＋AI 修改約 3 分鐘
-export function estimateRunMinutes(questionTotal: number) {
-  return 5 + Math.ceil((Math.ceil(questionTotal / 3) * 45) / 60) + 3;
+// 這間公司最近實際的 Claude 平均單價（美元／次）；沒有紀錄時是 null，改用下面的公式估
+export type UsageStats = { judgeUsd: number | null; reviseUsd: number | null };
+
+export const USD_TO_TWD = 32;
+
+// Sonnet 5 每百萬 token：輸入 $2、輸出 $10
+const usd = (inputTokens: number, outputTokens: number) => (inputTokens * 2 + outputTokens * 10) / 1_000_000;
+
+export type PlanEstimate = {
+  questionsPerRun: number;
+  // 時間（分鐘）：刪除舊版＋上傳學習（實測約 2＋2.5 分）、問機器人（每題約 45 秒、同時 3 題）、AI 修改
+  uploadMinutes: number;
+  testMinutes: number;
+  reviseMinutes: number;
+  runMinutes: number;
+  maxMinutes: number;
+  // Claude 費用（美元）
+  judgeUnitUsd: number;
+  judgeRunUsd: number;
+  reviseUsd: number;
+  similarUsd: number;
+  maxUsd: number;
+  measured: { judge: boolean; revise: boolean };
+};
+
+export function estimatePlan(params: {
+  originals: number;
+  similarCount: number;
+  maxRuns: number;
+  contentCount: number;
+  contentKind: "FAQ" | "DOC";
+  stats: UsageStats;
+}): PlanEstimate {
+  const { originals, similarCount, maxRuns, contentCount, contentKind, stats } = params;
+  const questionsPerRun = originals * (1 + similarCount);
+  const uploadMinutes = 5;
+  const testMinutes = Math.ceil((Math.ceil(questionsPerRun / 3) * 45) / 60);
+  const reviseMinutes = 3;
+  const runMinutes = uploadMinutes + testMinutes + reviseMinutes;
+
+  // AI 比對一題：比對規則＋題目＋標準答案＋機器人回答約 900 token，輸出判定與原因約 80 token
+  const judgeUnitUsd = stats.judgeUsd ?? usd(900, 80);
+  // AI 修改一次：原始文件（約 15k）＋目前 md＋答錯清單（假設 4 成答錯、每題約 250 token）；輸出整份 md＋思考約 6k
+  const mdTokens = contentCount * (contentKind === "DOC" ? 800 : 200);
+  const reviseUsd = stats.reviseUsd ?? usd(15_000 + mdTokens + questionsPerRun * 0.4 * 250, mdTokens + 6_000);
+  // 相似題只在開始時產生一次：輸入每題約 250 token，輸出每個相似問法約 40 token
+  const similarUsd = similarCount > 0 ? usd(originals * 250, originals * similarCount * 40) : 0;
+
+  return {
+    questionsPerRun,
+    uploadMinutes,
+    testMinutes,
+    reviseMinutes,
+    runMinutes,
+    // 最後一輪測完就結束，不會再修改
+    maxMinutes: runMinutes * maxRuns - reviseMinutes,
+    judgeUnitUsd,
+    judgeRunUsd: questionsPerRun * judgeUnitUsd,
+    reviseUsd,
+    similarUsd,
+    maxUsd: questionsPerRun * judgeUnitUsd * maxRuns + reviseUsd * (maxRuns - 1) + similarUsd,
+    measured: { judge: stats.judgeUsd !== null, revise: stats.reviseUsd !== null },
+  };
 }
-// 粗估 Claude 費用（美元）：每題 AI 比對約 $0.004、每輪 AI 修改整份 md 約 $0.25
-export function estimateRunUsd(questionTotal: number) {
-  return questionTotal * 0.004 + 0.25;
+
+export function formatMinutes(minutes: number): string {
+  const m = Math.max(1, Math.round(minutes));
+  return m < 60 ? `${m} 分` : `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`;
 }
+
+export function formatTwd(usdValue: number): string {
+  const twd = usdValue * USD_TO_TWD;
+  return `NT$ ${twd < 1 ? twd.toFixed(2) : twd < 10 ? twd.toFixed(1) : Math.round(twd)}`;
+}
+
+export const UsageStatsContext = createContext<UsageStats>({ judgeUsd: null, reviseUsd: null });
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (

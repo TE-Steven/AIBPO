@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useContext, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   startOptimizationAction,
@@ -14,8 +14,11 @@ import {
 import {
   CanRefreshContext,
   Choice,
-  estimateRunMinutes,
-  estimateRunUsd,
+  estimatePlan,
+  formatMinutes,
+  formatTwd,
+  UsageStatsContext,
+  type UsageStats,
   Feedback,
   inputClass,
   NumberField,
@@ -97,9 +100,8 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const docCount = scoped.reduce((n, s) => n + s.doc, 0);
   const contentCount = contentKind === "DOC" ? docCount : faqCount;
   const questionCount = questionSource === "TEST_BANK" ? testCaseCount : faqCount;
-  const questionTotal = questionCount * (1 + similarCount);
-  const runMinutes = estimateRunMinutes(questionTotal);
-  const totalTwd = Math.round((estimateRunUsd(questionTotal) * maxRuns + 0.05) * 32);
+  const stats = useContext(UsageStatsContext);
+  const plan = estimatePlan({ originals: questionCount, similarCount, maxRuns, contentCount, contentKind, stats });
   const usable = useTokenUsable(token);
   const ready = contentCount > 0 && questionCount > 0 && usable;
 
@@ -196,10 +198,22 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
       </div>
 
       <div className="rounded-lg bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
-        每輪問 {questionCount} 題 × {1 + similarCount} = <span className="font-semibold">{questionTotal}</span> 題，一輪約 {runMinutes} 分鐘（後台學習時間另計）；
-        跑滿 {maxRuns} 輪最多約 {runMinutes * maxRuns} 分鐘、Claude 費用約 NT$ {totalTwd}。
-        <br />
-        每一輪上傳前會先刪除 AIBPO 上一次上傳到後台的知識（只刪 AIBPO 記下的那批，後台原有的知識不會動）。
+        <p>
+          每輪問 {questionCount} 題 ×（1 ＋ {similarCount} 個相似題）＝ <span className="font-semibold">{plan.questionsPerRun}</span> 題
+        </p>
+        <p>
+          時間：一輪約 {formatMinutes(plan.runMinutes)}（刪除舊版＋上傳學習約 {plan.uploadMinutes} 分、問機器人約 {formatMinutes(plan.testMinutes)}、AI 修改約{" "}
+          {plan.reviseMinutes} 分）。時間幾乎都花在等機器人回答。
+        </p>
+        <p>
+          Claude 費用：AI 比對每題約 {formatTwd(plan.judgeUnitUsd)}（每輪 {formatTwd(plan.judgeRunUsd)}）、AI 修改 md 每次約 {formatTwd(plan.reviseUsd)}
+          {similarCount > 0 && `、產生相似題（只做一次）約 ${formatTwd(plan.similarUsd)}`}
+          {plan.measured.judge || plan.measured.revise ? "（依這間公司最近的實際用量）" : "（預估）"}
+        </p>
+        <p className="mt-1 font-semibold text-slate-700">
+          跑滿 {maxRuns} 輪最多約 {formatMinutes(plan.maxMinutes)}、Claude 費用約 {formatTwd(plan.maxUsd)}；達到目標或沒進步會提早停，實際通常更少。
+        </p>
+        <p className="mt-1 text-slate-500">每一輪上傳前會先刪除 AIBPO 上一次上傳到後台的知識（只刪 AIBPO 記下的那批，後台原有的知識不會動）。</p>
       </div>
 
       <TokenField value={token} onChange={setToken} />
@@ -404,7 +418,9 @@ function JobCard({ job }: { job: JobView }) {
 export function OptimizeWorkspace(props: WorkspaceProps) {
   return (
     <CanRefreshContext.Provider value={props.canRefresh}>
-      <Workspace {...props} />
+      <UsageStatsContext.Provider value={props.usageStats}>
+        <Workspace {...props} />
+      </UsageStatsContext.Provider>
     </CanRefreshContext.Provider>
   );
 }
@@ -412,6 +428,7 @@ export function OptimizeWorkspace(props: WorkspaceProps) {
 type WorkspaceProps = {
   targetReady: boolean;
   canRefresh: boolean;
+  usageStats: UsageStats;
   sources: SourceOption[];
   testCaseCount: number;
   jobs: JobView[];
