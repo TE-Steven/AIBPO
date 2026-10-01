@@ -417,9 +417,16 @@ export async function clearRecordedBackendKnowledge(params: {
     },
     select: { id: true, backendKnowledgeIds: true },
   });
+  if (stale.length === 0) return 0;
+
+  // 先查後台目前還有哪些：被人手動刪掉（或正在刪除中）的不再送刪除（送了會回 HTTP 400），只清掉 AIBPO 的紀錄
+  const alive = new Map((await listKnowledge(params.target, params.token, AIBPO_KNOWLEDGE_PREFIX)).map((i) => [i.id, i]));
   const deletedIds: string[] = [];
   for (const v of stale) {
-    const ids = asIds(v.backendKnowledgeIds);
+    const ids = asIds(v.backendKnowledgeIds).filter((id) => {
+      const item = alive.get(id);
+      return item && item.status !== DELETING_STATUS;
+    });
     if (ids.length > 0) await deleteKnowledge(params.target, params.token, ids);
     await prisma.kbVersion.update({ where: { id: v.id }, data: { backendKnowledgeIds: Prisma.DbNull } });
     deletedIds.push(...ids);

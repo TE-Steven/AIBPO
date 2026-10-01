@@ -50,10 +50,15 @@ async function activeJobInCompany(companyId: string) {
   });
 }
 
-// 這個角色的下一個任務流水號（版本名稱 v{流水號}.{輪次}）
+// 這個角色的下一個任務流水號（版本名稱 v{流水號}.{輪次}）。
+// 任務刪掉後版本還在，所以也要看既有版本名稱用過的號碼，避免新舊版本同名
 async function nextJobSeq(roleId: string): Promise<number> {
-  const agg = await prisma.optimizationJob.aggregate({ where: { roleId }, _max: { seq: true } });
-  return (agg._max.seq ?? 0) + 1;
+  const [agg, versions] = await Promise.all([
+    prisma.optimizationJob.aggregate({ where: { roleId }, _max: { seq: true } }),
+    prisma.kbVersion.findMany({ where: { roleId, name: { startsWith: "v" } }, select: { name: true } }),
+  ]);
+  const usedInNames = versions.reduce((max, v) => Math.max(max, Number(v.name.match(/^v(\d+)\./)?.[1] ?? 0)), 0);
+  return Math.max(agg._max.seq ?? 0, usedInNames) + 1;
 }
 
 async function knowledgeTarget(companyId: string) {
