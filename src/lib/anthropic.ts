@@ -1,15 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
+import { AI_MODELS } from "@/lib/aiModels";
 
 export const anthropic = new Anthropic();
 
 export const KM_ANALYSIS_MODEL = "claude-sonnet-5";
 
-/** Claude Sonnet 5 定價（每百萬 token，美元）：input $2 / output $10。 */
-const PRICE_PER_MILLION_USD: Record<string, { input: number; output: number }> = {
-  "claude-sonnet-5": { input: 2, output: 10 },
-  "claude-opus-5": { input: 5, output: 25 },
-};
+/** 各模型定價（每百萬 token，美元），來源是共用的模型清單 src/lib/aiModels.ts。 */
+const PRICE_PER_MILLION_USD: Record<string, { input: number; output: number }> = Object.fromEntries(
+  AI_MODELS.map((m) => [m.id, { input: m.input, output: m.output }]),
+);
 
 // 沒有即時匯率來源，先用固定值估算，之後有需要再接真實匯率 API。
 export const USD_TO_TWD_RATE = 32;

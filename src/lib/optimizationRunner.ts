@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import { Prisma, type KmSource, type OptimizationJob } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
+import { anthropic, recordApiUsage } from "@/lib/anthropic";
+import { findAiModel } from "@/lib/aiModels";
 import { companyIdForRole } from "@/lib/company";
 import { BotTokenError, getBotTestTarget, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
 import { runBotJobs, TOKEN_SKIPPED_MESSAGE } from "@/lib/botTestRunner";
@@ -250,7 +251,7 @@ async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
   let similar: string[][] = [];
   if (job.similarCount > 0) {
     await setStep(job.id, `準備中：AI 為 ${originals.length} 題各產生 ${job.similarCount} 個相似問法`);
-    similar = await generateSimilarQuestions(originals, job.similarCount, ctx.config, job.roleId);
+    similar = await generateSimilarQuestions(originals, job.similarCount, ctx.config, job.roleId, job.similarModel);
   }
 
   const questionRows: Prisma.OptimizationQuestionCreateManyInput[] = [];
@@ -355,20 +356,24 @@ async function generateSimilarQuestions(
   count: number,
   config: PromptConfigData,
   roleId: string,
+  model: string,
 ): Promise<string[][]> {
   const list = originals
     .map((q, i) => `<item index="${i + 1}">\n<question>${q.question}</question>\n<answer>${q.expectedAnswer}</answer>\n</item>`)
     .join("\n");
   const response = await anthropic.messages
     .stream({
-      model: KM_ANALYSIS_MODEL,
+      model,
       max_tokens: 32000,
       system: buildSimilarQuestionsSystemPrompt({ count, config }),
-      output_config: { effort: "low", format: { type: "json_schema", schema: SIMILAR_QUESTIONS_SCHEMA } },
+      output_config: {
+        ...(findAiModel(model).effort ? { effort: "low" as const } : {}),
+        format: { type: "json_schema", schema: SIMILAR_QUESTIONS_SCHEMA },
+      },
       messages: [{ role: "user", content: `${list}\n\n請為以上每一題各寫 ${count} 個相似問法，index 對應題號。` }],
     })
     .finalMessage();
-  await recordApiUsage({ model: KM_ANALYSIS_MODEL, purpose: "km_optimize_similar", usage: response.usage, roleId });
+  await recordApiUsage({ model, purpose: "km_optimize_similar", usage: response.usage, roleId });
   if (response.stop_reason === "max_tokens") throw new Error("題目太多，相似題輸出被截斷，請減少題目或相似題數量。");
 
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text ?? "";
@@ -546,6 +551,7 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
       if (meta.completed) await prisma.versionTestRun.update({ where: { id: runId }, data: { completed: { increment: 1 } } });
     },
     shouldStop: () => isStopRequested(job.id),
+    judgeModel: job.judgeModel,
   });
 
   if (tokenError || skipped.length > 0) {
@@ -638,11 +644,13 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
 
   await setStep(job.id, n === 0 ? `AI 依 ${version.name} 答錯的 ${failures.length} 題修改 md` : `第 ${n} 輪：AI 依 ${failures.length} 題答錯修改 md`);
+  // 支援自適應思考的模型用 adaptive；不支援的（例如 Haiku）給固定思考預算
+  const reviseModel = findAiModel(job.reviseModel);
   const response = await anthropic.messages
     .stream({
-      model: KM_ANALYSIS_MODEL,
+      model: reviseModel.id,
       max_tokens: 64000,
-      thinking: { type: "adaptive" },
+      thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
       system: buildRevisionSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
       ...(urls.length > 0
         ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
@@ -655,7 +663,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       ],
     })
     .finalMessage();
-  await recordApiUsage({ model: KM_ANALYSIS_MODEL, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
+  await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
   if (response.stop_reason === "max_tokens") throw new Error("修改後的 md 太長，輸出被截斷，這一輪沒有保存。");
 
   const markdown = stripCodeFence(

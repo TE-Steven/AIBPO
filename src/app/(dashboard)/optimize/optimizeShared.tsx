@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { getRunResultsAction, type OptimizeActionResult, type RunResultView } from "./actions";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconX } from "@/components/icons";
+import { AI_MODELS, modelCostUsd } from "@/lib/aiModels";
 
 // 自動優化頁面（任務／版本分頁）共用的元件
 
@@ -26,13 +27,12 @@ export function tokenMinutesLeft(token: string): number | null {
   }
 }
 
-// 這間公司最近實際的 Claude 平均單價（美元／次）；沒有紀錄時是 null，改用下面的公式估
-export type UsageStats = { judgeUsd: number | null; reviseUsd: number | null };
+// 這間公司最近實際的平均 token 數（每次呼叫）；沒有紀錄時是 null，改用下面的公式估。
+// 用 token 數而不是金額：切換模型時用新模型的單價重算。
+export type TokenAverage = { input: number; output: number };
+export type UsageStats = { judge: TokenAverage | null; revise: TokenAverage | null };
 
 export const USD_TO_TWD = 32;
-
-// Sonnet 5 每百萬 token：輸入 $2、輸出 $10
-const usd = (inputTokens: number, outputTokens: number) => (inputTokens * 2 + outputTokens * 10) / 1_000_000;
 
 export type PlanEstimate = {
   questionsPerRun: number;
@@ -58,6 +58,11 @@ export function estimatePlan(params: {
   contentCount: number;
   contentKind: "FAQ" | "DOC";
   stats: UsageStats;
+  judgeModel: string;
+  reviseModel: string;
+  similarModel: string;
+  // 從某個版本繼續：題目沿用、不產生相似題；起點版本測過就不用先測一輪
+  skipSimilar?: boolean;
 }): PlanEstimate {
   const { originals, similarCount, maxRuns, contentCount, contentKind, stats } = params;
   const questionsPerRun = originals * (1 + similarCount);
@@ -67,12 +72,15 @@ export function estimatePlan(params: {
   const runMinutes = uploadMinutes + testMinutes + reviseMinutes;
 
   // AI 比對一題：比對規則＋題目＋標準答案＋機器人回答約 900 token，輸出判定與原因約 80 token
-  const judgeUnitUsd = stats.judgeUsd ?? usd(900, 80);
+  const judgeTokens = stats.judge ?? { input: 900, output: 80 };
+  const judgeUnitUsd = modelCostUsd(params.judgeModel, judgeTokens.input, judgeTokens.output);
   // AI 修改一次：原始文件（約 15k）＋目前 md＋答錯清單（假設 4 成答錯、每題約 250 token）；輸出整份 md＋思考約 6k
   const mdTokens = contentCount * (contentKind === "DOC" ? 800 : 200);
-  const reviseUsd = stats.reviseUsd ?? usd(15_000 + mdTokens + questionsPerRun * 0.4 * 250, mdTokens + 6_000);
+  const reviseTokens = stats.revise ?? { input: 15_000 + mdTokens + questionsPerRun * 0.4 * 250, output: mdTokens + 6_000 };
+  const reviseUsd = modelCostUsd(params.reviseModel, reviseTokens.input, reviseTokens.output);
   // 相似題只在開始時產生一次：輸入每題約 250 token，輸出每個相似問法約 40 token
-  const similarUsd = similarCount > 0 ? usd(originals * 250, originals * similarCount * 40) : 0;
+  const similarUsd =
+    similarCount > 0 && !params.skipSimilar ? modelCostUsd(params.similarModel, originals * 250, originals * similarCount * 40) : 0;
 
   return {
     questionsPerRun,
@@ -87,7 +95,7 @@ export function estimatePlan(params: {
     reviseUsd,
     similarUsd,
     maxUsd: questionsPerRun * judgeUnitUsd * maxRuns + reviseUsd * (maxRuns - 1) + similarUsd,
-    measured: { judge: stats.judgeUsd !== null, revise: stats.reviseUsd !== null },
+    measured: { judge: stats.judge !== null, revise: stats.revise !== null },
   };
 }
 
@@ -101,7 +109,7 @@ export function formatTwd(usdValue: number): string {
   return `NT$ ${twd < 1 ? twd.toFixed(2) : twd < 10 ? twd.toFixed(1) : Math.round(twd)}`;
 }
 
-export const UsageStatsContext = createContext<UsageStats>({ judgeUsd: null, reviseUsd: null });
+export const UsageStatsContext = createContext<UsageStats>({ judge: null, revise: null });
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
@@ -368,3 +376,164 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
   );
 }
 
+
+// ---------------- 開始表單的版面元件（步驟由上到下排列） ----------------
+
+export function Step({
+  no,
+  title,
+  desc,
+  children,
+  last,
+}: {
+  no: number;
+  title: string;
+  desc?: React.ReactNode;
+  children: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <li className="relative flex gap-4">
+      {!last && <span aria-hidden className="absolute bottom-0 left-4 top-10 w-px bg-gradient-to-b from-teal-200 to-slate-100" />}
+      <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-cyan-500 text-sm font-semibold text-white shadow-sm shadow-teal-500/30 ring-4 ring-white">
+        {no}
+      </span>
+      <div className={`min-w-0 flex-1 pt-1 ${last ? "" : "pb-8"}`}>
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        {desc && <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{desc}</p>}
+        <div className="mt-3">{children}</div>
+      </div>
+    </li>
+  );
+}
+
+// 單選卡片：一張卡一個選項，選中的有外框與勾選點
+export function OptionCards<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; desc: string; badge?: string; disabled?: boolean }[];
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {options.map((o) => {
+        const active = value === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            disabled={o.disabled}
+            onClick={() => onChange(o.value)}
+            className={`group flex items-start gap-3 rounded-xl border p-3.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              active ? "border-teal-400 bg-teal-50/60 ring-4 ring-teal-100" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+            }`}
+          >
+            <span
+              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                active ? "border-teal-600 bg-teal-600" : "border-slate-300 bg-white"
+              }`}
+            >
+              {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center justify-between gap-2">
+                <span className={`text-sm font-semibold ${active ? "text-teal-900" : "text-slate-800"}`}>{o.label}</span>
+                {o.badge && (
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${active ? "bg-teal-100 text-teal-800" : "bg-slate-100 text-slate-500"}`}>
+                    {o.badge}
+                  </span>
+                )}
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500">{o.desc}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// 數字欄位：單位放在輸入框裡
+export function StepperField({
+  label,
+  hint,
+  value,
+  onChange,
+  min,
+  max,
+  suffix,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  suffix: string;
+}) {
+  return (
+    <label className="block rounded-xl border border-slate-200 bg-white p-3.5">
+      <span className="block text-xs font-semibold text-slate-700">{label}</span>
+      <span className="mt-2 flex items-center rounded-lg border border-slate-300 shadow-sm focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-100">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full rounded-l-lg border-0 bg-transparent px-3 py-2 text-sm tabular-nums focus:outline-none"
+        />
+        <span className="pr-3 text-xs text-slate-400">{suffix}</span>
+      </span>
+      <span className="mt-1.5 block text-[11px] leading-snug text-slate-400">{hint}</span>
+    </label>
+  );
+}
+
+// 一個 AI 步驟一列：左邊說明、右邊選模型與即時費用
+export function ModelRow({
+  title,
+  desc,
+  value,
+  onChange,
+  cost,
+}: {
+  title: string;
+  desc: string;
+  value: string;
+  onChange: (v: string) => void;
+  cost: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-slate-800">{title}</p>
+        <p className="mt-0.5 text-xs text-slate-500">{desc}</p>
+      </div>
+      <div className="flex items-center gap-3 sm:w-80">
+        <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={`${title}的模型`} className={`${inputClass} flex-1`}>
+          {AI_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}（{m.hint}）
+            </option>
+          ))}
+        </select>
+        <span className="w-24 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-800">{cost}</span>
+      </div>
+    </div>
+  );
+}
+
+// 費用摘要的一格數字
+export function SummaryStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-xl bg-white/80 px-4 py-3 ring-1 ring-inset ring-slate-200">
+      <p className="text-[11px] font-medium text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{value}</p>
+      {sub && <p className="mt-0.5 text-[11px] text-slate-400">{sub}</p>}
+    </div>
+  );
+}

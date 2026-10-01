@@ -13,21 +13,25 @@ import {
 } from "./actions";
 import {
   CanRefreshContext,
-  Choice,
   estimatePlan,
+  Feedback,
   formatMinutes,
   formatTwd,
-  UsageStatsContext,
-  type UsageStats,
-  Feedback,
   inputClass,
-  NumberField,
+  ModelRow,
+  OptionCards,
   ResultsModal,
   ScoreBar,
+  Step,
+  StepperField,
+  SummaryStat,
   TokenActionModal,
   TokenField,
+  UsageStatsContext,
   useTokenUsable,
+  type UsageStats,
 } from "./optimizeShared";
+import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
 import { VersionsTab, type OptVersionView } from "./VersionsTab";
 import { LocalTime } from "@/components/LocalTime";
 import { IconAlertTriangle, IconSparkles, IconTrash } from "@/components/icons";
@@ -51,6 +55,7 @@ export type JobView = {
   id: string;
   seq: number;
   baseVersionName: string | null;
+  models: string;
   label: string;
   scope: string;
   contentKind: string;
@@ -88,6 +93,9 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const [targetScore, setTargetScore] = useState(90);
   const [similarCount, setSimilarCount] = useState(1);
   const [stallRuns, setStallRuns] = useState(2);
+  const [judgeModel, setJudgeModel] = useState(DEFAULT_AI_MODEL);
+  const [reviseModel, setReviseModel] = useState(DEFAULT_AI_MODEL);
+  const [similarModel, setSimilarModel] = useState(DEFAULT_AI_MODEL);
   const [token, setToken] = useState("");
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -101,9 +109,10 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const contentCount = contentKind === "DOC" ? docCount : faqCount;
   const questionCount = questionSource === "TEST_BANK" ? testCaseCount : faqCount;
   const stats = useContext(UsageStatsContext);
-  const plan = estimatePlan({ originals: questionCount, similarCount, maxRuns, contentCount, contentKind, stats });
+  const plan = estimatePlan({ originals: questionCount, similarCount, maxRuns, contentCount, contentKind, stats, judgeModel, reviseModel, similarModel });
   const usable = useTokenUsable(token);
   const ready = contentCount > 0 && questionCount > 0 && usable;
+  const measuredNote = plan.measured.judge || plan.measured.revise ? "依這間公司最近的實際用量估算" : "預估值";
 
   function start() {
     setResult(null);
@@ -117,6 +126,9 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
         targetScore,
         similarCount,
         stallRuns,
+        judgeModel,
+        reviseModel,
+        similarModel,
         token,
       });
       setResult(r);
@@ -128,106 +140,142 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   }
 
   return (
-    <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold text-slate-700">1. 範圍</p>
-        <Choice
-          value={scope}
-          onChange={setScope}
-          options={[
-            { value: "SOURCE", label: "KM 來源", hint: "一個來源的全部題目" },
-            { value: "KNOWLEDGE", label: "知識列表", hint: "已加入知識列表的題目" },
-          ]}
-        />
-        {scope === "SOURCE" ? (
-          <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} aria-label="KM 來源" className={inputClass}>
-            {sources.length === 0 && <option value="">（還沒有來源）</option>}
-            {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title}（FAQ {s.faq}・結構化 {s.doc}）
-              </option>
-            ))}
-          </select>
-        ) : (
-          <select value={knowledgeSourceId} onChange={(e) => setKnowledgeSourceId(e.target.value)} aria-label="篩選來源" className={inputClass}>
-            <option value="">全部來源</option>
-            {sources
-              .filter((s) => s.confirmedFaq + s.confirmedDoc > 0)
-              .map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.title}（FAQ {s.confirmedFaq}・結構化 {s.confirmedDoc}）
-                </option>
-              ))}
-          </select>
-        )}
-      </div>
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <ol className="p-6">
+        <Step no={1} title="範圍" desc="要優化哪些 KM 內容。">
+          <OptionCards
+            value={scope}
+            onChange={setScope}
+            options={[
+              { value: "SOURCE", label: "KM 來源", desc: "一個來源的全部題目與結構化文件" },
+              { value: "KNOWLEDGE", label: "知識列表", desc: "已加入知識列表的題目，可再篩來源" },
+            ]}
+          />
+          <div className="mt-3">
+            {scope === "SOURCE" ? (
+              <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} aria-label="KM 來源" className={inputClass}>
+                {sources.length === 0 && <option value="">（還沒有來源）</option>}
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}（FAQ {s.faq}・結構化 {s.doc}）
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select value={knowledgeSourceId} onChange={(e) => setKnowledgeSourceId(e.target.value)} aria-label="篩選來源" className={inputClass}>
+                <option value="">全部來源</option>
+                {sources
+                  .filter((s) => s.confirmedFaq + s.confirmedDoc > 0)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}（FAQ {s.confirmedFaq}・結構化 {s.confirmedDoc}）
+                    </option>
+                  ))}
+              </select>
+            )}
+          </div>
+        </Step>
 
-      <div className="grid gap-5 md:grid-cols-2">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-slate-700">2. 上傳到後台的內容</p>
-          <Choice
+        <Step no={2} title="上傳到後台的內容" desc="每一輪會把這份內容（AI 修改後的版本）上傳到後台知識庫讓機器人學習。">
+          <OptionCards
             value={contentKind}
             onChange={setContentKind}
             options={[
-              { value: "FAQ", label: "FAQ", hint: `${faqCount} 題` },
-              { value: "DOC", label: "結構化文件", hint: `${docCount} 份` },
+              { value: "FAQ", label: "FAQ", desc: "整份問答合成一個 md 檔", badge: `${faqCount} 題` },
+              { value: "DOC", label: "結構化文件", desc: "一份文件一個 md 檔，各自上傳", badge: `${docCount} 份` },
             ]}
           />
-        </div>
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-slate-700">3. 測試題目</p>
-          <Choice
+        </Step>
+
+        <Step no={3} title="測試題目" desc="每一輪用這些題目問機器人，再請 AI 比對答案算正確率。">
+          <OptionCards
             value={questionSource}
             onChange={setQuestionSource}
             options={[
-              { value: "ENTRIES", label: "範圍內的 FAQ", hint: `${faqCount} 題` },
-              { value: "TEST_BANK", label: "測試題庫", hint: `${testCaseCount} 題` },
+              { value: "ENTRIES", label: "範圍內的 FAQ", desc: "用範圍內 FAQ 的題目與答案", badge: `${faqCount} 題` },
+              { value: "TEST_BANK", label: "測試題庫", desc: "用知識列表的固定測試題庫", badge: `${testCaseCount} 題` },
             ]}
           />
+        </Step>
+
+        <Step no={4} title="參數" desc="什麼時候停、每題要多問幾種說法。">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <StepperField label="最多跑幾輪" hint="1–10 輪，跑滿就停" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
+            <StepperField label="目標正確率" hint="任何一輪達到就停" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
+            <StepperField
+              label="每題相似題"
+              hint="同一個標準答案、換個問法，看機器人是不是只會背原題（0–5）"
+              value={similarCount}
+              onChange={setSimilarCount}
+              min={0}
+              max={5}
+              suffix="題"
+            />
+            <StepperField label="連續沒進步就停" hint="比最佳的一輪連續幾輪沒進步" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
+          </div>
+        </Step>
+
+        <Step no={5} title="AI 模型" desc="三個用到 Claude 的地方各自選模型，右邊的費用會即時重算。">
+          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            <ModelRow
+              title="比對答案"
+              desc={`機器人每回答一題比對一次，每輪 ${plan.questionsPerRun} 次（每題約 ${formatTwd(plan.judgeUnitUsd)}）`}
+              value={judgeModel}
+              onChange={setJudgeModel}
+              cost={`${formatTwd(plan.judgeRunUsd)}／輪`}
+            />
+            <ModelRow
+              title="修改 md"
+              desc="依答錯的題目修改整份 md，每輪一次（最後一輪不改）"
+              value={reviseModel}
+              onChange={setReviseModel}
+              cost={`${formatTwd(plan.reviseUsd)}／次`}
+            />
+            <ModelRow
+              title="產生相似題"
+              desc={similarCount > 0 ? `開始時產生一次，共 ${questionCount * similarCount} 題` : "相似題設為 0，不會用到"}
+              value={similarModel}
+              onChange={setSimilarModel}
+              cost={similarCount > 0 ? formatTwd(plan.similarUsd) : "—"}
+            />
+          </div>
+        </Step>
+
+        <Step no={6} title="Access token" desc="用來呼叫後台知識庫與機器人的 API。" last>
+          <TokenField value={token} onChange={setToken} />
+        </Step>
+      </ol>
+
+      <div className="border-t border-slate-200 bg-gradient-to-br from-slate-50 to-teal-50/40 p-6">
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-900">預估</h3>
+          <span className="text-[11px] text-slate-400">{measuredNote}</span>
         </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs font-semibold text-slate-700">4. 參數</p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <NumberField label="最多跑幾輪" hint="1–10 輪" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
-          <NumberField label="目標正確率" hint="達到就停止" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
-          <NumberField label="每題相似題" hint="同一個標準答案、換個問法，0–5" value={similarCount} onChange={setSimilarCount} min={0} max={5} suffix="題" />
-          <NumberField label="連續沒進步就停" hint="比最佳一輪沒進步幾輪" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <SummaryStat label="每輪題數" value={`${plan.questionsPerRun} 題`} sub={`${questionCount} 題 ×（1＋${similarCount} 相似題）`} />
+          <SummaryStat label="一輪時間" value={formatMinutes(plan.runMinutes)} sub={`問機器人約 ${formatMinutes(plan.testMinutes)}`} />
+          <SummaryStat label={`跑滿 ${maxRuns} 輪最多`} value={formatMinutes(plan.maxMinutes)} sub="達標或沒進步會提早停" />
+          <SummaryStat label="Claude 費用最多" value={formatTwd(plan.maxUsd)} sub={`比對 ${maxRuns} 輪＋修改 ${Math.max(0, maxRuns - 1)} 次`} />
         </div>
-      </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+          一輪時間＝刪除舊版＋上傳學習約 {plan.uploadMinutes} 分＋問機器人＋AI 修改約 {plan.reviseMinutes} 分，時間幾乎都花在等機器人回答。每一輪上傳前會先刪除
+          AIBPO 上一次上傳到後台的知識（只刪 AIBPO 記下的那批，後台原有的知識不會動）。
+        </p>
 
-      <div className="rounded-lg bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
-        <p>
-          每輪問 {questionCount} 題 ×（1 ＋ {similarCount} 個相似題）＝ <span className="font-semibold">{plan.questionsPerRun}</span> 題
-        </p>
-        <p>
-          時間：一輪約 {formatMinutes(plan.runMinutes)}（刪除舊版＋上傳學習約 {plan.uploadMinutes} 分、問機器人約 {formatMinutes(plan.testMinutes)}、AI 修改約{" "}
-          {plan.reviseMinutes} 分）。時間幾乎都花在等機器人回答。
-        </p>
-        <p>
-          Claude 費用：AI 比對每題約 {formatTwd(plan.judgeUnitUsd)}（每輪 {formatTwd(plan.judgeRunUsd)}）、AI 修改 md 每次約 {formatTwd(plan.reviseUsd)}
-          {similarCount > 0 && `、產生相似題（只做一次）約 ${formatTwd(plan.similarUsd)}`}
-          {plan.measured.judge || plan.measured.revise ? "（依這間公司最近的實際用量）" : "（預估）"}
-        </p>
-        <p className="mt-1 font-semibold text-slate-700">
-          跑滿 {maxRuns} 輪最多約 {formatMinutes(plan.maxMinutes)}、Claude 費用約 {formatTwd(plan.maxUsd)}；達到目標或沒進步會提早停，實際通常更少。
-        </p>
-        <p className="mt-1 text-slate-500">每一輪上傳前會先刪除 AIBPO 上一次上傳到後台的知識（只刪 AIBPO 記下的那批，後台原有的知識不會動）。</p>
-      </div>
-
-      <TokenField value={token} onChange={setToken} />
-      <Feedback result={result} />
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={start}
-          disabled={pending || !ready}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
-        >
-          <IconSparkles className="h-4 w-4" />
-          {pending ? "啟動中…" : "開始自動優化"}
-        </button>
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+          <div className="mr-auto">
+            <Feedback result={result} />
+          </div>
+          <button
+            type="button"
+            onClick={start}
+            disabled={pending || !ready}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
+          >
+            <IconSparkles className="h-4 w-4" />
+            {pending ? "啟動中…" : "開始自動優化"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -268,7 +316,7 @@ function JobCard({ job }: { job: JobView }) {
           <p className="mt-1 text-xs text-slate-500">
             <LocalTime iso={job.createdAt} />・{job.contentKind === "DOC" ? "結構化文件" : "FAQ"}・題目：
             {job.questionSource === "TEST_BANK" ? "測試題庫" : "範圍內 FAQ"} {job.originalCount} 題＋相似題 {job.similarTotal} 題・目標 {job.targetScore}%・最多{" "}
-            {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停
+            {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停・{job.models}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">

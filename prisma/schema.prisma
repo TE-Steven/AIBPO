@@ -379,6 +379,10 @@ model OptimizationJob {
   targetScore    Int // 0–100
   similarCount   Int
   stallRuns      Int // 連續幾輪沒進步就停
+  // 三個 AI 步驟各自用的模型（見 src/lib/aiModels.ts）
+  judgeModel     String   @default("claude-sonnet-5")
+  reviseModel    String   @default("claude-sonnet-5")
+  similarModel   String   @default("claude-sonnet-5")
   status         String   @default("RUNNING") // RUNNING / PAUSED_TOKEN / DONE / STOPPED / FAILED
   currentRun     Int      @default(0)
   currentStep    String?

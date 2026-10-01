@@ -5,6 +5,7 @@ import { requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { BotTokenError, getBotTestTarget, type BotTestTarget } from "@/lib/botTest";
 import { resolveTokenInput, type TokenCredentials } from "@/lib/telligentAuth";
+import { cleanAiModel } from "@/lib/aiModels";
 import { KnowledgeApiError, learnKnowledge } from "@/lib/telligentKb";
 import {
   ACTIVE_JOB_STATUSES,
@@ -70,6 +71,9 @@ export async function startOptimizationAction(input: {
   targetScore: number;
   similarCount: number;
   stallRuns: number;
+  judgeModel: string;
+  reviseModel: string;
+  similarModel: string;
   token: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
@@ -121,6 +125,9 @@ export async function startOptimizationAction(input: {
       targetScore: clamp(input.targetScore, 1, 100, 90),
       similarCount: clamp(input.similarCount, 0, 5, 1),
       stallRuns: clamp(input.stallRuns, 1, 10, 2),
+      judgeModel: cleanAiModel(input.judgeModel),
+      reviseModel: cleanAiModel(input.reviseModel),
+      similarModel: cleanAiModel(input.similarModel),
       currentStep: "排隊中",
     },
   });
@@ -136,6 +143,8 @@ export async function continueOptimizationAction(input: {
   maxRuns: number;
   targetScore: number;
   stallRuns: number;
+  judgeModel: string;
+  reviseModel: string;
   token: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
@@ -164,6 +173,10 @@ export async function continueOptimizationAction(input: {
       targetScore: clamp(input.targetScore, 1, 100, from.targetScore),
       similarCount: from.similarCount,
       stallRuns: clamp(input.stallRuns, 1, 10, from.stallRuns),
+      judgeModel: cleanAiModel(input.judgeModel),
+      reviseModel: cleanAiModel(input.reviseModel),
+      // 題目沿用起點版本，不會再產生相似題
+      similarModel: from.similarModel,
       currentStep: "排隊中",
     },
   });

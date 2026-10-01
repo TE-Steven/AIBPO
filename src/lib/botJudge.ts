@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
+import { findAiModel } from "@/lib/aiModels";
 import { stripBotDisclaimer } from "@/lib/botTestShared";
 import { buildJudgeSystemPrompt } from "@/lib/kmAnalysis";
 import type { PromptConfigData } from "@/lib/promptConfig";
@@ -27,13 +28,19 @@ export async function judgeBotAnswer(params: {
   roleId: string;
   // 公司在 參數管理調整的比對標準；沒給就用預設
   config?: PromptConfigData;
+  // 比對用的模型（自動優化可選）；沒給就用預設
+  model?: string;
 }): Promise<JudgeResult> {
+  const model = params.model ?? KM_ANALYSIS_MODEL;
   try {
     const response = await anthropic.messages.create({
-      model: KM_ANALYSIS_MODEL,
+      model,
       max_tokens: 2000,
       system: buildJudgeSystemPrompt(params.config),
-      output_config: { effort: "low", format: { type: "json_schema", schema: JUDGE_SCHEMA } },
+      output_config: {
+        ...(findAiModel(model).effort ? { effort: "low" as const } : {}),
+        format: { type: "json_schema", schema: JUDGE_SCHEMA },
+      },
       messages: [
         {
           role: "user",
@@ -42,7 +49,7 @@ export async function judgeBotAnswer(params: {
       ],
     });
 
-    await recordApiUsage({ model: KM_ANALYSIS_MODEL, purpose: "bot_test_judge", usage: response.usage, roleId: params.roleId });
+    await recordApiUsage({ model, purpose: "bot_test_judge", usage: response.usage, roleId: params.roleId });
 
     if (response.stop_reason !== "end_turn") {
       return { verdict: "ERROR", reason: "AI 比對沒有完成，請按「重新比對」再試一次。" };

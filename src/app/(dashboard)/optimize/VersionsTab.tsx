@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useContext, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   compareVersionsAction,
@@ -9,7 +9,22 @@ import {
   type CompareSide,
   type OptimizeActionResult,
 } from "./actions";
-import { Choice, Feedback, Modal, NumberField, ResultsModal, ScoreBar, TokenActionModal, TokenField, useTokenUsable } from "./optimizeShared";
+import {
+  Choice,
+  estimatePlan,
+  Feedback,
+  formatMinutes,
+  formatTwd,
+  Modal,
+  ModelRow,
+  ResultsModal,
+  ScoreBar,
+  StepperField,
+  TokenActionModal,
+  TokenField,
+  UsageStatsContext,
+  useTokenUsable,
+} from "./optimizeShared";
 import { collapseUnchanged, diffLines, diffStats } from "@/lib/lineDiff";
 import { LocalTime } from "@/components/LocalTime";
 import { IconSparkles } from "@/components/icons";
@@ -27,6 +42,10 @@ export type OptVersionView = {
   inBackend: boolean;
   tested: boolean;
   createdAt: string;
+  questionsPerRun: number;
+  entryCount: number;
+  judgeModel: string;
+  reviseModel: string;
 };
 
 function pctText(v: number | null) {
@@ -44,22 +63,55 @@ function ContinueModal({ base, onClose }: { base: OptVersionView; onClose: () =>
   const [maxRuns, setMaxRuns] = useState(3);
   const [targetScore, setTargetScore] = useState(base.targetScore);
   const [stallRuns, setStallRuns] = useState(2);
+  const [judgeModel, setJudgeModel] = useState(base.judgeModel);
+  const [reviseModel, setReviseModel] = useState(base.reviseModel);
   const [token, setToken] = useState("");
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
   const usable = useTokenUsable(token);
+  const stats = useContext(UsageStatsContext);
+  // 題目沿用（相似題已包含在題數裡）；起點測過就從修改開始，所以第一輪不用先測
+  const plan = estimatePlan({
+    originals: base.questionsPerRun,
+    similarCount: 0,
+    maxRuns,
+    contentCount: base.entryCount,
+    contentKind: base.contentKind === "DOC" ? "DOC" : "FAQ",
+    stats,
+    judgeModel,
+    reviseModel,
+    similarModel: judgeModel,
+    skipSimilar: true,
+  });
+  const maxUsd = base.tested ? plan.judgeRunUsd * maxRuns + plan.reviseUsd * maxRuns : plan.maxUsd;
+  // 起點測過：每輪都是「修改→上傳→測試」，共修改 maxRuns 次
+  const maxMinutes = base.tested ? plan.runMinutes * maxRuns : plan.maxMinutes;
 
   return (
-    <Modal title={`從 ${base.name} 繼續優化`} onClose={onClose}>
+    <Modal title={`從 ${base.name} 繼續優化`} onClose={onClose} wide>
       <p className="mb-4 text-xs leading-relaxed text-slate-600">
         以這一版的 md 當起點，題目（含相似題）沿用原本那一套，分數可以直接跟之前的版本比較。
         {base.tested ? `這一版已經測過（${pctText(base.scoreAll)}），會直接從它答錯的題目開始修改。` : "這一版還沒測過，會先把它上傳測試一次。"}
       </p>
-      <div className="mb-4 grid grid-cols-3 gap-3">
-        <NumberField label="最多跑幾輪" hint="1–10" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
-        <NumberField label="目標正確率" hint="達到就停" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
-        <NumberField label="沒進步就停" hint="連續幾輪" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <StepperField label="最多跑幾輪" hint="1–10 輪" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
+        <StepperField label="目標正確率" hint="任何一輪達到就停" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
+        <StepperField label="連續沒進步就停" hint="含起點版本的分數" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
       </div>
+      <div className="mb-4 divide-y divide-slate-100 rounded-xl border border-slate-200">
+        <ModelRow
+          title="比對答案"
+          desc={`每輪 ${plan.questionsPerRun} 次（每題約 ${formatTwd(plan.judgeUnitUsd)}）`}
+          value={judgeModel}
+          onChange={setJudgeModel}
+          cost={`${formatTwd(plan.judgeRunUsd)}／輪`}
+        />
+        <ModelRow title="修改 md" desc="每輪一次" value={reviseModel} onChange={setReviseModel} cost={`${formatTwd(plan.reviseUsd)}／次`} />
+      </div>
+      <p className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        每輪 {plan.questionsPerRun} 題、一輪約 {formatMinutes(plan.runMinutes)}；跑滿 {maxRuns} 輪最多約 {formatMinutes(maxMinutes)}、Claude 費用約{" "}
+        <span className="font-semibold">{formatTwd(maxUsd)}</span>。
+      </p>
       <TokenField value={token} onChange={setToken} />
       <div className="mt-3">
         <Feedback result={result} />
@@ -74,7 +126,7 @@ function ContinueModal({ base, onClose }: { base: OptVersionView; onClose: () =>
             disabled={pending || !usable}
             onClick={() =>
               startTransition(async () => {
-                const r = await continueOptimizationAction({ baseVersionId: base.id, maxRuns, targetScore, stallRuns, token });
+                const r = await continueOptimizationAction({ baseVersionId: base.id, maxRuns, targetScore, stallRuns, judgeModel, reviseModel, token });
                 setResult(r);
                 if (r.success) {
                   setToken("");

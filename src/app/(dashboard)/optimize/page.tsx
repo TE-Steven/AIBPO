@@ -2,10 +2,11 @@ import { requireCompanyUser } from "@/lib/session";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getBotTestTarget } from "@/lib/botTest";
-import { estimateUsdCost } from "@/lib/anthropic";
 import { isJobLoopRunning, jobLabel } from "@/lib/optimizationRunner";
+import { DEFAULT_AI_MODEL, findAiModel } from "@/lib/aiModels";
 import { OptimizeWorkspace, type JobView, type SourceOption } from "./OptimizeWorkspace";
 import type { OptVersionView } from "./VersionsTab";
+import type { TokenAverage } from "./optimizeShared";
 
 export const dynamic = "force-dynamic";
 
@@ -60,29 +61,32 @@ export default async function OptimizePage() {
         scoreSimilar: true,
         backendKnowledgeIds: true,
         createdAt: true,
-        job: { select: { seq: true, contentKind: true, targetScore: true } },
+        entryCount: true,
+        job: { select: { id: true, seq: true, contentKind: true, targetScore: true, judgeModel: true, reviseModel: true } },
         _count: { select: { testRuns: { where: { status: "DONE" } } } },
       },
     }),
   ]);
   const versionNames = new Map(versions.map((v) => [v.id, v.name]));
 
-  // 這間公司最近實際的 Claude 平均單價（美元／次），讓預估費用貼近實際
-  const avgUsd = async (purpose: string): Promise<number | null> => {
+  // 這間公司最近實際的平均 token 數（每次呼叫）；畫面上依選的模型單價換算預估費用
+  const avgTokens = async (purpose: string): Promise<TokenAverage | null> => {
     const logs = await prisma.apiUsageLog.findMany({
       where: { companyId: session.companyId, purpose },
       orderBy: { createdAt: "desc" },
       take: 200,
-      select: { model: true, inputTokens: true, outputTokens: true, cacheCreationTokens: true, cacheReadTokens: true },
+      select: { inputTokens: true, outputTokens: true, cacheCreationTokens: true, cacheReadTokens: true },
     });
     if (logs.length === 0) return null;
-    const total = logs.reduce(
-      (sum, l) => sum + estimateUsdCost(l.model, l.inputTokens + l.cacheCreationTokens + l.cacheReadTokens * 0.1, l.outputTokens),
-      0,
-    );
-    return total / logs.length;
+    return {
+      // 快取讀取只算一成價錢，換算成等值的輸入 token
+      input: logs.reduce((sum, l) => sum + l.inputTokens + l.cacheCreationTokens + l.cacheReadTokens * 0.1, 0) / logs.length,
+      output: logs.reduce((sum, l) => sum + l.outputTokens, 0) / logs.length,
+    };
   };
-  const [judgeUsd, reviseUsd] = await Promise.all([avgUsd("bot_test_judge"), avgUsd("km_optimize_revise")]);
+  const [judgeTokens, reviseTokens] = await Promise.all([avgTokens("bot_test_judge"), avgTokens("km_optimize_revise")]);
+  const questionsByJob = new Map<string, number>();
+  for (const c of questionCounts) questionsByJob.set(c.jobId, (questionsByJob.get(c.jobId) ?? 0) + c._count._all);
 
   const sourceOptions: SourceOption[] = sources.map((s) => {
     const count = (kind: string, confirmedOnly: boolean) =>
@@ -103,6 +107,7 @@ export default async function OptimizePage() {
     id: j.id,
     label: jobLabel(j, j.source),
     seq: j.seq,
+    models: `比對 ${findAiModel(j.judgeModel).label}・修改 ${findAiModel(j.reviseModel).label}${j.similarCount > 0 && !j.baseVersionId ? `・相似題 ${findAiModel(j.similarModel).label}` : ""}`,
     baseVersionName: j.baseVersionId ? (versionNames.get(j.baseVersionId) ?? "（版本已刪除）") : null,
     scope: j.scope,
     contentKind: j.contentKind,
@@ -146,6 +151,10 @@ export default async function OptimizePage() {
     scoreSimilar: v.scoreSimilar,
     inBackend: Array.isArray(v.backendKnowledgeIds) && v.backendKnowledgeIds.length > 0,
     tested: v._count.testRuns > 0,
+    questionsPerRun: v.job ? (questionsByJob.get(v.job.id) ?? 0) : 0,
+    entryCount: v.entryCount,
+    judgeModel: v.job?.judgeModel ?? DEFAULT_AI_MODEL,
+    reviseModel: v.job?.reviseModel ?? DEFAULT_AI_MODEL,
     createdAt: v.createdAt.toISOString(),
   }));
 
@@ -160,7 +169,7 @@ export default async function OptimizePage() {
       <OptimizeWorkspace
         targetReady={Boolean(target?.knowledgePlatformId)}
         canRefresh={Boolean(target?.clientId && target?.clientSecret)}
-        usageStats={{ judgeUsd, reviseUsd }}
+        usageStats={{ judge: judgeTokens, revise: reviseTokens }}
         sources={sourceOptions}
         testCaseCount={testCaseCount}
         jobs={jobViews}

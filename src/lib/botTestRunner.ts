@@ -38,6 +38,8 @@ export type RunBotJobsParams = {
   token: string;
   roleId: string;
   config?: PromptConfigData;
+  // AI 比對用的模型；沒給就用預設
+  judgeModel?: string;
   // 寫入一題的結果（成功或失敗都會呼叫）
   saveResult: (jobId: string, data: RunnerResultData, meta: { completed: boolean }) => Promise<void>;
   // 每題結果出來後通知（SSE 推播用）
@@ -65,7 +67,14 @@ export async function runBotJobs(params: RunBotJobsParams): Promise<{ tokenError
         // 拿到回答就請 AI 比對標準答案（沒拿到回答的不比對）
         const judge =
           result.status === "ANSWERED"
-            ? await judgeBotAnswer({ question: job.question, expectedAnswer: job.expectedAnswer, botAnswer: result.answer, roleId, config })
+            ? await judgeBotAnswer({
+                question: job.question,
+                expectedAnswer: job.expectedAnswer,
+                botAnswer: result.answer,
+                roleId,
+                config,
+                model: params.judgeModel,
+              })
             : null;
         const data = { ...resultData(result), judgeVerdict: judge?.verdict ?? null, judgeReason: judge?.reason ?? null };
         await params.saveResult(job.id, data, { completed: true });
