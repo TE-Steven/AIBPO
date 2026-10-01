@@ -12,6 +12,7 @@ import {
   clearRecordedBackendKnowledge,
   isJobLoopRunning,
   launchOptimizationJob,
+  isDocVersion,
   uploadVersionToBackend,
 } from "@/lib/optimizationRunner";
 
@@ -263,7 +264,7 @@ export async function deployVersionAction(versionId: string, rawToken: string): 
 
   try {
     await clearRecordedBackendKnowledge({ companyId: session.companyId, target: t.target, token, exceptVersionId: version.id });
-    const ids = await uploadVersionToBackend({ target: t.target, token, version, label: version.name });
+    const ids = await uploadVersionToBackend({ target: t.target, token, version, label: version.name, splitByH1: await isDocVersion(version) });
     try {
       await learnKnowledge(t.target, token, ids);
     } catch (err) {

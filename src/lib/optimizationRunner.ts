@@ -15,6 +15,7 @@ import { buildKnowledgeMarkdown, tallyPathOf, type ExportEntry } from "@/lib/kmE
 import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
 import { getSourceFiles, getSourceUrls } from "@/lib/kmAnalysis";
 import { tallyPathOptions } from "@/lib/tallyTree";
+import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
   buildRevisionSystemPrompt,
   buildRevisionUserText,
@@ -27,13 +28,13 @@ import {
   AIBPO_KNOWLEDGE_PREFIX,
   DELETING_STATUS,
   findKnowledgeByName,
-  getAibpoKnowledge,
   isLearned,
+  listKnowledge,
   KnowledgeApiError,
   learnKnowledge,
   uploadMarkdown,
   waitUntilDeleted,
-  waitUntilLearned,
+  waitUntilAllLearned,
 } from "@/lib/telligentKb";
 
 // 自動優化的背景迴圈：每一輪 上傳 md → 後台學習 → 全部題目問機器人＋AI 比對 → 算分 → 沒達標就請 Claude 依答錯清單改整份 md。
@@ -435,28 +436,49 @@ export function backendKnowledgeName(label: string, versionId: string, runIndex:
   return `${AIBPO_KNOWLEDGE_PREFIX}${safe}-${versionId.slice(-6)}${runIndex ? `-r${runIndex}` : ""}`;
 }
 
-// 上傳一個版本的 md 到後台並新增知識，記下 id（之後只刪這一批）。已上傳過（例如中斷後繼續）就沿用。
+// 自動優化的結構化文件版本：上傳時一個 H1（一份文件）一個 md 檔
+export async function isDocVersion(version: { jobId: string | null }): Promise<boolean> {
+  if (!version.jobId) return false;
+  const job = await prisma.optimizationJob.findUnique({ where: { id: version.jobId }, select: { contentKind: true } });
+  return job?.contentKind === "DOC";
+}
+
+// 上傳一個版本到後台並新增知識，記下 id（之後只刪這一批）。已上傳過（例如中斷後繼續）就沿用。
+// splitByH1：結構化文件依 H1 切成多個 md 檔各自上傳；FAQ 整份一個檔。
 export async function uploadVersionToBackend(params: {
   target: BotTestTarget;
   token: string;
   version: { id: string; markdown: string; backendKnowledgeIds: Prisma.JsonValue | null; runIndex: number | null };
   label: string;
+  splitByH1: boolean;
   onStep?: (step: string) => Promise<void>;
 }): Promise<string[]> {
   const existingIds = asIds(params.version.backendKnowledgeIds);
   if (existingIds.length > 0) return existingIds;
 
-  const name = backendKnowledgeName(params.label, params.version.id, params.version.runIndex);
-  // 上次新增成功但還沒來得及記下 id 就中斷：用唯一名稱找回來，避免重複上傳
-  let id = (await findKnowledgeByName(params.target, params.token, name))?.id;
-  if (!id) {
-    await params.onStep?.("上傳 md 到後台");
-    const url = await uploadMarkdown(params.target, params.token, params.version.markdown, `${name}.md`);
-    await params.onStep?.("新增後台知識");
-    id = await createKnowledge(params.target, params.token, { name, url, sourceName: `${name}.md` });
+  const base = backendKnowledgeName(params.label, params.version.id, params.version.runIndex);
+  const parts = params.splitByH1
+    ? splitMarkdownByH1(params.version.markdown).map((p, i) => ({
+        name: `${base}-${String(i + 1).padStart(2, "0")}-${p.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 20)}`,
+        content: p.content,
+      }))
+    : [{ name: base, content: params.version.markdown }];
+  if (parts.length === 0) throw new Error("md 裡找不到任何 H1（# 標題），無法依文件切檔上傳。");
+
+  const ids: string[] = [];
+  for (const [i, part] of parts.entries()) {
+    const progress = parts.length > 1 ? `（${i + 1}／${parts.length}）` : "";
+    // 上次新增成功但還沒來得及記下 id 就中斷：用唯一名稱找回來，避免重複上傳
+    let id = (await findKnowledgeByName(params.target, params.token, part.name))?.id;
+    if (!id) {
+      await params.onStep?.(`上傳 md 到後台${progress}`);
+      const url = await uploadMarkdown(params.target, params.token, part.content, `${part.name}.md`);
+      id = await createKnowledge(params.target, params.token, { name: part.name, url, sourceName: `${part.name}.md` });
+    }
+    ids.push(id);
   }
-  await prisma.kbVersion.update({ where: { id: params.version.id }, data: { backendKnowledgeIds: [id] } });
-  return [id];
+  await prisma.kbVersion.update({ where: { id: params.version.id }, data: { backendKnowledgeIds: ids } });
+  return ids;
 }
 
 async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) {
@@ -473,26 +495,29 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
     token,
     version,
     label: jobLabel(job, source),
+    splitByH1: job.contentKind === "DOC",
     onStep: (step) => setStep(job.id, `第 ${n} 輪：${step}`),
   });
 
   await setStep(job.id, `第 ${n} 輪：後台學習中`);
-  const item = await getAibpoKnowledge(ctx.target, token, ids[0]);
-  if (!item || item.status === DELETING_STATUS) {
+  const items = new Map((await listKnowledge(ctx.target, token, AIBPO_KNOWLEDGE_PREFIX)).map((i) => [i.id, i]));
+  if (ids.some((id) => !items.get(id) || items.get(id)!.status === DELETING_STATUS)) {
     // 後台的知識被人刪掉了：清掉紀錄，下一圈重新上傳
     await prisma.kbVersion.update({ where: { id: version.id }, data: { backendKnowledgeIds: Prisma.DbNull } });
     throw new Error("後台找不到這一輪上傳的知識（可能被手動刪除），請重試。");
   }
-  if (!isLearned(item)) {
+  const notLearned = ids.filter((id) => !isLearned(items.get(id)!));
+  if (notLearned.length > 0) {
     try {
-      await learnKnowledge(ctx.target, token, ids);
+      await learnKnowledge(ctx.target, token, notLearned);
     } catch (err) {
       // 新增後後台可能已經自動開始學習，這時再送學習會失敗；改成直接等學習完成
       if (!(err instanceof KnowledgeApiError)) throw err;
     }
-    await waitUntilLearned(ctx.target, token, ids[0], {
+    await waitUntilAllLearned(ctx.target, token, ids, {
       shouldStop: () => isStopRequested(job.id),
-      onStatus: (status) => void setStep(job.id, `第 ${n} 輪：後台學習中（狀態 ${status}）`).catch(() => {}),
+      onProgress: (done, total) =>
+        void setStep(job.id, `第 ${n} 輪：後台學習中${total > 1 ? `（完成 ${done}／${total} 份）` : ""}`).catch(() => {}),
     });
     await setStep(job.id, `第 ${n} 輪：學習完成，稍等一下讓知識生效`);
     await new Promise((r) => setTimeout(r, AFTER_LEARN_DELAY_MS));
@@ -658,7 +683,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       messages: [
         {
           role: "user",
-          content: [...blocks, { type: "text" as const, text: urlText + buildRevisionUserText({ markdown: version.markdown, failures, passedCount }) }],
+          content: [...blocks, { type: "text" as const, text: urlText + buildRevisionUserText({ markdown: version.markdown, failures, passedCount, splitByH1: job.contentKind === "DOC" }) }],
         },
       ],
     })

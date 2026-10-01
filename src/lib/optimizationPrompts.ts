@@ -30,14 +30,24 @@ export function buildRevisionSystemPrompt(params: { guidelines?: string; config?
 export type RevisionFailure = { question: string; expectedAnswer: string; botAnswer: string | null; reason: string | null };
 
 // 修改 md 的 user 文字（原始文件以 document 區塊另外附上）
-export function buildRevisionUserText(params: { markdown: string; failures: RevisionFailure[]; passedCount: number }): string {
+// 結構化文件上傳時會依 H1 切成多個檔案：修改時一定要保留每個 H1（這是系統運作需要，不放進可調整的規則）
+const SPLIT_BY_H1_NOTE =
+  "注意：這份 md 的每一個「# 標題」（H1）是一份獨立的文件，上傳時會依 H1 切成多個檔案、各自讓機器人學習。請保留每一個 H1 的名稱與順序，不要合併、刪除、改名或新增 H1；每份文件都要能單獨閱讀，不要出現「同上」「見上一份」這類跨文件的寫法。";
+
+export function buildRevisionUserText(params: {
+  markdown: string;
+  failures: RevisionFailure[];
+  passedCount: number;
+  splitByH1?: boolean;
+}): string {
   const failures = params.failures
     .map(
       (f, i) =>
         `<failure index="${i + 1}">\n<question>${f.question}</question>\n<expected_answer>${f.expectedAnswer}</expected_answer>\n<bot_answer>${f.botAnswer ?? "（機器人沒有回答）"}</bot_answer>\n<reason>${f.reason ?? "（沒有拿到回答）"}</reason>\n</failure>`,
     )
     .join("\n");
-  return `以上是原始文件。\n\n<current_markdown>\n${params.markdown}\n</current_markdown>\n\n這一輪有 ${params.passedCount} 題答對、${params.failures.length} 題答錯，答錯的清單如下：\n\n${failures}\n\n請依照系統指示，輸出修改後的完整 md。`;
+  const note = params.splitByH1 ? `\n\n${SPLIT_BY_H1_NOTE}` : "";
+  return `以上是原始文件。\n\n<current_markdown>\n${params.markdown}\n</current_markdown>\n\n這一輪有 ${params.passedCount} 題答對、${params.failures.length} 題答錯，答錯的清單如下：\n\n${failures}\n\n請依照系統指示，輸出修改後的完整 md。${note}`;
 }
 
 export function buildSimilarQuestionsSystemPrompt(params: { count: number; config?: PromptConfigData }): string {

@@ -153,19 +153,25 @@ export function isLearned(item: KnowledgeItem): boolean {
 }
 
 // 輪詢直到學習完成；shouldStop 讓呼叫端在使用者按停止時中斷等待
-export async function waitUntilLearned(
+// 等一批知識全部學習完成（結構化文件一份一個檔，會有很多筆）；onProgress 回報完成幾筆
+export async function waitUntilAllLearned(
   target: BotTestTarget,
   token: string,
-  id: string,
-  options: { timeoutMs?: number; intervalMs?: number; shouldStop?: () => Promise<boolean>; onStatus?: (status: number) => void } = {},
-): Promise<KnowledgeItem> {
-  const deadline = Date.now() + (options.timeoutMs ?? 20 * 60_000);
+  ids: string[],
+  options: { timeoutMs?: number; intervalMs?: number; shouldStop?: () => Promise<boolean>; onProgress?: (done: number, total: number) => void } = {},
+): Promise<void> {
+  const deadline = Date.now() + (options.timeoutMs ?? (20 + ids.length) * 60_000);
   for (;;) {
-    const item = await getAibpoKnowledge(target, token, id);
-    if (!item || item.status === DELETING_STATUS) throw new KnowledgeApiError("後台找不到剛新增的知識，可能已被刪除。");
-    options.onStatus?.(item.status);
-    if (isLearned(item)) return item;
-    if (Date.now() > deadline) throw new KnowledgeApiError(`等學習完成超過時間（最後狀態 ${item.status}）。`);
+    const items = new Map((await listKnowledge(target, token, AIBPO_KNOWLEDGE_PREFIX)).map((i) => [i.id, i]));
+    const missing = ids.filter((id) => {
+      const item = items.get(id);
+      return !item || item.status === DELETING_STATUS;
+    });
+    if (missing.length > 0) throw new KnowledgeApiError(`後台找不到 ${missing.length} 筆剛新增的知識，可能已被刪除。`);
+    const done = ids.filter((id) => isLearned(items.get(id)!)).length;
+    options.onProgress?.(done, ids.length);
+    if (done === ids.length) return;
+    if (Date.now() > deadline) throw new KnowledgeApiError(`等學習完成超過時間（完成 ${done}／${ids.length} 筆）。`);
     if (await options.shouldStop?.()) throw new KnowledgeApiError("已停止。");
     await new Promise((r) => setTimeout(r, options.intervalMs ?? 15_000));
   }
