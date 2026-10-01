@@ -32,9 +32,9 @@ import {
   type UsageStats,
 } from "./optimizeShared";
 import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
-import { VersionsTab, type OptVersionView } from "./VersionsTab";
+import { CompareModal, ContinueModal, type ContinueBase } from "./versionModals";
 import { LocalTime } from "@/components/LocalTime";
-import { IconAlertTriangle, IconSparkles, IconTrash } from "@/components/icons";
+import { IconAlertTriangle, IconChevronDown, IconSparkles, IconTrash, IconX } from "@/components/icons";
 
 export type SourceOption = { id: string; title: string; faq: number; doc: number; confirmedFaq: number; confirmedDoc: number };
 
@@ -49,6 +49,8 @@ export type RunView = {
   testStatus: string | null;
   testTotal: number;
   testCompleted: number;
+  tested: boolean;
+  entryCount: number;
 };
 
 export type JobView = {
@@ -56,6 +58,8 @@ export type JobView = {
   seq: number;
   baseVersionName: string | null;
   models: string;
+  judgeModel: string;
+  reviseModel: string;
   label: string;
   scope: string;
   contentKind: string;
@@ -281,9 +285,24 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   );
 }
 
-function JobCard({ job }: { job: JobView }) {
+function JobCard({
+  job,
+  hasActive,
+  selected,
+  onToggleSelect,
+  defaultOpen,
+}: {
+  job: JobView;
+  hasActive: boolean;
+  selected: string[];
+  onToggleSelect: (versionId: string) => void;
+  defaultOpen: boolean;
+}) {
   const router = useRouter();
-  const [modal, setModal] = useState<null | { kind: "resume" } | { kind: "deploy"; run: RunView } | { kind: "results"; run: RunView }>(null);
+  const [open, setOpen] = useState(defaultOpen);
+  const [modal, setModal] = useState<
+    null | { kind: "resume" } | { kind: "deploy"; run: RunView } | { kind: "results"; run: RunView } | { kind: "continue"; run: RunView }
+  >(null);
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
   const status = STATUS[job.status] ?? STATUS.FAILED;
@@ -301,24 +320,46 @@ function JobCard({ job }: { job: JobView }) {
     });
   }
 
+  function continueBase(r: RunView): ContinueBase {
+    return {
+      id: r.versionId,
+      name: r.name,
+      targetScore: job.targetScore,
+      tested: r.tested,
+      scoreAll: r.scoreAll,
+      questionsPerRun: job.originalCount + job.similarTotal,
+      entryCount: r.entryCount,
+      contentKind: job.contentKind,
+      judgeModel: job.judgeModel,
+      reviseModel: job.reviseModel,
+    };
+  }
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 p-5">
+        <button type="button" onClick={() => setOpen((v) => !v)} className="group min-w-0 flex-1 text-left" aria-expanded={open}>
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-slate-900">
+            <IconChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? "" : "-rotate-90"}`} />
+            <h3 className="text-sm font-semibold text-slate-900 group-hover:text-teal-700">
               <span className="mr-1.5 text-slate-400">#{job.seq}</span>
               {job.label}
             </h3>
-            {job.baseVersionName && <span className="text-[11px] text-slate-500">從 {job.baseVersionName} 繼續</span>}
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${status.className}`}>{status.label}</span>
+            {job.baseVersionName && <span className="text-[11px] text-slate-500">從 {job.baseVersionName} 繼續</span>}
+            {best && (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                最佳 {best.name.split("・")[0]}・{best.scoreAll}%
+              </span>
+            )}
+            <span className="text-[11px] text-slate-400">{job.runs.length} 個版本</span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 pl-6 text-xs text-slate-500">
             <LocalTime iso={job.createdAt} />・{job.contentKind === "DOC" ? "結構化文件" : "FAQ"}・題目：
             {job.questionSource === "TEST_BANK" ? "測試題庫" : "範圍內 FAQ"} {job.originalCount} 題＋相似題 {job.similarTotal} 題・目標 {job.targetScore}%・最多{" "}
             {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停・{job.models}
           </p>
-        </div>
+        </button>
         <div className="flex shrink-0 items-center gap-2">
           {(job.status === "PAUSED_TOKEN" || job.status === "FAILED") && (
             <button
@@ -355,43 +396,55 @@ function JobCard({ job }: { job: JobView }) {
         </div>
       </div>
 
-      {(job.currentStep || job.stopReason) && (
-        <p className="mt-3 text-xs text-slate-600">
-          {job.status === "RUNNING" && <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-teal-500" />}
-          {job.currentStep}
-          {testing && current && `　${current.testCompleted} / ${current.testTotal}`}
-        </p>
+      {(job.currentStep || job.errorMessage || result) && (
+        <div className="space-y-2 px-5 pb-4">
+          {job.currentStep && (
+            <p className="text-xs text-slate-600">
+              {job.status === "RUNNING" && <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-teal-500" />}
+              {job.currentStep}
+              {testing && current && `　${current.testCompleted} / ${current.testTotal}`}
+            </p>
+          )}
+          {job.errorMessage && (
+            <p className="flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {job.errorMessage}
+            </p>
+          )}
+          <Feedback result={result} />
+        </div>
       )}
-      {job.errorMessage && (
-        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
-          <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {job.errorMessage}
-        </p>
-      )}
-      <div className="mt-2">
-        <Feedback result={result} />
-      </div>
 
-      {job.runs.length > 0 && (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-xs">
+      {open && job.runs.length > 0 && (
+        <div className="overflow-x-auto border-t border-slate-100 bg-slate-50/50">
+          <table className="w-full min-w-[760px] text-xs">
             <thead>
               <tr className="text-left text-[11px] text-slate-400">
-                <th className="w-14 py-1.5 font-medium">輪次</th>
-                <th className="py-1.5 font-medium">正確率（全部）</th>
-                <th className="w-20 py-1.5 text-right font-medium">原題</th>
-                <th className="w-20 py-1.5 text-right font-medium">相似題</th>
-                <th className="w-64 py-1.5 text-right font-medium">操作</th>
+                <th className="w-10 py-2 pl-5" />
+                <th className="w-40 py-2 font-medium">版本</th>
+                <th className="py-2 font-medium">正確率（全部）</th>
+                <th className="w-16 py-2 text-right font-medium">原題</th>
+                <th className="w-16 py-2 text-right font-medium">相似題</th>
+                <th className="w-80 py-2 pr-5 text-right font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {job.runs.map((r) => (
-                <tr key={r.versionId}>
-                  <td className="py-2 font-medium text-slate-700">
-                    r{r.runIndex}
-                    {best?.versionId === r.versionId && <span className="ml-1 rounded bg-amber-50 px-1 text-[10px] text-amber-700">最佳</span>}
+                <tr key={r.versionId} className={selected.includes(r.versionId) ? "bg-teal-50/60" : "bg-white"}>
+                  <td className="py-2.5 pl-5">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(r.versionId)}
+                      onChange={() => onToggleSelect(r.versionId)}
+                      aria-label={`選擇 ${r.name} 來比較`}
+                    />
                   </td>
-                  <td className="py-2 pr-4">
+                  <td className="py-2.5 font-medium text-slate-700">
+                    {r.name.split("・")[0]}
+                    {best?.versionId === r.versionId && <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10px] text-amber-700">最佳</span>}
+                    {r.inBackend && <span className="ml-1.5 rounded bg-teal-50 px-1.5 text-[10px] font-semibold text-teal-700">在後台</span>}
+                  </td>
+                  <td className="py-2.5 pr-4">
                     <div className="flex items-center gap-2">
                       <ScoreBar value={r.scoreAll} target={job.targetScore} />
                       <span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-800">
@@ -399,11 +452,10 @@ function JobCard({ job }: { job: JobView }) {
                       </span>
                     </div>
                   </td>
-                  <td className="py-2 text-right tabular-nums text-slate-600">{r.scoreOriginal !== null ? `${r.scoreOriginal}%` : "—"}</td>
-                  <td className="py-2 text-right tabular-nums text-slate-600">{r.scoreSimilar !== null ? `${r.scoreSimilar}%` : "—"}</td>
-                  <td className="py-2 text-right">
+                  <td className="py-2.5 text-right tabular-nums text-slate-600">{r.scoreOriginal !== null ? `${r.scoreOriginal}%` : "—"}</td>
+                  <td className="py-2.5 text-right tabular-nums text-slate-600">{r.scoreSimilar !== null ? `${r.scoreSimilar}%` : "—"}</td>
+                  <td className="py-2.5 pr-5 text-right">
                     <div className="flex items-center justify-end gap-3">
-                      {r.inBackend && <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700">在後台</span>}
                       {r.testTotal > 0 && (
                         <button type="button" onClick={() => setModal({ kind: "results", run: r })} className="text-teal-700 hover:underline">
                           逐題結果
@@ -412,7 +464,12 @@ function JobCard({ job }: { job: JobView }) {
                       <a href={`/api/km/versions/${r.versionId}/download`} className="text-teal-700 hover:underline">
                         下載 md
                       </a>
-                      {!active && !r.inBackend && (
+                      {!hasActive && (
+                        <button type="button" onClick={() => setModal({ kind: "continue", run: r })} className="text-teal-700 hover:underline">
+                          從這版繼續
+                        </button>
+                      )}
+                      {!hasActive && !r.inBackend && (
                         <button type="button" onClick={() => setModal({ kind: "deploy", run: r })} className="font-semibold text-teal-700 hover:underline">
                           部署到後台
                         </button>
@@ -441,7 +498,7 @@ function JobCard({ job }: { job: JobView }) {
       )}
       {modal?.kind === "deploy" && (
         <TokenActionModal
-          title={`部署第 ${modal.run.runIndex} 輪到後台`}
+          title={`部署 ${modal.run.name} 到後台`}
           description={
             <>
               會先刪除 AIBPO 先前上傳到後台的知識（只刪 AIBPO 記下的那批），再上傳「{modal.run.name}」並送出學習。學習完成後機器人就會用這一版回答。
@@ -459,6 +516,7 @@ function JobCard({ job }: { job: JobView }) {
       {modal?.kind === "results" && (
         <ResultsModal versionId={modal.run.versionId} title={`${modal.run.name} 逐題結果`} onClose={() => setModal(null)} />
       )}
+      {modal?.kind === "continue" && <ContinueModal base={continueBase(modal.run)} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -480,7 +538,6 @@ type WorkspaceProps = {
   sources: SourceOption[];
   testCaseCount: number;
   jobs: JobView[];
-  versions: OptVersionView[];
   deployedVersion: { id: string; name: string } | null;
 };
 
@@ -489,7 +546,6 @@ function Workspace({
   sources,
   testCaseCount,
   jobs,
-  versions,
   deployedVersion,
 }: WorkspaceProps) {
   const router = useRouter();
@@ -497,7 +553,22 @@ function Workspace({
   const hasRunning = jobs.some((j) => j.status === "RUNNING");
   const [showForm, setShowForm] = useState(!hasActive && jobs.length === 0);
   const [clearing, setClearing] = useState(false);
-  const [tab, setTab] = useState<"jobs" | "versions">("jobs");
+  // 版本比較：可以跨任務勾選（從某版繼續的任務，起點版本在另一個任務裡）
+  const [selected, setSelected] = useState<string[]>([]);
+  const [comparing, setComparing] = useState<[string, string] | null>(null);
+  const runsById = new Map(jobs.flatMap((j) => j.runs.map((r) => [r.versionId, { ...r, createdAt: j.createdAt }] as const)));
+  const selectedRuns = selected.map((id) => runsById.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
+
+  function toggleSelect(id: string) {
+    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length >= 2 ? [cur[1], id] : [...cur, id]));
+  }
+
+  function openCompare() {
+    if (selectedRuns.length !== 2) return;
+    // 舊版在前：先比任務建立時間，同一個任務比輪次
+    const [x, y] = [...selectedRuns].sort((p, q) => p.createdAt.localeCompare(q.createdAt) || p.runIndex - q.runIndex);
+    setComparing([x.versionId, y.versionId]);
+  }
 
   // 有任務在跑就每 5 秒更新一次進度
   useEffect(() => {
@@ -527,7 +598,7 @@ function Workspace({
             </button>
           )}
         </p>
-        {tab === "jobs" && !showForm && (
+        {!showForm && (
           <button
             type="button"
             onClick={() => setShowForm(true)}
@@ -541,30 +612,7 @@ function Workspace({
         )}
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200">
-        {(
-          [
-            { id: "jobs", label: "任務", count: jobs.length },
-            { id: "versions", label: "版本", count: versions.length },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
-              tab === t.id ? "border-teal-600 text-teal-700" : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {t.label}
-            <span className="ml-1.5 text-xs text-slate-400">{t.count}</span>
-          </button>
-        ))}
-      </div>
-
-      {tab === "versions" && <VersionsTab versions={versions} hasActive={hasActive} />}
-
-      {tab === "jobs" && showForm && (
+      {showForm && (
         <div>
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-800">新的自動優化</h2>
@@ -589,12 +637,20 @@ function Workspace({
         </div>
       )}
 
-      {tab !== "jobs" ? null : jobs.length === 0 ? (
+      {jobs.length === 0 ? (
         !showForm && <p className="text-sm text-slate-500">還沒有自動優化紀錄。</p>
       ) : (
         <div className="space-y-4">
-          {jobs.map((job) => (
-            <JobCard key={job.id} job={job} />
+          {jobs.map((job, i) => (
+            <JobCard
+              key={job.id}
+              job={job}
+              hasActive={hasActive}
+              selected={selected}
+              onToggleSelect={toggleSelect}
+              // 進行中、暫停中或最新的一個任務預設展開，其他收合
+              defaultOpen={i === 0 || job.status === "RUNNING" || job.status === "PAUSED_TOKEN"}
+            />
           ))}
         </div>
       )}
@@ -612,6 +668,31 @@ function Workspace({
           onClose={() => setClearing(false)}
         />
       )}
+
+      {selected.length > 0 && (
+        <div className="sticky bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-200 bg-white/95 px-5 py-3 shadow-lg shadow-teal-900/10 backdrop-blur">
+          <p className="text-xs text-slate-600">
+            已選 {selected.length}／2 個版本：
+            <span className="font-semibold text-slate-800">{selectedRuns.map((r) => r.name.split("・")[0]).join("、")}</span>
+            {selected.length < 2 && <span className="ml-1 text-slate-400">（再勾一個版本就能比較，可以跨任務）</span>}
+          </p>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setSelected([])} className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700">
+              <IconX className="h-3.5 w-3.5" />
+              清除
+            </button>
+            <button
+              type="button"
+              disabled={selectedRuns.length !== 2}
+              onClick={openCompare}
+              className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+            >
+              比較所選版本
+            </button>
+          </div>
+        </div>
+      )}
+      {comparing && <CompareModal ids={comparing} onClose={() => setComparing(null)} />}
     </div>
   );
 }

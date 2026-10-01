@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   compareVersionsAction,
   continueOptimizationAction,
-  deployVersionAction,
   type CompareSide,
   type OptimizeActionResult,
 } from "./actions";
@@ -17,33 +16,24 @@ import {
   formatTwd,
   Modal,
   ModelRow,
-  ResultsModal,
-  ScoreBar,
   StepperField,
-  TokenActionModal,
   TokenField,
   UsageStatsContext,
   useTokenUsable,
 } from "./optimizeShared";
 import { collapseUnchanged, diffLines, diffStats } from "@/lib/lineDiff";
-import { LocalTime } from "@/components/LocalTime";
 import { IconSparkles } from "@/components/icons";
 
-export type OptVersionView = {
+// 「從這版繼續」需要的起點版本資訊
+export type ContinueBase = {
   id: string;
   name: string;
-  jobSeq: number;
-  runIndex: number;
-  contentKind: string;
   targetScore: number;
-  scoreAll: number | null;
-  scoreOriginal: number | null;
-  scoreSimilar: number | null;
-  inBackend: boolean;
   tested: boolean;
-  createdAt: string;
+  scoreAll: number | null;
   questionsPerRun: number;
   entryCount: number;
+  contentKind: string;
   judgeModel: string;
   reviseModel: string;
 };
@@ -58,7 +48,7 @@ function Delta({ a, b }: { a: number | null; b: number | null }) {
   return <span className={d > 0 ? "text-emerald-600" : d < 0 ? "text-rose-600" : "text-slate-400"}>{d > 0 ? `+${d}` : d}</span>;
 }
 
-function ContinueModal({ base, onClose }: { base: OptVersionView; onClose: () => void }) {
+export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: () => void }) {
   const router = useRouter();
   const [maxRuns, setMaxRuns] = useState(3);
   const [targetScore, setTargetScore] = useState(base.targetScore);
@@ -145,7 +135,7 @@ function ContinueModal({ base, onClose }: { base: OptVersionView; onClose: () =>
   );
 }
 
-function CompareModal({ ids, onClose }: { ids: [string, string]; onClose: () => void }) {
+export function CompareModal({ ids, onClose }: { ids: [string, string]; onClose: () => void }) {
   const [sides, setSides] = useState<[CompareSide, CompareSide] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"questions" | "markdown">("questions");
@@ -291,149 +281,5 @@ function CompareModal({ ids, onClose }: { ids: [string, string]; onClose: () => 
         </div>
       )}
     </Modal>
-  );
-}
-
-export function VersionsTab({ versions, hasActive }: { versions: OptVersionView[]; hasActive: boolean }) {
-  const router = useRouter();
-  const [sort, setSort] = useState<"time" | "score">("time");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [modal, setModal] = useState<
-    | null
-    | { kind: "compare"; ids: [string, string] }
-    | { kind: "continue"; version: OptVersionView }
-    | { kind: "deploy"; version: OptVersionView }
-    | { kind: "results"; version: OptVersionView }
-  >(null);
-
-  const sorted = useMemo(
-    () =>
-      [...versions].sort((a, b) =>
-        sort === "score" ? (b.scoreAll ?? -1) - (a.scoreAll ?? -1) || b.createdAt.localeCompare(a.createdAt) : b.createdAt.localeCompare(a.createdAt),
-      ),
-    [versions, sort],
-  );
-  const bestId = useMemo(
-    () => versions.reduce<OptVersionView | null>((best, v) => (v.scoreAll !== null && (!best || v.scoreAll > (best.scoreAll ?? -1)) ? v : best), null)?.id,
-    [versions],
-  );
-
-  function toggle(id: string) {
-    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length >= 2 ? [cur[1], id] : [...cur, id]));
-  }
-
-  function openCompare() {
-    // 舊版在前、新版在後
-    const pair = versions.filter((v) => selected.includes(v.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    if (pair.length === 2) setModal({ kind: "compare", ids: [pair[0].id, pair[1].id] });
-  }
-
-  if (versions.length === 0) return <p className="text-sm text-slate-500">還沒有自動優化產生的版本。</p>;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Choice
-          value={sort}
-          onChange={setSort}
-          options={[
-            { value: "time", label: "依時間" },
-            { value: "score", label: "依正確率" },
-          ]}
-        />
-        <button
-          type="button"
-          disabled={selected.length !== 2}
-          onClick={openCompare}
-          className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
-        >
-          比較所選版本（{selected.length}/2）
-        </button>
-      </div>
-
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[820px] text-xs">
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-[11px] text-slate-400">
-              <th className="w-8 px-3 py-2" />
-              <th className="py-2 font-medium">版本</th>
-              <th className="w-56 py-2 font-medium">正確率（全部）</th>
-              <th className="w-16 py-2 text-right font-medium">原題</th>
-              <th className="w-16 py-2 text-right font-medium">相似題</th>
-              <th className="w-36 py-2 pl-4 font-medium">建立時間</th>
-              <th className="w-72 px-3 py-2 text-right font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sorted.map((v) => (
-              <tr key={v.id} className={selected.includes(v.id) ? "bg-teal-50/40" : undefined}>
-                <td className="px-3 py-2">
-                  <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggle(v.id)} aria-label={`選擇 ${v.name}`} />
-                </td>
-                <td className="py-2 font-medium text-slate-800">
-                  {v.name}
-                  {bestId === v.id && <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10px] text-amber-700">最佳</span>}
-                  {v.inBackend && <span className="ml-1.5 rounded bg-teal-50 px-1.5 text-[10px] font-semibold text-teal-700">在後台</span>}
-                  <span className="ml-1.5 text-[10px] text-slate-400">{v.contentKind === "DOC" ? "結構化文件" : "FAQ"}</span>
-                </td>
-                <td className="py-2 pr-2">
-                  <div className="flex items-center gap-2">
-                    <ScoreBar value={v.scoreAll} target={v.targetScore} />
-                    <span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-800">{pctText(v.scoreAll)}</span>
-                  </div>
-                </td>
-                <td className="py-2 text-right tabular-nums text-slate-600">{pctText(v.scoreOriginal)}</td>
-                <td className="py-2 text-right tabular-nums text-slate-600">{pctText(v.scoreSimilar)}</td>
-                <td className="py-2 pl-4 text-slate-500">
-                  <LocalTime iso={v.createdAt} />
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    {v.tested && (
-                      <button type="button" onClick={() => setModal({ kind: "results", version: v })} className="text-teal-700 hover:underline">
-                        逐題結果
-                      </button>
-                    )}
-                    <a href={`/api/km/versions/${v.id}/download`} className="text-teal-700 hover:underline">
-                      下載 md
-                    </a>
-                    {!hasActive && (
-                      <button type="button" onClick={() => setModal({ kind: "continue", version: v })} className="text-teal-700 hover:underline">
-                        從這版繼續
-                      </button>
-                    )}
-                    {!hasActive && !v.inBackend && (
-                      <button type="button" onClick={() => setModal({ kind: "deploy", version: v })} className="font-semibold text-teal-700 hover:underline">
-                        部署到後台
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {hasActive && <p className="text-xs text-slate-400">有進行中（或暫停中）的自動優化時，不能繼續優化或部署其他版本。</p>}
-
-      {modal?.kind === "compare" && <CompareModal ids={modal.ids} onClose={() => setModal(null)} />}
-      {modal?.kind === "continue" && <ContinueModal base={modal.version} onClose={() => setModal(null)} />}
-      {modal?.kind === "results" && (
-        <ResultsModal versionId={modal.version.id} title={`${modal.version.name} 逐題結果`} onClose={() => setModal(null)} />
-      )}
-      {modal?.kind === "deploy" && (
-        <TokenActionModal
-          title={`部署 ${modal.version.name} 到後台`}
-          description={<>會先刪除 AIBPO 先前上傳到後台的知識（只刪 AIBPO 記下的那批），再上傳「{modal.version.name}」並送出學習。</>}
-          confirmLabel="部署"
-          onSubmit={async (token) => {
-            const r = await deployVersionAction(modal.version.id, token);
-            router.refresh();
-            return r;
-          }}
-          onClose={() => setModal(null)}
-        />
-      )}
-    </div>
   );
 }

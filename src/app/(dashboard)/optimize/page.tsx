@@ -3,9 +3,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getBotTestTarget } from "@/lib/botTest";
 import { isJobLoopRunning, jobLabel } from "@/lib/optimizationRunner";
-import { DEFAULT_AI_MODEL, findAiModel } from "@/lib/aiModels";
+import { findAiModel } from "@/lib/aiModels";
 import { OptimizeWorkspace, type JobView, type SourceOption } from "./OptimizeWorkspace";
-import type { OptVersionView } from "./VersionsTab";
 import type { TokenAverage } from "./optimizeShared";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +13,7 @@ export default async function OptimizePage() {
   const session = await requireCompanyUser();
 
   const roleIds = (await prisma.role.findMany({ where: { companyId: session.companyId }, select: { id: true } })).map((r) => r.id);
-  const [target, sources, entryCounts, testCaseCount, jobs, questionCounts, deployed, versions] = await Promise.all([
+  const [target, sources, entryCounts, testCaseCount, jobs, questionCounts, deployed] = await Promise.all([
     getBotTestTarget(session.companyId),
     prisma.kmSource.findMany({ where: { roleId: session.roleId }, select: { id: true, title: true }, orderBy: { createdAt: "desc" } }),
     prisma.kmEntry.groupBy({ by: ["sourceId", "kind", "confirmed"], where: { roleId: session.roleId }, _count: { _all: true } }),
@@ -36,7 +35,9 @@ export default async function OptimizePage() {
             scoreSimilar: true,
             backendKnowledgeIds: true,
             createdAt: true,
+            entryCount: true,
             testRuns: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true, total: true, completed: true } },
+            _count: { select: { testRuns: { where: { status: "DONE" } } } },
           },
         },
       },
@@ -47,27 +48,15 @@ export default async function OptimizePage() {
       where: { roleId: { in: roleIds }, backendKnowledgeIds: { not: Prisma.DbNull } },
       select: { id: true, name: true },
     }),
-    // 版本分頁：所有自動優化產生的版本
-    prisma.kbVersion.findMany({
-      where: { roleId: session.roleId, jobId: { not: null } },
-      orderBy: { createdAt: "desc" },
-      take: 300,
-      select: {
-        id: true,
-        name: true,
-        runIndex: true,
-        scoreAll: true,
-        scoreOriginal: true,
-        scoreSimilar: true,
-        backendKnowledgeIds: true,
-        createdAt: true,
-        entryCount: true,
-        job: { select: { id: true, seq: true, contentKind: true, targetScore: true, judgeModel: true, reviseModel: true } },
-        _count: { select: { testRuns: { where: { status: "DONE" } } } },
-      },
-    }),
   ]);
-  const versionNames = new Map(versions.map((v) => [v.id, v.name]));
+  // 「從某版繼續」的任務：起點版本的名稱
+  const baseIds = jobs.flatMap((j) => (j.baseVersionId ? [j.baseVersionId] : []));
+  const versionNames = new Map(
+    (baseIds.length > 0 ? await prisma.kbVersion.findMany({ where: { id: { in: baseIds } }, select: { id: true, name: true } }) : []).map((v) => [
+      v.id,
+      v.name,
+    ]),
+  );
 
   // 這間公司最近實際的平均 token 數（每次呼叫）；畫面上依選的模型單價換算預估費用
   const avgTokens = async (purpose: string): Promise<TokenAverage | null> => {
@@ -85,8 +74,7 @@ export default async function OptimizePage() {
     };
   };
   const [judgeTokens, reviseTokens] = await Promise.all([avgTokens("bot_test_judge"), avgTokens("km_optimize_revise")]);
-  const questionsByJob = new Map<string, number>();
-  for (const c of questionCounts) questionsByJob.set(c.jobId, (questionsByJob.get(c.jobId) ?? 0) + c._count._all);
+
 
   const sourceOptions: SourceOption[] = sources.map((s) => {
     const count = (kind: string, confirmedOnly: boolean) =>
@@ -107,6 +95,8 @@ export default async function OptimizePage() {
     id: j.id,
     label: jobLabel(j, j.source),
     seq: j.seq,
+    judgeModel: j.judgeModel,
+    reviseModel: j.reviseModel,
     models: `比對 ${findAiModel(j.judgeModel).label}・修改 ${findAiModel(j.reviseModel).label}${j.similarCount > 0 && !j.baseVersionId ? `・相似題 ${findAiModel(j.similarModel).label}` : ""}`,
     baseVersionName: j.baseVersionId ? (versionNames.get(j.baseVersionId) ?? "（版本已刪除）") : null,
     scope: j.scope,
@@ -136,27 +126,11 @@ export default async function OptimizePage() {
       testStatus: v.testRuns[0]?.status ?? null,
       testTotal: v.testRuns[0]?.total ?? 0,
       testCompleted: v.testRuns[0]?.completed ?? 0,
+      tested: v._count.testRuns > 0,
+      entryCount: v.entryCount,
     })),
   }));
 
-  const versionViews: OptVersionView[] = versions.map((v) => ({
-    id: v.id,
-    name: v.name,
-    jobSeq: v.job?.seq ?? 0,
-    runIndex: v.runIndex ?? 0,
-    contentKind: v.job?.contentKind ?? "FAQ",
-    targetScore: v.job?.targetScore ?? 90,
-    scoreAll: v.scoreAll,
-    scoreOriginal: v.scoreOriginal,
-    scoreSimilar: v.scoreSimilar,
-    inBackend: Array.isArray(v.backendKnowledgeIds) && v.backendKnowledgeIds.length > 0,
-    tested: v._count.testRuns > 0,
-    questionsPerRun: v.job ? (questionsByJob.get(v.job.id) ?? 0) : 0,
-    entryCount: v.entryCount,
-    judgeModel: v.job?.judgeModel ?? DEFAULT_AI_MODEL,
-    reviseModel: v.job?.reviseModel ?? DEFAULT_AI_MODEL,
-    createdAt: v.createdAt.toISOString(),
-  }));
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -173,7 +147,6 @@ export default async function OptimizePage() {
         sources={sourceOptions}
         testCaseCount={testCaseCount}
         jobs={jobViews}
-        versions={versionViews}
         deployedVersion={deployed}
       />
     </div>
