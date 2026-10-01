@@ -363,6 +363,10 @@ model VersionTestResult {
 model OptimizationJob {
   id             String   @id @default(cuid())
   roleId         String
+  // 同一個角色底下的流水號：第幾次自動優化，版本名稱用 v{seq}.{輪次}
+  seq            Int      @default(0)
+  // 從哪一個版本繼續優化（沿用那一版的 md 與題目；空的＝從 KM 內容重新開始）
+  baseVersionId  String?
   // 範圍：SOURCE＝某個 KM 來源產出的題目；KNOWLEDGE＝知識列表裡已確認的題目（可只取某個來源）
   scope          String   @default("SOURCE")
   sourceId       String?

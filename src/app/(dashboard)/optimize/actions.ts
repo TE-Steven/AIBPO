@@ -48,6 +48,12 @@ async function activeJobInCompany(companyId: string) {
   });
 }
 
+// 這個角色的下一個任務流水號（版本名稱 v{流水號}.{輪次}）
+async function nextJobSeq(roleId: string): Promise<number> {
+  const agg = await prisma.optimizationJob.aggregate({ where: { roleId }, _max: { seq: true } });
+  return (agg._max.seq ?? 0) + 1;
+}
+
 async function knowledgeTarget(companyId: string) {
   const target = await getBotTestTarget(companyId);
   if (!target) return { error: "這間公司還沒設定機器人測試 API，請聯絡平台管理員。" } as const;
@@ -104,6 +110,7 @@ export async function startOptimizationAction(input: {
   const job = await prisma.optimizationJob.create({
     data: {
       roleId: session.roleId,
+      seq: await nextJobSeq(session.roleId),
       scope,
       sourceId,
       entryIds: entries.map((e) => e.id),
@@ -121,6 +128,48 @@ export async function startOptimizationAction(input: {
 
   revalidatePath(PATH);
   return { success: "已開始自動優化，可以關掉頁面，晚點回來看結果。" };
+}
+
+// 從某個版本繼續優化：範圍、內容類型、題目（含相似題）都沿用起點版本所屬的任務，只重設輪數與停止條件
+export async function continueOptimizationAction(input: {
+  baseVersionId: string;
+  maxRuns: number;
+  targetScore: number;
+  stallRuns: number;
+  token: string;
+}): Promise<OptimizeActionResult> {
+  const session = await requireCompanyUser();
+  const base = await prisma.kbVersion.findUnique({ where: { id: input.baseVersionId }, include: { job: true } });
+  if (!base || base.roleId !== session.roleId) return { error: "找不到這個版本。" };
+  if (!base.job) return { error: "這個版本的原任務已被刪除，沒有可以沿用的題目，請改從 KM 內容開始新的自動優化。" };
+  const t = await knowledgeTarget(session.companyId);
+  if ("error" in t) return { error: t.error };
+  if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
+  const tk = await credentialsFor(t.target, input.token);
+  if ("error" in tk) return { error: tk.error };
+
+  const from = base.job;
+  const job = await prisma.optimizationJob.create({
+    data: {
+      roleId: session.roleId,
+      seq: await nextJobSeq(session.roleId),
+      baseVersionId: base.id,
+      scope: from.scope,
+      sourceId: from.sourceId,
+      entryIds: from.entryIds ?? [],
+      createdById: session.id,
+      contentKind: from.contentKind,
+      questionSource: from.questionSource,
+      maxRuns: clamp(input.maxRuns, 1, 10, 3),
+      targetScore: clamp(input.targetScore, 1, 100, from.targetScore),
+      similarCount: from.similarCount,
+      stallRuns: clamp(input.stallRuns, 1, 10, from.stallRuns),
+      currentStep: "排隊中",
+    },
+  });
+  launchOptimizationJob(job.id, tk.creds);
+  revalidatePath(PATH);
+  return { success: `已從「${base.name}」開始繼續優化。` };
 }
 
 async function ownJob(jobId: string, roleId: string) {
@@ -261,4 +310,50 @@ export async function getRunResultsAction(versionId: string): Promise<RunResultV
     verdict: r.judgeVerdict,
     reason: r.judgeReason ?? r.errorMessage,
   }));
+}
+
+export type CompareSide = {
+  id: string;
+  name: string;
+  markdown: string;
+  scoreAll: number | null;
+  scoreOriginal: number | null;
+  scoreSimilar: number | null;
+  results: RunResultView[];
+};
+
+// 版本比較：兩個版本的 md 全文與逐題結果（畫面上算 md 差異、對齊題目）
+export async function compareVersionsAction(versionIds: [string, string]): Promise<{ sides?: [CompareSide, CompareSide]; error?: string }> {
+  const session = await requireCompanyUser();
+  const versions = await prisma.kbVersion.findMany({
+    where: { id: { in: versionIds }, roleId: session.roleId },
+    include: {
+      testRuns: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true } } } } },
+      },
+    },
+  });
+  if (versions.length !== 2) return { error: "找不到要比較的版本。" };
+  const toSide = (v: (typeof versions)[number]): CompareSide => ({
+    id: v.id,
+    name: v.name,
+    markdown: v.markdown,
+    scoreAll: v.scoreAll,
+    scoreOriginal: v.scoreOriginal,
+    scoreSimilar: v.scoreSimilar,
+    results: (v.testRuns[0]?.results ?? []).map((r) => ({
+      order: r.order,
+      question: r.question,
+      expectedAnswer: r.expectedAnswer,
+      botAnswer: r.botAnswer,
+      isSimilar: r.jobQuestion?.isSimilar ?? false,
+      verdict: r.judgeVerdict,
+      reason: r.judgeReason ?? r.errorMessage,
+    })),
+  });
+  // 依傳入順序回傳（舊版在前）
+  const byId = new Map(versions.map((v) => [v.id, toSide(v)]));
+  return { sides: [byId.get(versionIds[0])!, byId.get(versionIds[1])!] };
 }

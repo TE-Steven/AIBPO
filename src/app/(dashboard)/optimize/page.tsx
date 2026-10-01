@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getBotTestTarget } from "@/lib/botTest";
 import { isJobLoopRunning, jobLabel } from "@/lib/optimizationRunner";
 import { OptimizeWorkspace, type JobView, type SourceOption } from "./OptimizeWorkspace";
+import type { OptVersionView } from "./VersionsTab";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export default async function OptimizePage() {
   const session = await requireCompanyUser();
 
   const roleIds = (await prisma.role.findMany({ where: { companyId: session.companyId }, select: { id: true } })).map((r) => r.id);
-  const [target, sources, entryCounts, testCaseCount, jobs, questionCounts, deployed] = await Promise.all([
+  const [target, sources, entryCounts, testCaseCount, jobs, questionCounts, deployed, versions] = await Promise.all([
     getBotTestTarget(session.companyId),
     prisma.kmSource.findMany({ where: { roleId: session.roleId }, select: { id: true, title: true }, orderBy: { createdAt: "desc" } }),
     prisma.kmEntry.groupBy({ by: ["sourceId", "kind", "confirmed"], where: { roleId: session.roleId }, _count: { _all: true } }),
@@ -44,7 +45,26 @@ export default async function OptimizePage() {
       where: { roleId: { in: roleIds }, backendKnowledgeIds: { not: Prisma.DbNull } },
       select: { id: true, name: true },
     }),
+    // 版本分頁：所有自動優化產生的版本
+    prisma.kbVersion.findMany({
+      where: { roleId: session.roleId, jobId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      select: {
+        id: true,
+        name: true,
+        runIndex: true,
+        scoreAll: true,
+        scoreOriginal: true,
+        scoreSimilar: true,
+        backendKnowledgeIds: true,
+        createdAt: true,
+        job: { select: { seq: true, contentKind: true, targetScore: true } },
+        _count: { select: { testRuns: { where: { status: "DONE" } } } },
+      },
+    }),
   ]);
+  const versionNames = new Map(versions.map((v) => [v.id, v.name]));
 
   const sourceOptions: SourceOption[] = sources.map((s) => {
     const count = (kind: string, confirmedOnly: boolean) =>
@@ -64,6 +84,8 @@ export default async function OptimizePage() {
   const jobViews: JobView[] = jobs.map((j) => ({
     id: j.id,
     label: jobLabel(j, j.source),
+    seq: j.seq,
+    baseVersionName: j.baseVersionId ? (versionNames.get(j.baseVersionId) ?? "（版本已刪除）") : null,
     scope: j.scope,
     contentKind: j.contentKind,
     questionSource: j.questionSource,
@@ -94,6 +116,21 @@ export default async function OptimizePage() {
     })),
   }));
 
+  const versionViews: OptVersionView[] = versions.map((v) => ({
+    id: v.id,
+    name: v.name,
+    jobSeq: v.job?.seq ?? 0,
+    runIndex: v.runIndex ?? 0,
+    contentKind: v.job?.contentKind ?? "FAQ",
+    targetScore: v.job?.targetScore ?? 90,
+    scoreAll: v.scoreAll,
+    scoreOriginal: v.scoreOriginal,
+    scoreSimilar: v.scoreSimilar,
+    inBackend: Array.isArray(v.backendKnowledgeIds) && v.backendKnowledgeIds.length > 0,
+    tested: v._count.testRuns > 0,
+    createdAt: v.createdAt.toISOString(),
+  }));
+
   return (
     <div className="animate-fade-in space-y-6">
       <div>
@@ -108,6 +145,7 @@ export default async function OptimizePage() {
         sources={sourceOptions}
         testCaseCount={testCaseCount}
         jobs={jobViews}
+        versions={versionViews}
         deployedVersion={deployed}
       />
     </div>

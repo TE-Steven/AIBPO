@@ -79,6 +79,11 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : "未知錯誤";
 }
 
+// 版本名稱：v{第幾次優化}.{輪次}・範圍，例如「v3.2・三產品測試」
+export function versionName(job: Pick<OptimizationJob, "seq">, label: string, runIndex: number): string {
+  return `v${job.seq}.${runIndex}・${label}`;
+}
+
 export function jobLabel(job: Pick<OptimizationJob, "scope">, source: Pick<KmSource, "title"> | null): string {
   if (job.scope === "SOURCE") return source?.title ?? "（來源已刪除）";
   return source ? `知識列表・${source.title}` : "知識列表・全部";
@@ -200,6 +205,7 @@ async function versionSettings(job: OptimizationJob, ctx: JobContext, runIndex: 
 // ---------------- 第 1 輪前：初始 md、題目、相似題 ----------------
 
 async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
+  if (job.baseVersionId) return prepareFromBase(job, ctx, job.baseVersionId);
   await setStep(job.id, "準備中：組初始 md、整理題目");
   const entryIds = asIds(job.entryIds);
   const entries = await prisma.kmEntry.findMany({
@@ -266,12 +272,75 @@ async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
     prisma.kbVersion.create({
       data: {
         roleId: job.roleId,
-        name: `${label} 自動優化 r1`,
+        name: versionName(job, label, 1),
         note: "自動優化第 1 輪：原始內容",
         createdById: job.createdById,
         markdown,
         entries: snapshot,
         entryCount: snapshot.length,
+        settings,
+        jobId: job.id,
+        runIndex: 1,
+      },
+    }),
+    prisma.optimizationJob.update({ where: { id: job.id }, data: { currentRun: 1, resumeStep: "UPLOAD", errorMessage: null } }),
+  ]);
+}
+
+// 從某個版本繼續優化：沿用那一版的 md 與原任務的同一套題目（含相似題），分數才能跟之前的版本比較。
+// 起點版本已經測過，就直接從它的答錯清單開始修改（起點版本當第 0 輪）；沒測過就先把它當第 1 輪上傳測試。
+async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersionId: string) {
+  await setStep(job.id, "準備中：沿用起點版本的 md 與題目");
+  const base = await prisma.kbVersion.findUnique({
+    where: { id: baseVersionId },
+    include: { testRuns: { where: { status: "DONE" }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
+  });
+  if (!base || base.roleId !== job.roleId) throw new Error("找不到起點版本，可能已被刪除。");
+  const baseQuestions = base.jobId
+    ? await prisma.optimizationQuestion.findMany({ where: { jobId: base.jobId }, orderBy: { order: "asc" } })
+    : [];
+  if (baseQuestions.length === 0) throw new Error("起點版本的題目已經不在了（原任務可能被刪除），請改從 KM 內容重新開始。");
+
+  const idMap = new Map(baseQuestions.map((q) => [q.id, randomUUID()]));
+  const questionRows: Prisma.OptimizationQuestionCreateManyInput[] = baseQuestions.map((q) => ({
+    id: idMap.get(q.id),
+    jobId: job.id,
+    order: q.order,
+    question: q.question,
+    expectedAnswer: q.expectedAnswer,
+    isSimilar: q.isSimilar,
+    parentId: q.parentId ? (idMap.get(q.parentId) ?? null) : null,
+  }));
+  const reset = [
+    prisma.optimizationQuestion.deleteMany({ where: { jobId: job.id } }),
+    prisma.kbVersion.deleteMany({ where: { jobId: job.id } }),
+    prisma.optimizationQuestion.createMany({ data: questionRows }),
+  ];
+
+  if (base.testRuns.length > 0) {
+    await prisma.$transaction([
+      ...reset,
+      prisma.optimizationJob.update({
+        where: { id: job.id },
+        data: { currentRun: 0, resumeStep: "REVISE", errorMessage: null, currentStep: `從 ${base.name} 的答錯清單開始修改` },
+      }),
+    ]);
+    return;
+  }
+
+  const source = job.sourceId ? await prisma.kmSource.findUnique({ where: { id: job.sourceId } }) : null;
+  const settings = await versionSettings(job, ctx, 1);
+  await prisma.$transaction([
+    ...reset,
+    prisma.kbVersion.create({
+      data: {
+        roleId: job.roleId,
+        name: versionName(job, jobLabel(job, source), 1),
+        note: `自動優化第 1 輪：沿用 ${base.name}`,
+        createdById: job.createdById,
+        markdown: base.markdown,
+        entries: base.entries ?? [],
+        entryCount: base.entryCount,
         settings,
         jobId: job.id,
         runIndex: 1,
@@ -503,8 +572,13 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
     select: { runIndex: true, scoreAll: true },
     orderBy: { runIndex: "asc" },
   });
-  const best = scored.reduce((a, b) => ((b.scoreAll ?? 0) > (a.scoreAll ?? 0) ? b : a), scored[0]);
-  const bestText = `最佳為第 ${best.runIndex} 輪 ${best.scoreAll}%`;
+  // 從某個版本繼續時，起點版本的分數當第 0 輪一起比（沒超過它就算沒進步）
+  const baseline = job.baseVersionId
+    ? await prisma.kbVersion.findUnique({ where: { id: job.baseVersionId }, select: { scoreAll: true } })
+    : null;
+  const candidates = [...(baseline?.scoreAll != null && job.currentRun > 0 ? [{ runIndex: 0, scoreAll: baseline.scoreAll }] : []), ...scored];
+  const best = candidates.reduce((a, b) => ((b.scoreAll ?? 0) > (a.scoreAll ?? 0) ? b : a), candidates[0]);
+  const bestText = best.runIndex === 0 ? `最佳仍是起點版本 ${best.scoreAll}%` : `最佳為第 ${best.runIndex} 輪 ${best.scoreAll}%`;
 
   let stopReason: string | null = null;
   if (scoreAll >= job.targetScore) stopReason = `達到目標正確率 ${job.targetScore}%`;
@@ -542,13 +616,16 @@ function stripCodeFence(text: string): string {
 
 async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const n = job.currentRun;
-  const version = await currentVersion(job);
+  // 第 0 輪＝起點版本（從某個版本繼續優化時）
+  const version =
+    n === 0 && job.baseVersionId ? await prisma.kbVersion.findUnique({ where: { id: job.baseVersionId } }) : await currentVersion(job);
+  if (!version) throw new Error("找不到起點版本，可能已被刪除。");
   const run = await prisma.versionTestRun.findFirst({
     where: { versionId: version.id, status: "DONE" },
     orderBy: { createdAt: "desc" },
     include: { results: { orderBy: { order: "asc" } } },
   });
-  if (!run) throw new Error(`找不到第 ${n} 輪的測試結果。`);
+  if (!run) throw new Error(n === 0 ? `找不到 ${version.name} 的測試結果。` : `找不到第 ${n} 輪的測試結果。`);
 
   const failures = run.results
     .filter((r) => r.judgeVerdict !== "MATCH")
@@ -560,7 +637,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const { blocks, urls } = buildSourcesContent(sources);
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
 
-  await setStep(job.id, `第 ${n} 輪：AI 依 ${failures.length} 題答錯修改 md`);
+  await setStep(job.id, n === 0 ? `AI 依 ${version.name} 答錯的 ${failures.length} 題修改 md` : `第 ${n} 輪：AI 依 ${failures.length} 題答錯修改 md`);
   const response = await anthropic.messages
     .stream({
       model: KM_ANALYSIS_MODEL,
@@ -596,8 +673,8 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
     prisma.kbVersion.create({
       data: {
         roleId: job.roleId,
-        name: `${jobLabel(job, source)} 自動優化 r${n + 1}`,
-        note: `自動優化第 ${n + 1} 輪：AI 依第 ${n} 輪答錯的 ${failures.length} 題修改`,
+        name: versionName(job, jobLabel(job, source), n + 1),
+        note: `自動優化第 ${n + 1} 輪：AI 依${n === 0 ? ` ${version.name} ` : `第 ${n} 輪`}答錯的 ${failures.length} 題修改`,
         createdById: job.createdById,
         markdown,
         entries: version.entries ?? [],
