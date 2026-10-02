@@ -590,7 +590,7 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
   } else {
     await prisma.versionTestResult.updateMany({
       where: { runId: run.id, status: { in: ["PENDING", "ERROR"] } },
-      data: { status: "PENDING", errorMessage: null, botAnswer: null, judgeVerdict: null, judgeReason: null },
+      data: { status: "PENDING", errorMessage: null, botAnswer: null, judgeVerdict: null, judgeReason: null, judgeDetail: Prisma.DbNull },
     });
     const done = await prisma.versionTestResult.count({ where: { runId: run.id, status: { not: "PENDING" } } });
     await prisma.versionTestRun.update({ where: { id: run.id }, data: { status: "RUNNING", errorMessage: null, completed: done } });
@@ -630,7 +630,12 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
   const scoreAll = pct(results) ?? 0;
   const scoreOriginal = pct(results.filter((r) => !r.jobQuestion?.isSimilar));
   const scoreSimilar = pct(results.filter((r) => r.jobQuestion?.isSimilar));
-  await prisma.kbVersion.update({ where: { id: version.id }, data: { scoreAll, scoreOriginal, scoreSimilar } });
+  // 平均涵蓋率：每題講到的關鍵答案比例（沒回答、比對失敗算 0），看部分一致的題目有沒有在進步
+  const scoreCoverage =
+    results.length === 0
+      ? null
+      : Math.round(results.reduce((sum, r) => sum + ((r.judgeDetail as { coverage?: number } | null)?.coverage ?? 0), 0) / results.length);
+  await prisma.kbVersion.update({ where: { id: version.id }, data: { scoreAll, scoreOriginal, scoreSimilar, scoreCoverage } });
 
   const scored = await prisma.kbVersion.findMany({
     where: { jobId: job.id, scoreAll: { not: null } },

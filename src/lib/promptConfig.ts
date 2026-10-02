@@ -37,6 +37,10 @@ export type PromptOptions = {
   exportGroupBy: "tally" | "source" | "none";
   exportQuestionFormat: "h3" | "bold" | "numbered";
   exportIncludeDocs: boolean;
+  // 機器人測試比對：必要的關鍵答案都要講到；另可要求整體涵蓋率至少幾 %（0＝只看必要點）
+  judgeMinCoverage: number;
+  // 講錯的容忍度：any＝任何一點講錯都不一致；requiredOnly＝只有必要點講錯才不一致（次要點講錯算部分一致）
+  judgeWrongTolerance: "any" | "requiredOnly";
 };
 
 export type PromptConfigData = {
@@ -56,6 +60,8 @@ export const DEFAULT_OPTIONS: PromptOptions = {
   exportGroupBy: "tally",
   exportQuestionFormat: "h3",
   exportIncludeDocs: true,
+  judgeMinCoverage: 0,
+  judgeWrongTolerance: "any",
 };
 
 const LANGUAGE_TEXT = "請全程使用繁體中文思考與作答，包括你的思考過程也請用繁體中文書寫。";
@@ -599,58 +605,105 @@ export const RULES: RuleDef[] = [
     editable: false,
   },
 
-  // ---------------- AI 比對 ----------------
+  // ---------------- AI 比對：拆關鍵答案（每個標準答案只拆一次，之後固定） ----------------
   {
-    id: "judge.intro",
+    id: "kp.intro",
     section: "judge",
-    group: "角色與任務",
-    label: "角色說明",
-    defaultText: "你是客服知識庫的品質檢查員。使用者會給你一題客服問題、標準答案，以及客服機器人的實際回答。\n請判斷機器人回答跟標準答案是否一致：",
+    group: "拆關鍵答案",
+    label: "角色與任務",
+    defaultText:
+      "你是客服知識庫的品質檢查員。使用者會給你一題客服問題與它的標準答案，請把標準答案拆成「關鍵答案」，之後會用來逐點檢查客服機器人的回答。",
     toggleable: false,
     editable: true,
   },
   {
-    id: "J1",
+    id: "K1",
     section: "judge",
-    group: "判斷標準",
-    label: "比對重點",
-    defaultText: "重點是「意思」與「關鍵資訊」（數字、條件、步驟、限制、注意事項），用字、語氣、排版、順序不同都不算不一致。",
+    group: "拆關鍵答案",
+    label: "拆法",
+    defaultText:
+      "每個關鍵答案是一個可以單獨檢查對錯的事實（例如一個數字、一個條件、一個步驟、一個限制），用一句短句寫出，通常 2 到 5 個；標準答案很短時可以只有 1 個。",
     toggleable: false,
     editable: true,
-    presets: [
-      { label: "標準（預設）", text: "重點是「意思」與「關鍵資訊」（數字、條件、步驟、限制、注意事項），用字、語氣、排版、順序不同都不算不一致。" },
-      { label: "寬鬆", text: "只要主要意思正確就算一致；次要細節有出入、或少講了非關鍵的補充說明，都不算不一致。" },
-      { label: "嚴格", text: "數字、條件、步驟、限制、注意事項必須逐項一致，少任何一項或任何一個數字不同就算不一致；用字與語氣不同不算。" },
-    ],
   },
   {
-    id: "J2",
+    id: "K2",
     section: "judge",
-    group: "判斷標準",
-    label: "多補充仍算一致",
-    defaultText: "機器人多補充了不衝突的資訊，只要標準答案的關鍵資訊都有講到、沒有講錯，仍算一致。",
+    group: "拆關鍵答案",
+    label: "必要與次要",
+    defaultText:
+      "回答這題一定要講到、少了就等於沒答到的，標為必要（required: true）；補充說明、舉例、客套話等沒講也不影響回答正確的，標為次要（required: false）。至少要有一個必要的關鍵答案。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "K3",
+    section: "judge",
+    group: "拆關鍵答案",
+    label: "可接受說法",
+    defaultText: "aliases 列出意思相同的其他說法（例如「2 年」可寫「兩年」「24 個月」），沒有就給空陣列。",
     toggleable: true,
     editable: true,
   },
   {
-    id: "J3",
+    id: "K4",
     section: "judge",
-    group: "判斷標準",
-    label: "不一致的情況",
-    defaultText: "以下算不一致：漏掉標準答案裡的關鍵資訊、數字或條件講錯、意思相反或答非所問、回答「不知道」或要客戶另洽客服。",
-    toggleable: true,
-    editable: true,
-  },
-  {
-    id: "J4",
-    section: "judge",
-    group: "判斷標準",
-    label: "說明差異",
-    defaultText: "不一致時，reason 用繁體中文一到兩句具體說明差異（例如「少回答到保固期限 2 年」「把 100 公分講成 120 公分」）；一致時 reason 填空字串。",
+    group: "拆關鍵答案",
+    label: "只根據標準答案",
+    defaultText: "只能根據標準答案拆，不要加入標準答案沒有的資訊。",
     toggleable: false,
-    editable: true,
+    editable: false,
   },
 
+  // ---------------- AI 比對：逐點檢查機器人回答（最後是否一致由系統依規則計算） ----------------
+  {
+    id: "jp.intro",
+    section: "judge",
+    group: "逐點比對",
+    label: "角色與任務",
+    defaultText:
+      "你是客服知識庫的品質檢查員。使用者會給你一題客服問題、標準答案拆成的關鍵答案清單，以及客服機器人的實際回答。請逐一檢查每個關鍵答案：",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "P1",
+    section: "judge",
+    group: "逐點比對",
+    label: "三種狀態",
+    defaultText:
+      "status 只能是 COVERED（回答有講到，而且意思正確）、MISSING（回答沒有提到）、WRONG（回答有提到但講錯，例如數字、條件、對象不同或意思相反）。用字、語氣、順序不同，或使用可接受說法，都算 COVERED。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "P2",
+    section: "judge",
+    group: "逐點比對",
+    label: "引用原句",
+    defaultText: "COVERED 與 WRONG 要在 evidence 照抄機器人回答裡對應的原句（不要改寫）；MISSING 的 evidence 填空字串。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "P3",
+    section: "judge",
+    group: "逐點比對",
+    label: "多講且講錯",
+    defaultText:
+      "另外檢查機器人有沒有在關鍵答案以外，多講了跟標準答案衝突、或明顯不正確的內容（例如品牌、價格、規格講錯），每項用一句繁體中文列在 conflicts；已經在關鍵答案標成 WRONG 的不要重複列，只是多補充、但不衝突的內容也不要列。",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "P4",
+    section: "judge",
+    group: "逐點比對",
+    label: "不知道或答非所問",
+    defaultText: "機器人回答「不知道」「請洽客服」或答非所問時，所有關鍵答案都標 MISSING。",
+    toggleable: true,
+    editable: true,
+  },
 
   // ---------------- 自動優化：AI 修改 md ----------------
   {
@@ -805,6 +858,12 @@ export function resolveOptions(config: PromptConfigData | undefined): PromptOpti
       ? o.exportQuestionFormat!
       : DEFAULT_OPTIONS.exportQuestionFormat,
     exportIncludeDocs: o.exportIncludeDocs ?? DEFAULT_OPTIONS.exportIncludeDocs,
+    judgeMinCoverage: Number.isFinite(o.judgeMinCoverage)
+      ? Math.min(100, Math.max(0, Math.round(o.judgeMinCoverage!)))
+      : DEFAULT_OPTIONS.judgeMinCoverage,
+    judgeWrongTolerance: (["any", "requiredOnly"] as const).includes(o.judgeWrongTolerance as never)
+      ? o.judgeWrongTolerance!
+      : DEFAULT_OPTIONS.judgeWrongTolerance,
   };
 }
 

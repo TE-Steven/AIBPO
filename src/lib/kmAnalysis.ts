@@ -153,9 +153,15 @@ export function buildDocumentsSystemPrompt(params: {
   return blocks.filter((b): b is string => Boolean(b)).join("\n\n");
 }
 
-// 機器人測試 AI 比對的提示詞
+// 機器人測試 AI 比對的提示詞（參數管理「機器人測試」分頁）：
+// 1. 把標準答案拆成關鍵答案（K 系列，每個標準答案只拆一次）
+export function buildKeyPointsSystemPrompt(config?: PromptConfigData): string {
+  return `${ruleText(config, "kp.intro")}\n${ruleLines(config, ["K1", "K2", "K3", "K4"])}`;
+}
+
+// 2. 逐點檢查機器人回答（P 系列）；最後是否一致由系統依比對規則計算，不交給 AI
 export function buildJudgeSystemPrompt(config?: PromptConfigData): string {
-  return `${ruleText(config, "judge.intro")}\n${ruleLines(config, ["J1", "J2", "J3", "J4"])}`;
+  return `${ruleText(config, "jp.intro")}\n${ruleLines(config, ["P1", "P2", "P3", "P4"])}`;
 }
 
 export type SourceFileRef = { fileId: string; fileName: string };

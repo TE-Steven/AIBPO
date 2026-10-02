@@ -48,6 +48,7 @@ model Role {
   testCases        TestCase[]
   versionTestRuns  VersionTestRun[]
   optimizationJobs OptimizationJob[]
+  answerKeyPoints  AnswerKeyPoints[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -237,9 +238,11 @@ model BotTestResult {
   botAnswer      String?  @db.Text
   status         String   @default("PENDING") // PENDING / ANSWERED / TIMEOUT / ERROR
   errorMessage   String?
-  // AI 比對標準答案與機器人回答：MATCH（一致）/ MISMATCH（不一致，judgeReason 寫原因）/ ERROR（比對失敗）
+  // AI 比對標準答案與機器人回答：MATCH（一致）/ PARTIAL（部分一致，必要點沒講全）/ MISMATCH（講錯）/ ERROR（比對失敗）
   judgeVerdict   String?
   judgeReason    String?  @db.Text
+  // 逐點比對明細：各關鍵答案的狀態與引用原句、多講且講錯的內容、涵蓋率
+  judgeDetail    Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -273,6 +276,8 @@ model KbVersion {
   scoreAll            Int?
   scoreOriginal       Int?
   scoreSimilar        Int?
+  // 平均涵蓋率（0–100）：關鍵答案講到的比例，看部分一致的題目有沒有在進步
+  scoreCoverage       Int?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -342,6 +347,8 @@ model VersionTestResult {
   errorMessage   String?
   judgeVerdict   String? // MATCH / MISMATCH / ERROR
   judgeReason    String?  @db.Text
+  // 逐點比對明細（同 BotTestResult.judgeDetail）
+  judgeDetail    Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -361,40 +368,40 @@ model VersionTestResult {
 // 全自動優化任務：產生 md → 上傳後台 → 學習 → 測試 → AI 修改 → 再測，直到達標或達到上限。
 // 每一輪存成一個 KbVersion（含分數與上傳到後台的知識 id）。token 只在伺服器記憶體裡，不存 DB。
 model OptimizationJob {
-  id             String   @id @default(cuid())
-  roleId         String
+  id               String   @id @default(cuid())
+  roleId           String
   // 同一個角色底下的流水號：第幾次自動優化，版本名稱用 v{seq}.{輪次}
-  seq            Int      @default(0)
+  seq              Int      @default(0)
   // 從哪一個版本繼續優化（沿用那一版的 md 與題目；空的＝從 KM 內容重新開始）
-  baseVersionId  String?
+  baseVersionId    String?
   // 範圍：SOURCE＝某個 KM 來源產出的題目；KNOWLEDGE＝知識列表裡已確認的題目（可只取某個來源）
-  scope          String   @default("SOURCE")
-  sourceId       String?
+  scope            String   @default("SOURCE")
+  sourceId         String?
   // 開始時選定的 KM 題目 id（內容與題目都從這批來，跟來源管理／知識列表一致）
-  entryIds       Json
-  createdById    String
-  contentKind    String // FAQ / DOC
-  questionSource String // ENTRIES（這批 FAQ）/ TEST_BANK
-  maxRuns        Int
-  targetScore    Int // 0–100
-  similarCount   Int
-  stallRuns      Int // 連續幾輪沒進步就停
+  entryIds         Json
+  createdById      String
+  contentKind      String // FAQ / DOC
+  questionSource   String // ENTRIES（這批 FAQ）/ TEST_BANK
+  maxRuns          Int
+  targetScore      Int // 0–100
+  similarCount     Int
+  stallRuns        Int // 連續幾輪沒進步就停
   // 呼叫學習 API 後至少等幾分鐘才開始問（同時也要等後台顯示學習完成）
-  learnWaitMinutes Int    @default(5)
+  learnWaitMinutes Int      @default(5)
   // 三個 AI 步驟各自用的模型（見 src/lib/aiModels.ts）
-  judgeModel     String   @default("claude-sonnet-5")
-  reviseModel    String   @default("claude-sonnet-5")
-  similarModel   String   @default("claude-sonnet-5")
-  status         String   @default("RUNNING") // RUNNING / PAUSED_TOKEN / DONE / STOPPED / FAILED
-  currentRun     Int      @default(0)
-  currentStep    String?
+  judgeModel       String   @default("claude-sonnet-5")
+  reviseModel      String   @default("claude-sonnet-5")
+  similarModel     String   @default("claude-sonnet-5")
+  status           String   @default("RUNNING") // RUNNING / PAUSED_TOKEN / DONE / STOPPED / FAILED
+  currentRun       Int      @default(0)
+  currentStep      String?
   // 中斷後從哪一步繼續：PREPARE / UPLOAD / TEST / REVISE
-  resumeStep     String   @default("PREPARE")
-  stopRequested  Boolean  @default(false)
-  stopReason     String?
-  errorMessage   String?  @db.Text
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  resumeStep       String   @default("PREPARE")
+  stopRequested    Boolean  @default(false)
+  stopReason       String?
+  errorMessage     String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   role      Role                   @relation(fields: [roleId], references: [id])
   source    KmSource?              @relation(fields: [sourceId], references: [id], onDelete: SetNull)
@@ -565,4 +572,24 @@ model SystemSetting {
 
   @@id([companyId, key])
   @@map("aibpo_system_settings")
+}
+
+// 標準答案拆成的關鍵答案：用「角色＋標準答案內容」當 key，原題與相似題、來源測試、題庫測試、自動優化共用同一組。
+// 每個標準答案只拆一次、之後固定（比對才穩定）；使用者可修改，下一次比對生效。
+model AnswerKeyPoints {
+  id             String   @id @default(cuid())
+  roleId         String
+  // 標準答案正規化（去頭尾、合併空白）後的 sha256
+  answerHash     String
+  expectedAnswer String   @db.Text
+  // [{ text, required, aliases[] }]
+  points         Json
+  editedByUser   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, answerHash])
+  @@map("aibpo_answer_key_points")
 }

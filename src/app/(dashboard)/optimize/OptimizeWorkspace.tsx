@@ -45,6 +45,7 @@ export type RunView = {
   scoreAll: number | null;
   scoreOriginal: number | null;
   scoreSimilar: number | null;
+  scoreCoverage: number | null;
   inBackend: boolean;
   testStatus: string | null;
   testTotal: number;
@@ -438,6 +439,7 @@ function JobCard({
                 <th className="py-2 font-medium">正確率（全部）</th>
                 <th className="w-16 py-2 text-right font-medium">原題</th>
                 <th className="w-16 py-2 text-right font-medium">相似題</th>
+                <th className="w-16 py-2 text-right font-medium" title="關鍵答案講到的平均比例">涵蓋率</th>
                 <th className="w-80 py-2 pr-5 text-right font-medium">操作</th>
               </tr>
             </thead>
@@ -467,6 +469,7 @@ function JobCard({
                   </td>
                   <td className="py-2.5 text-right tabular-nums text-slate-600">{r.scoreOriginal !== null ? `${r.scoreOriginal}%` : "—"}</td>
                   <td className="py-2.5 text-right tabular-nums text-slate-600">{r.scoreSimilar !== null ? `${r.scoreSimilar}%` : "—"}</td>
+                  <td className="py-2.5 text-right tabular-nums text-slate-500">{r.scoreCoverage !== null ? `${r.scoreCoverage}%` : "—"}</td>
                   <td className="py-2.5 pr-5 text-right">
                     <div className="flex items-center justify-end gap-3">
                       {r.testTotal > 0 && (

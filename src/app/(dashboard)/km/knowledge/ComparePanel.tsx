@@ -6,6 +6,7 @@ import { accuracyOf, buildComparison, formatDateTime, type CompareRow, type Vers
 
 const VERDICT: Record<string, { label: string; className: string }> = {
   MATCH: { label: "一致", className: "bg-emerald-50 text-emerald-600" },
+  PARTIAL: { label: "部分一致", className: "bg-amber-50 text-amber-700" },
   MISMATCH: { label: "不一致", className: "bg-rose-50 text-rose-600" },
   ERROR: { label: "比對失敗", className: "bg-slate-100 text-slate-500" },
 };

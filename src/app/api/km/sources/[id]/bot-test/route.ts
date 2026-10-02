@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/generated/prisma/client";
 import { companyIdForRole } from "@/lib/company";
 import { decodeTokenClaims, getBotTestTarget, BotTokenError } from "@/lib/botTest";
 import { botTestSseResponse } from "@/lib/botTestRunner";
@@ -99,6 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             errorMessage: null,
             judgeVerdict: null,
             judgeReason: null,
+            judgeDetail: Prisma.DbNull,
           },
         }),
       ),

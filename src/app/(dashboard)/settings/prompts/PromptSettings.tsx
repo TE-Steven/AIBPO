@@ -13,7 +13,13 @@ import {
   type PromptSection,
   type RuleDef,
 } from "@/lib/promptConfig";
-import { buildSystemPrompt, buildDocumentsSystemPrompt, buildRagSystemPrompt, buildJudgeSystemPrompt } from "@/lib/kmAnalysis";
+import {
+  buildSystemPrompt,
+  buildDocumentsSystemPrompt,
+  buildRagSystemPrompt,
+  buildJudgeSystemPrompt,
+  buildKeyPointsSystemPrompt,
+} from "@/lib/kmAnalysis";
 import { buildRevisionSystemPrompt, buildSimilarQuestionsSystemPrompt } from "@/lib/optimizationPrompts";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import type { Tally } from "@/generated/prisma/client";
@@ -28,9 +34,9 @@ const TABS: { id: Tab; label: string; desc: string }[] = [
   { id: "faq", label: SECTION_LABELS.faq, desc: "來源頁「開始分析」產生 FAQ 時使用。" },
   { id: "doc", label: SECTION_LABELS.doc, desc: "依分類範本產生結構化文件時使用（分析時勾選 Tally，或來源頁重新產生）。" },
   { id: "rag", label: SECTION_LABELS.rag, desc: "來源頁「產生 RAG 內容」時使用，對應 .md 的 12 項檢核。" },
-  { id: "judge", label: SECTION_LABELS.judge, desc: "機器人測試時，AI 比對標準答案與機器人回答的標準。" },
+  { id: "judge", label: SECTION_LABELS.judge, desc: "機器人測試時，AI 先把標準答案拆成關鍵答案，再逐點檢查機器人回答；是否算一致的門檻在「數值與匯出」分頁的比對規則。" },
   { id: "optimize", label: SECTION_LABELS.optimize, desc: "自動優化時，AI 依答錯的題目修改 md、以及產生相似題的規則。" },
-  { id: "options", label: "數值與匯出", desc: "FAQ 題數預設、結構化文件顯示方式、知識列表匯出格式。" },
+  { id: "options", label: "數值與匯出", desc: "FAQ 題數預設、結構化文件顯示方式、知識列表匯出格式、機器人測試的比對規則。" },
 ];
 
 // 預覽用的示意資料
@@ -64,7 +70,14 @@ function buildPreview(section: PromptSection, config: PromptConfigData, guidelin
     case "rag":
       return buildRagSystemPrompt({ docId: "（來源 ID）", sourceDescription: "PDF 上傳", guidelines, config });
     case "judge":
-      return buildJudgeSystemPrompt(config);
+      return `【拆關鍵答案的提示詞（每個標準答案只拆一次）】
+
+${buildKeyPointsSystemPrompt(config)}
+
+
+【逐點比對的提示詞（最後是否一致由系統依「數值與匯出」分頁的比對規則計算）】
+
+${buildJudgeSystemPrompt(config)}`;
     case "optimize":
       return `【修改 md 的提示詞】
 
@@ -333,6 +346,38 @@ export function PromptSettings({ guidelines, initialConfig }: { guidelines: stri
 
       {tab === "options" && (
         <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white px-5 py-2 shadow-sm">
+            <h3 className="pt-3 text-xs font-bold tracking-wider text-slate-400">機器人測試比對規則</h3>
+            <OptionRow
+              label="一致的條件"
+              hint="必要的關鍵答案一定要全部講到；次要的可以不講。設成 0 就只看必要點，設成 80 表示所有關鍵答案還要講到 8 成以上。"
+            >
+              <div className="flex items-center gap-2 text-sm">
+                整體涵蓋率至少
+                <input
+                  id="opt-judge-coverage"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={options.judgeMinCoverage}
+                  onChange={(e) => changeOption("judgeMinCoverage", Number(e.target.value) || 0)}
+                  className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                />
+                %
+              </div>
+            </OptionRow>
+            <OptionRow label="講錯的容忍度" hint="講錯包括數字、條件講錯，以及多講了跟標準答案衝突的內容。">
+              <select
+                id="opt-judge-wrong"
+                value={options.judgeWrongTolerance}
+                onChange={(e) => changeOption("judgeWrongTolerance", e.target.value as PromptOptions["judgeWrongTolerance"])}
+                className={selectClass}
+              >
+                <option value="any">任何一點講錯都不一致</option>
+                <option value="requiredOnly">只有必要點講錯才不一致</option>
+              </select>
+            </OptionRow>
+          </div>
           <div className="rounded-xl border border-slate-200 bg-white px-5 py-2 shadow-sm">
             <h3 className="pt-3 text-xs font-bold tracking-wider text-slate-400">FAQ</h3>
             <OptionRow label="FAQ 題數預設（F7）" hint="「開始分析」時題數欄位的預設值，分析當下仍可調整。">

@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
-import { getRunResultsAction, type OptimizeActionResult, type RunResultView } from "./actions";
+import { getKeyPointsAction, getRunResultsAction, saveKeyPointsAction, type OptimizeActionResult, type RunResultView } from "./actions";
+import { POINT_STATUS_LABELS, type JudgeDetail, type KeyPoint, type PointStatus } from "@/lib/keyPoints";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconX } from "@/components/icons";
 import { AI_MODELS, modelCostUsd } from "@/lib/aiModels";
 
@@ -331,26 +332,158 @@ export function ScoreBar({ value, target }: { value: number | null; target: numb
   );
 }
 
+const VERDICT_BADGE: Record<string, { label: string; className: string }> = {
+  MATCH: { label: "一致", className: "bg-emerald-50 text-emerald-700" },
+  PARTIAL: { label: "部分一致", className: "bg-amber-50 text-amber-700" },
+  MISMATCH: { label: "不一致", className: "bg-rose-50 text-rose-700" },
+};
+
+const POINT_STYLE: Record<PointStatus, { dot: string; text: string }> = {
+  COVERED: { dot: "bg-emerald-500", text: "text-emerald-700" },
+  MISSING: { dot: "bg-slate-300", text: "text-slate-500" },
+  WRONG: { dot: "bg-rose-500", text: "text-rose-700" },
+};
+
+// 編輯某個標準答案的關鍵答案：之後所有用到這個標準答案的比對都會用新的
+export function KeyPointsEditor({
+  expectedAnswer,
+  fallback,
+  onClose,
+}: {
+  expectedAnswer: string;
+  fallback: KeyPoint[];
+  onClose: () => void;
+}) {
+  const [points, setPoints] = useState<KeyPoint[] | null>(null);
+  const [result, setResult] = useState<OptimizeActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    getKeyPointsAction(expectedAnswer).then((r) => setPoints(r?.points ?? fallback));
+  }, [expectedAnswer, fallback]);
+
+  function update(i: number, patch: Partial<KeyPoint>) {
+    setPoints((cur) => (cur ? cur.map((p, j) => (j === i ? { ...p, ...patch } : p)) : cur));
+  }
+
+  return (
+    <Modal title="編輯關鍵答案" onClose={onClose} wide>
+      <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+        <span className="font-semibold text-slate-700">標準答案：</span>
+        {expectedAnswer}
+      </p>
+      <p className="mb-3 text-xs text-slate-500">
+        必要的關鍵答案一定要講到；次要的可以不講。任何一點講錯都算不一致。修改後，之後所有用到這個標準答案的比對（包含相似題）都會用新的。
+      </p>
+      {points === null ? (
+        <p className="text-xs text-slate-500">載入中…</p>
+      ) : (
+        <div className="space-y-2">
+          {points.map((p, i) => (
+            <div key={i} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-start gap-2">
+                <input
+                  value={p.text}
+                  onChange={(e) => update(i, { text: e.target.value })}
+                  aria-label={`關鍵答案 ${i + 1}`}
+                  className={`${inputClass} flex-1`}
+                />
+                <label className="flex shrink-0 items-center gap-1.5 pt-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={p.required} onChange={(e) => update(i, { required: e.target.checked })} />
+                  必要
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPoints((cur) => (cur ? cur.filter((_, j) => j !== i) : cur))}
+                  aria-label="刪除這個關鍵答案"
+                  className="shrink-0 rounded p-2 text-slate-400 hover:bg-slate-50 hover:text-rose-600"
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <input
+                value={p.aliases.join("、")}
+                onChange={(e) => update(i, { aliases: e.target.value.split(/[、,，]/).map((a) => a.trim()).filter(Boolean) })}
+                placeholder="可接受說法，用「、」分隔（例：兩年、24 個月）"
+                aria-label={`關鍵答案 ${i + 1} 的可接受說法`}
+                className={`${inputClass} mt-2 text-xs`}
+              />
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setPoints((cur) => [...(cur ?? []), { text: "", required: true, aliases: [] }])}
+            className="text-xs font-semibold text-teal-700 hover:underline"
+          >
+            ＋ 新增關鍵答案
+          </button>
+        </div>
+      )}
+      <div className="mt-3">
+        <Feedback result={result} />
+      </div>
+      <div className="mt-4 flex justify-end gap-3">
+        <button type="button" onClick={onClose} className="px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700">
+          {result?.success ? "關閉" : "取消"}
+        </button>
+        <button
+          type="button"
+          disabled={pending || !points}
+          onClick={() => startTransition(async () => setResult(await saveKeyPointsAction(expectedAnswer, points ?? [])))}
+          className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+        >
+          {pending ? "儲存中…" : "儲存"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// 一題的關鍵答案逐點結果
+export function KeyPointList({ detail }: { detail: JudgeDetail }) {
+  return (
+    <div className="space-y-1">
+      {detail.points.map((p, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${POINT_STYLE[p.status].dot}`} />
+          <div className="min-w-0">
+            <span className={`mr-1.5 font-semibold ${POINT_STYLE[p.status].text}`}>{POINT_STATUS_LABELS[p.status]}</span>
+            <span className={`mr-1.5 rounded px-1 text-[10px] ${p.required ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}>
+              {p.required ? "必要" : "次要"}
+            </span>
+            <span className="text-slate-700">{p.text}</span>
+            {p.evidence && <span className="ml-1.5 text-slate-400">← 「{p.evidence}」</span>}
+          </div>
+        </div>
+      ))}
+      {detail.conflicts.map((c, i) => (
+        <div key={`c${i}`} className="flex items-start gap-2">
+          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-rose-500" />
+          <p>
+            <span className="mr-1.5 font-semibold text-rose-700">多講且講錯</span>
+            <span className="text-slate-700">{c}</span>
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ResultsModal({ versionId, title, onClose }: { versionId: string; title: string; onClose: () => void }) {
   const [results, setResults] = useState<RunResultView[] | null>(null);
-  const [filter, setFilter] = useState<"unanswered" | "mismatch" | "match" | "all">("mismatch");
+  const [filter, setFilter] = useState<"unanswered" | "mismatch" | "partial" | "match" | "all">("mismatch");
+  const [editing, setEditing] = useState<RunResultView | null>(null);
   useEffect(() => {
     getRunResultsAction(versionId).then(setResults);
   }, [versionId]);
   const all = results ?? [];
   const matched = all.filter((r) => r.verdict === "MATCH");
+  const partial = all.filter((r) => r.verdict === "PARTIAL");
   const mismatched = all.filter((r) => r.verdict === "MISMATCH");
   // 未回答：機器人沒回答、逾時，或 AI 比對失敗（沒有判定結果）
-  const unanswered = all.filter((r) => r.verdict !== "MATCH" && r.verdict !== "MISMATCH");
-  const shown = filter === "unanswered" ? unanswered : filter === "mismatch" ? mismatched : filter === "match" ? matched : all;
-  const emptyText =
-    all.length === 0
-      ? "這一輪還沒有測試結果。"
-      : filter === "unanswered"
-        ? "沒有未回答的題目。"
-        : filter === "mismatch"
-          ? "沒有不一致的題目。"
-          : "這一輪沒有答對的題目。";
+  const unanswered = all.filter((r) => !r.verdict || !VERDICT_BADGE[r.verdict]);
+  const shown =
+    filter === "unanswered" ? unanswered : filter === "mismatch" ? mismatched : filter === "partial" ? partial : filter === "match" ? matched : all;
   const count = (list: RunResultView[]) => (results ? String(list.length) : "");
   return (
     <Modal title={title} onClose={onClose} wide>
@@ -361,6 +494,7 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
           options={[
             { value: "unanswered", label: "未回答", hint: count(unanswered) },
             { value: "mismatch", label: "不一致", hint: count(mismatched) },
+            { value: "partial", label: "部分一致", hint: count(partial) },
             { value: "match", label: "一致", hint: count(matched) },
             { value: "all", label: "全部", hint: count(all) },
           ]}
@@ -369,40 +503,55 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
       {results === null ? (
         <p className="text-xs text-slate-500">載入中…</p>
       ) : shown.length === 0 ? (
-        <p className="text-xs text-slate-500">{emptyText}</p>
+        <p className="text-xs text-slate-500">{all.length === 0 ? "這一輪還沒有測試結果。" : "沒有這一類的題目。"}</p>
       ) : (
         <div className="space-y-3">
-          {shown.map((r) => (
-            <div key={r.order} className="rounded-lg border border-slate-200 p-3 text-xs">
-              <div className="flex items-start gap-2">
-                <span
-                  className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${
-                    r.verdict === "MATCH"
-                      ? "bg-emerald-50 text-emerald-700"
-                      : r.verdict === "MISMATCH"
-                        ? "bg-rose-50 text-rose-700"
-                        : "bg-amber-50 text-amber-700"
-                  }`}
-                >
-                  {r.verdict === "MATCH" ? "一致" : r.verdict === "MISMATCH" ? "不一致" : "未回答"}
-                </span>
-                {r.isSimilar && <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">相似題</span>}
-                <p className="font-medium text-slate-800">{r.question}</p>
-              </div>
-              <div className="mt-2 grid gap-2 md:grid-cols-2">
-                <div>
-                  <p className="text-[11px] font-semibold text-slate-400">標準答案</p>
-                  <p className="whitespace-pre-wrap text-slate-600">{r.expectedAnswer}</p>
+          {shown.map((r) => {
+            const badge = r.verdict ? VERDICT_BADGE[r.verdict] : undefined;
+            return (
+              <div key={r.order} className="rounded-lg border border-slate-200 p-3 text-xs">
+                <div className="flex items-start gap-2">
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${badge?.className ?? "bg-slate-100 text-slate-600"}`}>
+                    {badge?.label ?? "未回答"}
+                  </span>
+                  {r.isSimilar && <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">相似題</span>}
+                  <p className="flex-1 font-medium text-slate-800">{r.question}</p>
+                  {r.detail && <span className="shrink-0 text-slate-400">涵蓋 {r.detail.coverage}%</span>}
                 </div>
-                <div>
-                  <p className="text-[11px] font-semibold text-slate-400">機器人回答</p>
-                  <p className="whitespace-pre-wrap text-slate-600">{r.botAnswer ?? "（沒有回答）"}</p>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-400">標準答案</p>
+                    <p className="whitespace-pre-wrap text-slate-600">{r.expectedAnswer}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-400">機器人回答</p>
+                    <p className="whitespace-pre-wrap text-slate-600">{r.botAnswer ?? "（沒有回答）"}</p>
+                  </div>
                 </div>
+                {r.detail ? (
+                  <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <p className="text-[11px] font-semibold text-slate-400">關鍵答案</p>
+                      <button type="button" onClick={() => setEditing(r)} className="text-[11px] font-semibold text-teal-700 hover:underline">
+                        編輯關鍵答案
+                      </button>
+                    </div>
+                    <KeyPointList detail={r.detail} />
+                  </div>
+                ) : (
+                  r.verdict !== "MATCH" && r.reason && <p className="mt-2 text-rose-600">原因：{r.reason}</p>
+                )}
               </div>
-              {r.verdict !== "MATCH" && r.reason && <p className="mt-2 text-rose-600">原因：{r.reason}</p>}
-            </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+      {editing && (
+        <KeyPointsEditor
+          expectedAnswer={editing.expectedAnswer}
+          fallback={(editing.detail?.points ?? []).map((p) => ({ text: p.text, required: p.required, aliases: [] }))}
+          onClose={() => setEditing(null)}
+        />
       )}
     </Modal>
   );

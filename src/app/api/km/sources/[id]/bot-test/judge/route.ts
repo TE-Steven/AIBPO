@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { judgeBotAnswer } from "@/lib/botJudge";
 import { getPromptConfig } from "@/lib/promptConfigStore";
 import { companyIdForRole } from "@/lib/company";
+import { Prisma } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
       await prisma.botTestResult.update({
         where: { id: r.id },
-        data: { expectedAnswer, judgeVerdict: judge.verdict, judgeReason: judge.reason },
+        data: { expectedAnswer, judgeVerdict: judge.verdict, judgeReason: judge.reason, judgeDetail: judge.detail ?? Prisma.DbNull },
       });
       updated.push({ id: r.id, judgeVerdict: judge.verdict, judgeReason: judge.reason });
     }

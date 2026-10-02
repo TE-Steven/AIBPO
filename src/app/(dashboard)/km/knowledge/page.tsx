@@ -21,6 +21,8 @@ const OPTION_LABELS: Record<string, string> = {
   exportGroupBy: "匯出分組方式",
   exportQuestionFormat: "匯出題目格式",
   exportIncludeDocs: "匯出包含結構化文件",
+  judgeMinCoverage: "比對：整體涵蓋率門檻",
+  judgeWrongTolerance: "比對：講錯的容忍度",
 };
 
 export default async function KnowledgePage() {

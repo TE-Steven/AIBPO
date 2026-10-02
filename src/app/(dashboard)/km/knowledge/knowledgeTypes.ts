@@ -8,7 +8,7 @@ export type VersionResultView = {
   botAnswer: string | null;
   status: string; // PENDING / ANSWERED / TIMEOUT / ERROR
   errorMessage: string | null;
-  judgeVerdict: string | null; // MATCH / MISMATCH / ERROR
+  judgeVerdict: string | null; // MATCH / PARTIAL / MISMATCH / ERROR
   judgeReason: string | null;
 };
 

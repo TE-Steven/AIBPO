@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { BotTokenError, getBotTestTarget, type BotTestTarget } from "@/lib/botTest";
 import { resolveTokenInput, type TokenCredentials } from "@/lib/telligentAuth";
 import { cleanAiModel } from "@/lib/aiModels";
+import { cleanKeyPoints, type JudgeDetail, type KeyPoint } from "@/lib/keyPoints";
+import { answerHash } from "@/lib/botJudge";
 import { KnowledgeApiError, learnKnowledge } from "@/lib/telligentKb";
 import {
   ACTIVE_JOB_STATUSES,
@@ -306,6 +308,7 @@ export async function clearBackendAction(rawToken: string): Promise<OptimizeActi
 
 export type RunResultView = {
   order: number;
+  detail: JudgeDetail | null;
   question: string;
   expectedAnswer: string;
   botAnswer: string | null;
@@ -332,6 +335,7 @@ export async function getRunResultsAction(versionId: string): Promise<RunResultV
     isSimilar: r.jobQuestion?.isSimilar ?? false,
     verdict: r.judgeVerdict,
     reason: r.judgeReason ?? r.errorMessage,
+    detail: (r.judgeDetail as JudgeDetail | null) ?? null,
   }));
 }
 
@@ -374,9 +378,33 @@ export async function compareVersionsAction(versionIds: [string, string]): Promi
       isSimilar: r.jobQuestion?.isSimilar ?? false,
       verdict: r.judgeVerdict,
       reason: r.judgeReason ?? r.errorMessage,
+      detail: (r.judgeDetail as JudgeDetail | null) ?? null,
     })),
   });
   // 依傳入順序回傳（舊版在前）
   const byId = new Map(versions.map((v) => [v.id, toSide(v)]));
   return { sides: [byId.get(versionIds[0])!, byId.get(versionIds[1])!] };
+}
+
+// 讀某個標準答案目前的關鍵答案（逐題結果裡編輯用）
+export async function getKeyPointsAction(expectedAnswer: string): Promise<{ points: KeyPoint[]; editedByUser: boolean } | null> {
+  const session = await requireCompanyUser();
+  const row = await prisma.answerKeyPoints.findUnique({
+    where: { roleId_answerHash: { roleId: session.roleId, answerHash: answerHash(expectedAnswer) } },
+  });
+  return row ? { points: cleanKeyPoints(row.points), editedByUser: row.editedByUser } : null;
+}
+
+// 使用者修改關鍵答案：之後所有用到這個標準答案的比對都用新的（已經比對過的結果不會自動重算）
+export async function saveKeyPointsAction(expectedAnswer: string, rawPoints: KeyPoint[]): Promise<OptimizeActionResult> {
+  const session = await requireCompanyUser();
+  const points = cleanKeyPoints(rawPoints);
+  if (points.length === 0) return { error: "至少要有一個關鍵答案。" };
+  const hash = answerHash(expectedAnswer);
+  await prisma.answerKeyPoints.upsert({
+    where: { roleId_answerHash: { roleId: session.roleId, answerHash: hash } },
+    create: { roleId: session.roleId, answerHash: hash, expectedAnswer, points, editedByUser: true },
+    update: { points, editedByUser: true },
+  });
+  return { success: "已儲存，下一次比對（下一輪或重新比對）就會用新的關鍵答案。" };
 }

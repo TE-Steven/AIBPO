@@ -1,5 +1,6 @@
 import { askBot, BotTokenError, type AskResult, type BotTestTarget } from "@/lib/botTest";
 import { judgeBotAnswer } from "@/lib/botJudge";
+import type { JudgeDetail } from "@/lib/keyPoints";
 import type { PromptConfigData } from "@/lib/promptConfig";
 
 // 機器人測試的共用執行引擎（來源頁測試、知識庫版本測試、自動優化共用）：
@@ -18,6 +19,8 @@ export type RunnerResultData = {
   errorMessage: string | null;
   judgeVerdict?: string | null;
   judgeReason?: string | null;
+  // 關鍵答案逐點比對明細（沒有比對時不帶）
+  judgeDetail?: JudgeDetail;
 };
 
 export const TOKEN_SKIPPED_MESSAGE = "token 失效，這題沒有送出";
@@ -76,7 +79,12 @@ export async function runBotJobs(params: RunBotJobsParams): Promise<{ tokenError
                 model: params.judgeModel,
               })
             : null;
-        const data = { ...resultData(result), judgeVerdict: judge?.verdict ?? null, judgeReason: judge?.reason ?? null };
+        const data: RunnerResultData = {
+          ...resultData(result),
+          judgeVerdict: judge?.verdict ?? null,
+          judgeReason: judge?.reason ?? null,
+          ...(judge?.detail ? { judgeDetail: judge.detail } : {}),
+        };
         await params.saveResult(job.id, data, { completed: true });
         params.onResult?.(job.id, data);
       } catch (err) {

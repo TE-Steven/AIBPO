@@ -16,8 +16,26 @@ function HistoryDots({ testCaseId, versions }: { testCaseId: string; versions: V
     <div className="flex items-center gap-1" aria-label="各版本結果">
       {tested.map((v) => {
         const r = v.latestRun!.results.find((x) => x.testCaseId === testCaseId);
-        const color = !r ? "bg-slate-200" : r.judgeVerdict === "MATCH" ? "bg-emerald-500" : r.judgeVerdict === "MISMATCH" ? "bg-rose-500" : "bg-slate-300";
-        const label = !r ? "沒測到" : r.judgeVerdict === "MATCH" ? "一致" : r.judgeVerdict === "MISMATCH" ? "不一致" : r.status === "TIMEOUT" ? "逾時" : "沒有結果";
+        const color = !r
+          ? "bg-slate-200"
+          : r.judgeVerdict === "MATCH"
+            ? "bg-emerald-500"
+            : r.judgeVerdict === "PARTIAL"
+              ? "bg-amber-400"
+              : r.judgeVerdict === "MISMATCH"
+                ? "bg-rose-500"
+                : "bg-slate-300";
+        const label = !r
+          ? "沒測到"
+          : r.judgeVerdict === "MATCH"
+            ? "一致"
+            : r.judgeVerdict === "PARTIAL"
+              ? "部分一致"
+              : r.judgeVerdict === "MISMATCH"
+                ? "不一致"
+                : r.status === "TIMEOUT"
+                  ? "逾時"
+                  : "沒有結果";
         return <span key={v.id} title={`${v.name}：${label}`} className={`h-2.5 w-2.5 rounded-full ${color}`} />;
       })}
     </div>
