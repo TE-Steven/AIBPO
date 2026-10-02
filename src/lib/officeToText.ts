@@ -120,6 +120,58 @@ async function xlsxStreamToContent(buffer: Buffer, maxChars: number, textOnly: b
   return { text: sections.length > 0 ? `${note}${sections.join("\n\n")}` : "", images: [] };
 }
 
+// 題目來源用：ID、時間、純數字這類欄位對萃取問題沒有幫助，又佔很多字，先拿掉
+function isNoiseCell(v: string): boolean {
+  if (!v) return true;
+  if (/^[\d\s.,:/\-+%()TZ]+$/.test(v)) return true; // 數字、日期、時間
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return true; // UUID
+  if (/^[A-Za-z0-9_\-=.]{16,}$/.test(v)) return true; // 各種編號
+  return false;
+}
+
+// 題目來源的 Excel：串流讀取、每列一行（拿掉 ID／時間等欄位），讀到 maxChars 就停（truncated＝後面沒讀）
+export async function xlsxToQuestionText(buffer: Buffer, maxChars: number): Promise<{ text: string; truncated: boolean }> {
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([buffer]), {
+    worksheets: "emit",
+    sharedStrings: "cache",
+    hyperlinks: "ignore",
+    styles: "ignore",
+  });
+  const lines = new RepeatedLines(maxChars);
+  for await (const sheet of reader) {
+    for await (const row of sheet) {
+      const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+      const cells = values.map((v) => cellText(valueText(v))).filter((c) => !isNoiseCell(c));
+      if (!lines.add(cells.join(" | "))) return { text: lines.toString(), truncated: true };
+    }
+  }
+  return { text: lines.toString(), truncated: false };
+}
+
+// 對話紀錄裡完全相同的行（客服罐頭回覆、相同的提問）只留第一次，行尾標「（×N）」次數，省下很多字數；
+// add 回傳 false＝字數已到上限
+export class RepeatedLines {
+  private counts = new Map<string, number>();
+  private total = 0;
+  constructor(private maxChars: number) {}
+  add(line: string): boolean {
+    const key = line.trim();
+    if (!key) return true;
+    const count = this.counts.get(key);
+    if (count !== undefined) {
+      this.counts.set(key, count + 1);
+      return true;
+    }
+    if (this.total + key.length + 1 > this.maxChars) return false;
+    this.counts.set(key, 1);
+    this.total += key.length + 1;
+    return true;
+  }
+  toString(): string {
+    return [...this.counts].map(([line, n]) => (n > 1 ? `${line}（×${n}）` : line)).join("\n");
+  }
+}
+
 async function xlsxToContent(buffer: Buffer, imageBudget: number, options: OfficeOptions): Promise<OfficeContent> {
   if (options.textOnly || buffer.length > XLSX_STREAM_THRESHOLD) {
     return xlsxStreamToContent(buffer, options.maxChars ?? MAX_CHARS, Boolean(options.textOnly));

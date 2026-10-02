@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { toFile } from "@anthropic-ai/sdk";
 import { PDFDocument } from "pdf-lib";
 import { anthropic } from "@/lib/anthropic";
-import { MAX_IMAGES_PER_SOURCE, officeKindOf, officeToContent } from "@/lib/officeToText";
+import mammoth from "mammoth";
+import { MAX_IMAGES_PER_SOURCE, officeKindOf, officeToContent, RepeatedLines, xlsxToQuestionText } from "@/lib/officeToText";
 import { extractQuestionsFromText, QUESTION_EXTRACT_THRESHOLD, QUESTION_SOURCE_MAX_CHARS } from "@/lib/questionExtract";
 import { estimateTokens, formatBytes, maxBytesFor, type FileStats } from "@/lib/sourceLimits";
 import type { SourceFileRef } from "@/lib/kmAnalysis";
@@ -68,17 +69,26 @@ function decodeText(buffer: Buffer): string {
 
 // 題目來源（例如客服對話紀錄）：只取文字；內容很多時先由 AI 萃取出客戶問題清單再上傳（AI 一次讀不完整份紀錄）
 async function processQuestionFile(file: File, kind: "docx" | "xlsx" | "text", buffer: Buffer, roleId: string | null): Promise<UploadedFile> {
-  const raw =
-    kind === "text"
-      ? decodeText(buffer)
-      : (await officeToContent(kind, buffer, file.name, 0, { textOnly: true, maxChars: QUESTION_SOURCE_MAX_CHARS })).text;
-  if (!raw.trim()) throw new UploadError(`「${file.name}」是空的。`);
-  if (raw.length > QUESTION_SOURCE_MAX_CHARS) {
-    throw new UploadError(`「${file.name}」內容太大（約 ${Math.round(raw.length / 10000)} 萬字，上限 ${QUESTION_SOURCE_MAX_CHARS / 10000} 萬字），請拆成幾個檔案。`);
+  // 超過上限不擋：只讀前面 QUESTION_SOURCE_MAX_CHARS 字，結果裡會註明
+  let raw: string;
+  let truncated = false;
+  if (kind === "xlsx") {
+    ({ text: raw, truncated } = await xlsxToQuestionText(buffer, QUESTION_SOURCE_MAX_CHARS));
+  } else {
+    const full = kind === "text" ? decodeText(buffer) : (await mammoth.extractRawText({ buffer })).value;
+    const lines = new RepeatedLines(QUESTION_SOURCE_MAX_CHARS);
+    for (const line of full.split(/\r?\n/)) {
+      if (!lines.add(line)) {
+        truncated = true;
+        break;
+      }
+    }
+    raw = lines.toString();
   }
+  if (!raw.trim()) throw new UploadError(`「${file.name}」裡沒有讀到任何文字。`);
   const text =
     raw.length > QUESTION_EXTRACT_THRESHOLD
-      ? await extractQuestionsFromText(raw, file.name, roleId)
+      ? await extractQuestionsFromText(raw, file.name, roleId, truncated)
       : `【原始檔案：${file.name}】\n\n${raw}`;
   const uploaded = await anthropic.files.upload({ file: await toFile(Buffer.from(text, "utf8"), `${file.name}.txt`, { type: "text/plain" }) });
   const base = { kind, pages: 0, chars: text.length, images: 0 } as const;
