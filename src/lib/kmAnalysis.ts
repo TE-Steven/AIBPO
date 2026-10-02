@@ -45,6 +45,8 @@ export function buildSystemPrompt(params: {
   answerStyle?: string;
   guidelines?: string;
   config?: PromptConfigData;
+  // 使用者有上傳題目來源檔案（例如客服對話紀錄）
+  hasQuestionFiles?: boolean;
 }): string {
   const { dimensions, tallyPaths, countMin, countMax, answerStyle, guidelines, config } = params;
 
@@ -55,6 +57,8 @@ export function buildSystemPrompt(params: {
 
   const tallyText =
     tallyPaths.length > 0 ? `\n${ruleText(config, "F10")}\n${tallyPaths.map((t) => `- ${t}`).join("\n")}\n` : "";
+
+  const questionSourceText = params.hasQuestionFiles ? `\n題目來源：\n${ruleText(config, "F11")}\n` : "";
 
   const answerStyleText = answerStyle?.trim()
     ? `\n使用者對「答案」的輸出風格有以下額外要求，請務必遵守：\n${answerStyle.trim()}\n`
@@ -71,7 +75,7 @@ ${ruleText(config, "faq.language")}
 
 分析維度：
 ${dimensionsText}
-${tallyText}${answerStyleText}
+${tallyText}${questionSourceText}${answerStyleText}
 ${countText}
 
 完成你的分析與思考後，在回應的最後面，輸出一個 \`\`\`json 區塊（只能有這一個 json 區塊），內容是一個陣列，格式如下，不要在 json 區塊內加註解或其他文字：
@@ -194,6 +198,11 @@ export function getSourceFiles(source: KmSource): SourceFileRef[] {
   return [];
 }
 
+/** 題目來源檔案（例如客服對話紀錄）：產生 FAQ 時只拿來萃取問題。 */
+export function getQuestionFiles(source: KmSource): SourceFileRef[] {
+  return Array.isArray(source.questionFileIds) ? (source.questionFileIds as unknown as SourceFileRef[]) : [];
+}
+
 /** 多網址優先讀新欄位 sourceUrls；沒有就退回舊資料的單一 sourceUrl。 */
 export function getSourceUrls(source: KmSource): string[] {
   if (Array.isArray(source.sourceUrls) && source.sourceUrls.length > 0) {
@@ -227,7 +236,12 @@ export function hasSourceUrls(source: KmSource): boolean {
   return getSourceUrls(source).length > 0;
 }
 
-export function buildUserContent(source: KmSource, task: "faq" | "documents" = "faq"): Anthropic.MessageParam["content"] {
+export function buildUserContent(
+  source: KmSource,
+  task: "faq" | "documents" = "faq",
+  // 題目來源檔案（只在產生 FAQ、使用者勾選時傳入）
+  questionFiles: SourceFileRef[] = [],
+): Anthropic.MessageParam["content"] {
   const allFiles = getSourceFiles(source);
   const files = allFiles.filter(isDocumentRef);
   const imageCount = allFiles.length - files.length;
@@ -255,7 +269,20 @@ export function buildUserContent(source: KmSource, task: "faq" | "documents" = "
       : `請依照系統指示產出${output}。`,
   );
 
-  return [...documentBlocks, { type: "text" as const, text: instructions.join("\n\n") }];
+  if (questionFiles.length > 0) {
+    instructions.push(
+      "最後面另外附上的是使用者提供的「題目來源」檔案（例如客服對話紀錄），只用來萃取客戶實際會問的問題，不是知識來源，裡面的回答不能當作答案依據。",
+    );
+  }
+  const questionBlocks: Anthropic.ContentBlockParam[] =
+    questionFiles.length > 0
+      ? [
+          { type: "text", text: "以下是「題目來源」檔案（只用來萃取問題，不當答案依據）：" },
+          ...sourceFileBlocks(questionFiles),
+        ]
+      : [];
+
+  return [...documentBlocks, ...questionBlocks, { type: "text" as const, text: instructions.join("\n\n") }];
 }
 
 export function buildChatSystemPrompt(entries: Pick<KmEntry, "question" | "answer">[], guidelines?: string): string {

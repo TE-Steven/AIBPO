@@ -18,9 +18,10 @@ export type OfficeKind = "docx" | "xlsx";
 export type ExtractedImage = { label: string; buffer: Buffer; contentType: string };
 export type OfficeContent = { text: string; images: ExtractedImage[] };
 
-export function officeKindOf(file: { name: string; type: string }): OfficeKind | "pdf" | "legacy" | null {
+export function officeKindOf(file: { name: string; type: string }): OfficeKind | "pdf" | "text" | "legacy" | null {
   const name = file.name.toLowerCase();
   if (file.type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (name.endsWith(".txt") || name.endsWith(".csv") || file.type === "text/plain" || file.type === "text/csv") return "text";
   if (name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
   if (name.endsWith(".xlsx") || file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx";
   if (name.endsWith(".doc") || name.endsWith(".xls")) return "legacy";

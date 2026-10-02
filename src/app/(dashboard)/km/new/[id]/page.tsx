@@ -14,7 +14,7 @@ import { companyIdForRole } from "@/lib/company";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import { getPromptConfig } from "@/lib/promptConfigStore";
 import { resolveOptions } from "@/lib/promptConfig";
-import { sourceLabel } from "@/lib/kmAnalysis";
+import { sourceLabel, getQuestionFiles } from "@/lib/kmAnalysis";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
 function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name: string } | null } | null }): string {
@@ -63,6 +63,15 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
   const templateNames = tallyTemplates(buildTallyTree(tallies)).map((t) => t.name);
+  // 題目來源檔案：依檔名合併（Word／Excel 會帶著取出的圖片）
+  const questionFileViews = Object.values(
+    getQuestionFiles(source).reduce<Record<string, { fileName: string; images: number }>>((acc, r) => {
+      const cur = acc[r.fileName] ?? { fileName: r.fileName, images: 0 };
+      if (r.kind === "image") cur.images += 1;
+      acc[r.fileName] = cur;
+      return acc;
+    }, {}),
+  );
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -90,6 +99,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           templateNames={templateNames}
           defaultCountMin={promptOptions.faqCountMin}
           defaultCountMax={promptOptions.faqCountMax}
+          questionFiles={questionFileViews}
         />
       )}
 

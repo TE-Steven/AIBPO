@@ -99,6 +99,17 @@ export const RULES: RuleDef[] = [
     editable: true,
   },
   {
+    id: "F11",
+    section: "faq",
+    group: "題目來源",
+    label: "從題目來源萃取問題",
+    hint: "分析時勾選「自行上傳檔案當作 FAQ 題目來源」才會出現。",
+    defaultText:
+      "使用者另外提供了「題目來源」檔案（例如客服對話紀錄、客戶提問清單）。FAQ 的題目要從題目來源萃取客戶實際問過的問題：意思相同的合併成一題、改寫成清楚完整的問句、去掉姓名電話等個人資料，優先挑出現次數多的問題。答案只能根據知識來源文件寫，題目來源裡客服或其他人的回答不能當作答案依據；知識來源找不到答案的問題不要產生。",
+    toggleable: false,
+    editable: true,
+  },
+  {
     id: "F1",
     section: "faq",
     group: "每一題的規則",

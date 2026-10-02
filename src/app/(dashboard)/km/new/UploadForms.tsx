@@ -3,45 +3,20 @@
 import { useRef, useState } from "react";
 import { createSourceAction } from "./actions";
 import { IconAlertTriangle, IconCheckCircle, IconPlus, IconTrash, IconX } from "@/components/icons";
-import { checkTotals, formatBytes, MAX_IMAGES, MAX_PDF_PAGES, maxBytesFor, TOKEN_BUDGET, type FileStats, type SourceFileKind } from "@/lib/sourceLimits";
+import { checkTotals, formatBytes, MAX_IMAGES, MAX_PDF_PAGES, TOKEN_BUDGET, type FileStats } from "@/lib/sourceLimits";
 import type { SignedUpload } from "@/lib/sourceUpload";
+import { fileStatsText, precheckSourceFile, SOURCE_FILE_ACCEPT, uploadSourceFile } from "./uploadClient";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100";
 
-const ACCEPT =
-  "application/pdf,.pdf,.docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
 type Row = {
   file: File;
-  kind: SourceFileKind | null;
   status: "waiting" | "uploading" | "done" | "error";
   error?: string;
   upload?: SignedUpload;
   stats?: FileStats;
 };
-
-function kindOf(file: File): SourceFileKind | null {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".pdf") || file.type === "application/pdf") return "pdf";
-  if (name.endsWith(".docx")) return "docx";
-  if (name.endsWith(".xlsx")) return "xlsx";
-  return null;
-}
-
-// 上傳前就能檢查的問題：格式、單檔大小
-function precheck(file: File, kind: SourceFileKind | null): string | null {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".doc") || name.endsWith(".xls")) return "舊版 .doc／.xls 不支援，請另存成 .docx／.xlsx";
-  if (!kind) return "只支援 PDF、Word（.docx）、Excel（.xlsx）";
-  if (file.size > maxBytesFor(kind)) return `超過單檔上限 ${formatBytes(maxBytesFor(kind))}，請拆成較小的檔案`;
-  return null;
-}
-
-function statsText(s: FileStats): string {
-  if (s.kind === "pdf") return `${s.pages} 頁`;
-  return `約 ${Math.max(1, Math.round(s.chars / 1000))} 千字${s.images > 0 ? `、${s.images} 張圖` : ""}`;
-}
 
 export function UploadWizard() {
   const [title, setTitle] = useState("");
@@ -53,13 +28,13 @@ export function UploadWizard() {
 
   const doneStats = rows.flatMap((r) => (r.stats ? [r.stats] : []));
   const totals = checkTotals(doneStats);
-  const prechecked = rows.map((r) => precheck(r.file, r.kind));
+  const prechecked = rows.map((r) => precheckSourceFile(r.file));
   const hasBlocked = prechecked.some(Boolean);
   const canSubmit = title.trim().length > 0 && !hasBlocked && busy === null;
 
   function addFiles(list: FileList | null) {
     if (!list) return;
-    const incoming = Array.from(list).map((file): Row => ({ file, kind: kindOf(file), status: "waiting" }));
+    const incoming = Array.from(list).map((file): Row => ({ file, status: "waiting" }));
     setRows((cur) => [...cur, ...incoming.filter((r) => !cur.some((c) => c.file.name === r.file.name && c.file.size === r.file.size))]);
     setError(null);
     if (fileInput.current) fileInput.current.value = "";
@@ -82,15 +57,10 @@ export function UploadWizard() {
       if (current[i].status === "done") continue;
       current[i] = { ...current[i], status: "uploading", error: undefined };
       setRows([...current]);
-      const form = new FormData();
-      form.append("file", current[i].file);
-      form.append("imagesUsed", String(imagesUsed));
       try {
-        const res = await fetch("/api/km/source-files", { method: "POST", body: form });
-        const data = (await res.json().catch(() => ({}))) as { error?: string; payload?: string; signature?: string; stats?: FileStats };
-        if (!res.ok || !data.payload || !data.signature || !data.stats) throw new Error(data.error ?? `上傳失敗（HTTP ${res.status}）`);
-        current[i] = { ...current[i], status: "done", upload: { payload: data.payload, signature: data.signature }, stats: data.stats };
-        imagesUsed += data.stats.images;
+        const { upload, stats } = await uploadSourceFile(current[i].file, imagesUsed);
+        current[i] = { ...current[i], status: "done", upload, stats };
+        imagesUsed += stats.images;
       } catch (err) {
         current[i] = { ...current[i], status: "error", error: err instanceof Error ? err.message : "上傳失敗" };
         setRows([...current]);
@@ -129,9 +99,9 @@ export function UploadWizard() {
       <div className="space-y-5">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">步驟 2：上傳檔案（選填，可多選）</label>
-          <input ref={fileInput} type="file" accept={ACCEPT} multiple onChange={(e) => addFiles(e.target.files)} disabled={busy !== null} className={inputClass} />
+          <input ref={fileInput} type="file" accept={SOURCE_FILE_ACCEPT} multiple onChange={(e) => addFiles(e.target.files)} disabled={busy !== null} className={inputClass} />
           <p className="mt-1 text-xs text-slate-400">
-            支援 PDF（單檔 32MB 內）、Word（.docx）、Excel（.xlsx）（單檔 50MB 內），可以分次加入多個檔案。Word／Excel 會轉成文字給 AI
+            支援 PDF（單檔 32MB 內）、Word（.docx）、Excel（.xlsx）（單檔 50MB 內）、文字檔（.txt／.csv），可以分次加入多個檔案。Word／Excel 會轉成文字給 AI
             讀（保留標題、清單、表格），裡面的圖片也會一起附上；舊版 .doc／.xls 請先另存新格式。
           </p>
 
@@ -156,7 +126,7 @@ export function UploadWizard() {
                       <p className="truncate text-slate-800">{r.file.name}</p>
                       <p className={`text-xs ${blocked || r.status === "error" ? "text-rose-600" : "text-slate-400"}`}>
                         {formatBytes(r.file.size)}
-                        {r.stats && `・${statsText(r.stats)}`}
+                        {r.stats && `・${fileStatsText(r.stats)}`}
                         {r.status === "uploading" && "・上傳中…"}
                         {blocked && `・${blocked}`}
                         {r.status === "error" && r.error && `・${r.error}`}

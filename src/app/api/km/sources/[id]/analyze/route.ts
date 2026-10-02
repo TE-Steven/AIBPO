@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { getSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
-import { buildSystemPrompt, buildUserContent, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
+import { buildSystemPrompt, buildUserContent, getQuestionFiles, parseFaqDrafts, webFetchMaxUses, hasSourceUrls } from "@/lib/kmAnalysis";
 import { buildTallyTree, tallyTemplates, tallyPathOptions, tallyPathLines, resolveTallyId } from "@/lib/tallyTree";
 import { generateTallyDocuments, saveTallyDocuments } from "@/lib/tallyDocuments";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
@@ -37,6 +37,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const countMin = Math.max(1, Number(url.searchParams.get("countMin") ?? "10") || 10);
   const countMax = Math.max(countMin, Number(url.searchParams.get("countMax") ?? "30") || 30);
   const answerStyle = url.searchParams.get("answerStyle") ?? "";
+  // 使用者勾選「自行上傳檔案當作 FAQ 題目來源」
+  const questionFiles = url.searchParams.get("useQuestionFiles") === "1" ? getQuestionFiles(source) : [];
 
   const tallies = useTally || withDocs ? await prisma.tally.findMany({ where: roleScope(session), orderBy: { order: "asc" } }) : [];
   // FAQ 歸類用完整路徑（同名分類靠路徑區分）；有子分類的第一層分類另外當結構化文件的範本
@@ -91,11 +93,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             answerStyle,
             guidelines,
             config: promptConfig,
+            hasQuestionFiles: questionFiles.length > 0,
           }),
           ...(hasSourceUrls(source)
             ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
             : {}),
-          messages: [{ role: "user", content: buildUserContent(source) }],
+          messages: [{ role: "user", content: buildUserContent(source, "faq", questionFiles) }],
         });
 
         let fullText = "";

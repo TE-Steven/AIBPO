@@ -1,8 +1,100 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { IconSparkles, IconAlertTriangle, IconCheckCircle } from "@/components/icons";
+import { useRef, useState, useTransition } from "react";
+import { IconSparkles, IconAlertTriangle, IconCheckCircle, IconX } from "@/components/icons";
+import { addQuestionFilesAction, removeQuestionFileAction } from "./questionFileActions";
+import { precheckSourceFile, SOURCE_FILE_ACCEPT, uploadSourceFile } from "../uploadClient";
+
+// 題目來源檔案：已存在來源上的（檔名＋取出的圖片數）
+export type QuestionFileView = { fileName: string; images: number };
+
+function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: QuestionFileView[] }) {
+  const router = useRouter();
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const input = useRef<HTMLInputElement>(null);
+
+  async function addFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    setError(null);
+    const picked = Array.from(list);
+    const bad = picked.map((f) => [f.name, precheckSourceFile(f)] as const).find(([, err]) => err);
+    if (bad) {
+      setError(`「${bad[0]}」${bad[1]}`);
+      if (input.current) input.current.value = "";
+      return;
+    }
+    const uploads = [];
+    let imagesUsed = files.reduce((n, f) => n + f.images, 0);
+    try {
+      for (const [i, file] of picked.entries()) {
+        setUploading(`上傳中 ${i + 1}／${picked.length}：${file.name}`);
+        const { upload, stats } = await uploadSourceFile(file, imagesUsed);
+        imagesUsed += stats.images;
+        uploads.push(upload);
+      }
+      const result = await addQuestionFilesAction(sourceId, uploads);
+      if (result.error) setError(result.error);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "上傳失敗");
+      // 已經傳上去、但沒有加入的檔案從 Claude 刪掉
+      if (uploads.length > 0) void fetch("/api/km/source-files", { method: "DELETE", body: JSON.stringify({ uploads }) });
+    } finally {
+      setUploading(null);
+      if (input.current) input.current.value = "";
+    }
+  }
+
+  return (
+    <div className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+      <p className="mb-2 text-xs leading-relaxed text-slate-500">
+        上傳客服對話紀錄、客戶提問清單等檔案，AI 會從裡面萃取客戶實際會問的問題（合併重複、改成清楚的問句、去掉個資），答案仍只根據這個來源的知識文件；知識文件找不到答案的問題不會產生。
+      </p>
+      {files.length > 0 && (
+        <div className="mb-2 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+          {files.map((f) => (
+            <div key={f.fileName} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+              <IconCheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
+              <span className="min-w-0 flex-1 truncate text-slate-700">
+                {f.fileName}
+                {f.images > 0 && <span className="ml-1.5 text-xs text-slate-400">（含 {f.images} 張圖）</span>}
+              </span>
+              <button
+                type="button"
+                disabled={pending || uploading !== null}
+                onClick={() =>
+                  startTransition(async () => {
+                    await removeQuestionFileAction(sourceId, f.fileName);
+                    router.refresh();
+                  })
+                }
+                aria-label={`移除 ${f.fileName}`}
+                className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept={SOURCE_FILE_ACCEPT}
+        disabled={uploading !== null}
+        onChange={(e) => void addFiles(e.target.files)}
+        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+      />
+      <p className="mt-1 text-[11px] text-slate-400">支援 PDF、Word（.docx）、Excel（.xlsx）、文字檔（.txt／.csv）。</p>
+      {uploading && <p className="mt-1.5 text-xs text-teal-700">{uploading}</p>}
+      {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
+    </div>
+  );
+}
 
 type Dimension = { id: string; name: string };
 
@@ -17,6 +109,7 @@ export function AnalysisRunner({
   templateNames,
   defaultCountMin = 10,
   defaultCountMax = 30,
+  questionFiles = [],
 }: {
   sourceId: string;
   dimensions: Dimension[];
@@ -26,6 +119,8 @@ export function AnalysisRunner({
   // FAQ 題數預設值（來自 參數管理的設定）
   defaultCountMin?: number;
   defaultCountMax?: number;
+  // 已上傳的題目來源檔案
+  questionFiles?: QuestionFileView[];
 }) {
   const router = useRouter();
   const [selectedDimensionIds, setSelectedDimensionIds] = useState<string[]>([]);
@@ -36,6 +131,8 @@ export function AnalysisRunner({
   const [countMin, setCountMin] = useState(defaultCountMin);
   const [countMax, setCountMax] = useState(defaultCountMax);
   const [answerStyle, setAnswerStyle] = useState("");
+  // 自行上傳檔案當作 FAQ 題目來源
+  const [useQuestionFiles, setUseQuestionFiles] = useState(questionFiles.length > 0);
 
   const [running, setRunning] = useState(false);
   const [stageIndex, setStageIndex] = useState(0);
@@ -71,6 +168,7 @@ export function AnalysisRunner({
       countMin: String(countMin),
       countMax: String(countMax),
       answerStyle,
+      useQuestionFiles: useQuestionFiles && questionFiles.length > 0 ? "1" : "0",
     });
 
     const es = new EventSource(`/api/km/sources/${sourceId}/analyze?${qs.toString()}`);
@@ -222,11 +320,21 @@ export function AnalysisRunner({
             同時產生結構化文件
           </label>
         )}
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={useQuestionFiles}
+            onChange={(e) => setUseQuestionFiles(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-400"
+          />
+          自行上傳檔案當作 FAQ 題目來源
+        </label>
         {templateNames.length > 0 && withDocs && (
           <p className="w-full text-xs text-slate-500">
             FAQ 完成後，會再依「{templateNames.join("」「")}」範本找出文件裡每一個項目，各整理成一份結構化文件（多一次 AI 呼叫）。不勾的話，之後也可以在「結構化文件」卡片產生。
           </p>
         )}
+        {useQuestionFiles && <QuestionFilesPicker sourceId={sourceId} files={questionFiles} />}
         <div className="flex items-center gap-2 text-sm text-slate-700">
           FAQ 數量
           <input

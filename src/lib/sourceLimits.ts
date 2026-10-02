@@ -3,6 +3,7 @@
 
 export const MAX_PDF_BYTES = 32 * 1024 * 1024; // Claude 讀 PDF 的上限
 export const MAX_OFFICE_BYTES = 50 * 1024 * 1024;
+export const MAX_TEXT_BYTES = 20 * 1024 * 1024; // .txt／.csv
 export const MAX_PDF_PAGES = 600; // Claude 一次請求讀 PDF 的頁數上限
 export const MAX_IMAGES = 100; // Claude 一次請求讀圖的上限
 // 模型上下文 100 萬 token，扣掉提示詞、思考與輸出，留給來源內容約 80 萬
@@ -13,7 +14,7 @@ const WARN_RATIO = 0.7;
 const TOKENS_PER_PDF_PAGE = 2_500;
 const TOKENS_PER_IMAGE = 1_600;
 
-export type SourceFileKind = "pdf" | "docx" | "xlsx";
+export type SourceFileKind = "pdf" | "docx" | "xlsx" | "text";
 export type FileStats = { fileName: string; kind: SourceFileKind; bytes: number; pages: number; chars: number; images: number; estTokens: number };
 
 export function estimateTokens(stats: Pick<FileStats, "kind" | "pages" | "chars" | "images">): number {
@@ -21,7 +22,7 @@ export function estimateTokens(stats: Pick<FileStats, "kind" | "pages" | "chars"
 }
 
 export function maxBytesFor(kind: SourceFileKind): number {
-  return kind === "pdf" ? MAX_PDF_BYTES : MAX_OFFICE_BYTES;
+  return kind === "pdf" ? MAX_PDF_BYTES : kind === "text" ? MAX_TEXT_BYTES : MAX_OFFICE_BYTES;
 }
 
 export function formatBytes(bytes: number): string {

@@ -50,7 +50,7 @@ async function countPdfPages(buffer: Buffer, fileName: string): Promise<number> 
 export async function processSourceFile(file: File, imagesUsed: number): Promise<UploadedFile> {
   const kind = officeKindOf(file);
   if (kind === "legacy") throw new UploadError(`「${file.name}」是舊版 .doc／.xls，請在 Word／Excel 另存成 .docx／.xlsx 再上傳。`);
-  if (kind === null) throw new UploadError(`「${file.name}」不是 PDF、Word（.docx）或 Excel（.xlsx）。`);
+  if (kind === null) throw new UploadError(`「${file.name}」不是 PDF、Word（.docx）、Excel（.xlsx）或文字檔（.txt／.csv）。`);
   if (file.size > maxBytesFor(kind)) {
     throw new UploadError(`「${file.name}」有 ${formatBytes(file.size)}，超過單檔上限 ${formatBytes(maxBytesFor(kind))}，請拆成較小的檔案。`);
   }
@@ -60,6 +60,26 @@ export async function processSourceFile(file: File, imagesUsed: number): Promise
     const pages = await countPdfPages(buffer, file.name);
     const uploaded = await anthropic.files.upload({ file: await toFile(buffer, file.name, { type: "application/pdf" }) });
     const base = { kind, pages, chars: 0, images: 0 } as const;
+    return {
+      refs: [{ fileId: uploaded.id, fileName: file.name, kind: "document" }],
+      stats: { fileName: file.name, bytes: file.size, ...base, estTokens: estimateTokens(base) },
+    };
+  }
+
+  if (kind === "text") {
+    // .txt／.csv：Windows 存的中文檔常是 Big5，先試 UTF-8、失敗再用 Big5 讀，統一轉成 UTF-8 上傳
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      text = new TextDecoder("big5").decode(buffer);
+    }
+    text = text.replace(/^\uFEFF/, "");
+    if (!text.trim()) throw new UploadError(`「${file.name}」是空的。`);
+    const uploaded = await anthropic.files.upload({
+      file: await toFile(Buffer.from(`【原始檔案：${file.name}】\n\n${text}`, "utf8"), `${file.name}.txt`, { type: "text/plain" }),
+    });
+    const base = { kind, pages: 0, chars: text.length, images: 0 } as const;
     return {
       refs: [{ fileId: uploaded.id, fileName: file.name, kind: "document" }],
       stats: { fileName: file.name, bytes: file.size, ...base, estTokens: estimateTokens(base) },
