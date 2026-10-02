@@ -1,6 +1,6 @@
 import { requireSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { getBotTestTarget } from "@/lib/botTest";
+import { getBotOptions } from "@/lib/botTest";
 import type { PromptConfigData } from "@/lib/promptConfig";
 import { KnowledgeWorkspace } from "./KnowledgeWorkspace";
 import type { TestCaseView, VersionView } from "./knowledgeTypes";
@@ -54,7 +54,7 @@ export default async function KnowledgePage() {
       orderBy: { createdAt: "desc" },
     }),
     prisma.testCase.findMany({ where: roleScope(session), orderBy: [{ order: "asc" }, { createdAt: "asc" }] }),
-    session.kind === "user" ? getBotTestTarget(session.companyId) : Promise.resolve(null),
+    session.kind === "user" ? getBotOptions(session.companyId) : Promise.resolve([]),
   ]);
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
@@ -135,7 +135,7 @@ export default async function KnowledgePage() {
         listProps={{ entries: listEntries, tallyOptions, sourceOptions }}
         versions={versionViews}
         testCases={testCaseViews}
-        targetReady={Boolean(target)}
+        bots={target}
       />
     </div>
   );

@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const version = await prisma.kbVersion.findUnique({ where: { id } });
   if (!version || version.roleId !== session.roleId) return jsonError("找不到這個版本。", 404);
 
-  const body = (await req.json().catch(() => ({}))) as { token?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { token?: unknown; botId?: unknown };
   const token = typeof body.token === "string" ? body.token.trim().replace(/^Bearer\s+/i, "") : "";
   if (!token) return jsonError("請填 token。", 400);
   try {
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const companyId = await companyIdForRole(version.roleId);
   const [target, promptConfig, testCases] = await Promise.all([
-    getBotTestTarget(companyId),
+    getBotTestTarget(companyId, typeof body.botId === "string" ? body.botId : null),
     getPromptConfig(companyId),
     prisma.testCase.findMany({ where: { roleId: version.roleId, archived: false }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] }),
   ]);
@@ -46,6 +46,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       versionId: version.id,
       roleId: version.roleId,
       createdById: session.id,
+      botId: target.botId,
+      botName: target.botName,
       total: testCases.length,
       results: {
         create: testCases.map((t, i) => ({

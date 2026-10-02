@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { updateVersionAction, deleteVersionAction } from "./actions";
 import { accuracyOf, formatDateTime, type VersionView } from "./knowledgeTypes";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconPencil, IconSparkles, IconTrash, IconX } from "@/components/icons";
+import type { BotOption } from "@/lib/botTest";
 import { isPassVerdict } from "@/lib/keyPoints";
 
 function tokenMinutesLeft(token: string): number | null {
@@ -49,12 +50,12 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 function VersionRow({
   version,
   testCaseCount,
-  targetReady,
+  bots,
   onViewResults,
 }: {
   version: VersionView;
   testCaseCount: number;
-  targetReady: boolean;
+  bots: BotOption[];
   onViewResults: (versionId: string) => void;
 }) {
   const router = useRouter();
@@ -65,6 +66,8 @@ function VersionRow({
   const [modal, setModal] = useState<null | "content" | "settings" | "token">(null);
   const [content, setContent] = useState<string | null>(null);
   const [tokenInput, setTokenInput] = useState("");
+  const [botId, setBotId] = useState(bots[0]?.id ?? "");
+  const targetReady = bots.length > 0;
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; matched: number } | null>(null);
   const [message, setMessage] = useState<{ success?: string; error?: string }>({});
@@ -109,7 +112,7 @@ function VersionRow({
       const res = await fetch(`/api/km/versions/${version.id}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, botId }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
@@ -333,6 +336,21 @@ function VersionRow({
           <p className="mb-3 text-xs text-slate-500">
             題庫 {testCaseCount} 題，預估約 {estimateMinutes(testCaseCount)} 分鐘。
           </p>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">要問哪一隻機器人</label>
+          <select
+            value={botId}
+            onChange={(e) => setBotId(e.target.value)}
+            className="mb-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-400 focus:outline-none"
+          >
+            {bots.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <p className="mb-3 text-[11px] text-slate-400">
+            {bots.find((b) => b.id === botId)?.description || "（沒有說明）"}・channel {bots.find((b) => b.id === botId)?.channel}
+          </p>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
             <IconKey className="h-4 w-4 text-teal-600" />
             Access token
@@ -373,14 +391,15 @@ function VersionRow({
 export function VersionsPanel({
   versions,
   testCaseCount,
-  targetReady,
+  bots,
   onViewResults,
 }: {
   versions: VersionView[];
   testCaseCount: number;
-  targetReady: boolean;
+  bots: BotOption[];
   onViewResults: (versionId: string) => void;
 }) {
+  const targetReady = bots.length > 0;
   return (
     <div className="space-y-3">
       <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
@@ -388,7 +407,7 @@ export function VersionsPanel({
         {!targetReady && <span className="ml-1 text-amber-700">這間公司還沒設定機器人 API，需要平台管理員先設定才能測試。</span>}
       </div>
       {versions.map((v) => (
-        <VersionRow key={v.id} version={v} testCaseCount={testCaseCount} targetReady={targetReady} onViewResults={onViewResults} />
+        <VersionRow key={v.id} version={v} testCaseCount={testCaseCount} bots={bots} onViewResults={onViewResults} />
       ))}
       {versions.length === 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">

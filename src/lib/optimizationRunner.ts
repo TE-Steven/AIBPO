@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { anthropic, recordApiUsage } from "@/lib/anthropic";
 import { findAiModel } from "@/lib/aiModels";
 import { companyIdForRole } from "@/lib/company";
-import { askBot, BotTokenError, getBotTestTarget, readTokenCompany, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
+import { askBot, BotTokenError, getBotTestTargetStrict, readTokenCompany, tokenExpiresAt, type BotTestTarget } from "@/lib/botTest";
 import { runBotJobs, TOKEN_SKIPPED_MESSAGE } from "@/lib/botTestRunner";
 import { refreshAccessToken, type TokenCredentials } from "@/lib/telligentAuth";
 import { getPromptConfig } from "@/lib/promptConfigStore";
@@ -188,11 +188,12 @@ type JobContext = {
 async function loadContext(job: OptimizationJob): Promise<JobContext> {
   const companyId = await companyIdForRole(job.roleId);
   const [target, config, guidelines] = await Promise.all([
-    getBotTestTarget(companyId),
+    // 任務固定問同一隻機器人（舊任務沒有記錄時用第一隻）；md 一律上傳到公司共用的知識庫
+    getBotTestTargetStrict(companyId, job.botId),
     getPromptConfig(companyId),
     getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY),
   ]);
-  if (!target) throw new Error("這間公司還沒設定機器人測試 API，請聯絡平台管理員。");
+  if (!target) throw new Error(job.botId ? `這個任務問的機器人「${job.botName ?? ""}」已經從公司設定刪除。` : "這間公司還沒設定機器人測試 API，請聯絡平台管理員。");
   if (!target.knowledgePlatformId) throw new Error("這間公司還沒設定知識庫 platformId，請聯絡平台管理員到公司設定補上。");
   return { companyId, target, config, guidelines: guidelines ?? "" };
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { KnowledgeList } from "./KnowledgeList";
 import { VersionsPanel } from "./VersionsPanel";
+import type { BotOption } from "@/lib/botTest";
 import { TestBankPanel } from "./TestBankPanel";
 import { ComparePanel } from "./ComparePanel";
 import type { TestCaseView, VersionView } from "./knowledgeTypes";
@@ -14,12 +15,12 @@ export function KnowledgeWorkspace({
   listProps,
   versions,
   testCases,
-  targetReady,
+  bots,
 }: {
   listProps: Omit<React.ComponentProps<typeof KnowledgeList>, "onVersionCreated">;
   versions: VersionView[];
   testCases: TestCaseView[];
-  targetReady: boolean;
+  bots: BotOption[];
 }) {
   const [tab, setTab] = useState<Tab>("entries");
   const [compareFocus, setCompareFocus] = useState<{ ids: string[]; nonce: number }>({ ids: [], nonce: 0 });
@@ -62,7 +63,7 @@ export function KnowledgeWorkspace({
 
       {tab === "entries" && <KnowledgeList {...listProps} onVersionCreated={() => setTab("versions")} />}
       {tab === "versions" && (
-        <VersionsPanel versions={versions} testCaseCount={activeTestCount} targetReady={targetReady} onViewResults={viewResults} />
+        <VersionsPanel versions={versions} testCaseCount={activeTestCount} bots={bots} onViewResults={viewResults} />
       )}
       {tab === "tests" && <TestBankPanel testCases={testCases} versions={versions} />}
       {tab === "compare" && <ComparePanel key={compareFocus.nonce} versions={versions} initialSelected={compareFocus.ids} />}

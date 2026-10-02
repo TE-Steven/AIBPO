@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { setSystemSetting, BOT_TEST_TARGET_KEY } from "@/lib/systemSettings";
-import { DEFAULT_UPLOAD_PATH, DEFAULT_KNOWLEDGE_PATH, getBotTestTarget } from "@/lib/botTest";
+import { DEFAULT_UPLOAD_PATH, DEFAULT_KNOWLEDGE_PATH, getBotTestSettings, type BotProfile } from "@/lib/botTest";
+import { randomUUID } from "node:crypto";
 import {
   createOrAttachMember,
   toggleMembershipActive,
@@ -83,18 +84,45 @@ export async function saveBotTestTargetAction(
   const company = await prisma.company.findUnique({ where: { id: companyId } });
   if (!company) return { error: "找不到這間公司。" };
 
-  const workflowBaseUrl = normalizeHttpsUrl(String(formData.get("workflowBaseUrl") ?? ""));
-  const gatewayBaseUrl = normalizeHttpsUrl(String(formData.get("gatewayBaseUrl") ?? ""));
-  const platformId = String(formData.get("platformId") ?? "").trim();
-  const knowledgePlatformId = String(formData.get("knowledgePlatformId") ?? "").trim();
+  // 多隻機器人：畫面送上來的是 JSON
+  let rawBots: Partial<BotProfile>[] = [];
+  try {
+    rawBots = JSON.parse(String(formData.get("bots") ?? "[]")) as Partial<BotProfile>[];
+  } catch {
+    return { error: "機器人設定格式不正確，請重新整理後再試。" };
+  }
+  if (!Array.isArray(rawBots) || rawBots.length === 0) return { error: "至少要設定一隻機器人。" };
+  const bots: BotProfile[] = [];
+  const usedIds = new Set<string>();
+  for (const [i, b] of rawBots.entries()) {
+    const name = String(b.name ?? "").trim();
+    const label = name || `第 ${i + 1} 隻`;
+    const workflowBaseUrl = normalizeHttpsUrl(String(b.workflowBaseUrl ?? ""));
+    const gatewayBaseUrl = normalizeHttpsUrl(String(b.gatewayBaseUrl ?? ""));
+    const platformId = String(b.platformId ?? "").trim();
+    if (!name) return { error: `${label}機器人請填名稱。` };
+    if (!workflowBaseUrl || !gatewayBaseUrl) return { error: `「${label}」的送題與取答案網址都要填，而且必須是 https:// 開頭。` };
+    if (!platformId) return { error: `「${label}」請填 channel（platformId）。` };
+    let id = String(b.id ?? "").trim() || randomUUID();
+    if (usedIds.has(id)) id = randomUUID();
+    usedIds.add(id);
+    bots.push({
+      id,
+      name: name.slice(0, 50),
+      description: String(b.description ?? "").trim().slice(0, 200),
+      workflowBaseUrl,
+      gatewayBaseUrl,
+      platformId,
+    });
+  }
+
   const cleanPath = (v: FormDataEntryValue | null, fallback: string) => {
     const path = String(v ?? "").trim();
     return path ? (path.startsWith("/") ? path : `/${path}`) : fallback;
   };
+  const knowledgePlatformId = String(formData.get("knowledgePlatformId") ?? "").trim();
   const uploadPath = cleanPath(formData.get("uploadPath"), DEFAULT_UPLOAD_PATH);
   const knowledgePath = cleanPath(formData.get("knowledgePath"), DEFAULT_KNOWLEDGE_PATH);
-  if (!workflowBaseUrl || !gatewayBaseUrl) return { error: "送題與取答案網址都要填，而且必須是 https:// 開頭。" };
-  if (!platformId) return { error: "請填 channel（platformId）。" };
 
   const tokenUrlRaw = String(formData.get("tokenUrl") ?? "").trim();
   const tokenUrl = tokenUrlRaw ? normalizeHttpsUrl(tokenUrlRaw) : "";
@@ -103,27 +131,15 @@ export async function saveBotTestTargetAction(
   const tokenCompanyId = String(formData.get("tokenCompanyId") ?? "").trim();
   const tokenCompanyCode = String(formData.get("tokenCompanyCode") ?? "").trim();
   // client_secret 不會回傳到畫面上：留空＝沿用原本的設定，勾選清除才刪掉
-  const existing = await getBotTestTarget(companyId);
+  const existing = await getBotTestSettings(companyId);
   const secretInput = String(formData.get("clientSecret") ?? "").trim();
   const clientSecret = formData.get("clearClientSecret") ? "" : secretInput || existing?.clientSecret || "";
 
   await setSystemSetting(
     companyId,
     BOT_TEST_TARGET_KEY,
-    JSON.stringify({
-      workflowBaseUrl,
-      gatewayBaseUrl,
-      platformId,
-      knowledgePlatformId,
-      uploadPath,
-      knowledgePath,
-      tokenUrl,
-      clientId,
-      clientSecret,
-      tokenCompanyId,
-      tokenCompanyCode,
-    }),
+    JSON.stringify({ bots, knowledgePlatformId, uploadPath, knowledgePath, tokenUrl, clientId, clientSecret, tokenCompanyId, tokenCompanyCode }),
   );
   revalidatePath(`/platform/companies/${companyId}`);
-  return { success: "已儲存，這間公司的機器人測試會打這組 API。" };
+  return { success: `已儲存 ${bots.length} 隻機器人的設定。` };
 }

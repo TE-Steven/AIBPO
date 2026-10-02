@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { BotTokenError, getBotTestTarget, type BotTestTarget } from "@/lib/botTest";
+import { BotTokenError, getBotTestTarget, getBotTestTargetStrict, type BotTestTarget } from "@/lib/botTest";
 import { resolveTokenInput, type TokenCredentials } from "@/lib/telligentAuth";
 import { cleanAiModel } from "@/lib/aiModels";
 import { cleanKeyPoints, type JudgeDetail, type KeyPoint } from "@/lib/keyPoints";
@@ -84,11 +84,15 @@ export async function startOptimizationAction(input: {
   judgeModel: string;
   reviseModel: string;
   similarModel: string;
+  botId: string;
   token: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
+  // 要問的機器人（md 一律上傳到同一個知識庫，只有問的機器人可以選）
+  const bot = await getBotTestTargetStrict(session.companyId, input.botId || null);
+  if (!bot) return { error: "找不到選的機器人，請重新整理頁面再試。" };
   if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
   const tk = await credentialsFor(t.target, input.token);
   if ("error" in tk) return { error: tk.error };
@@ -139,6 +143,8 @@ export async function startOptimizationAction(input: {
       judgeModel: cleanAiModel(input.judgeModel),
       reviseModel: cleanAiModel(input.reviseModel),
       similarModel: cleanAiModel(input.similarModel),
+      botId: bot.botId,
+      botName: bot.botName,
       currentStep: "排隊中",
     },
   });
@@ -157,6 +163,7 @@ export async function continueOptimizationAction(input: {
   learnWaitMinutes: number;
   judgeModel: string;
   reviseModel: string;
+  botId: string;
   token: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
@@ -169,6 +176,8 @@ export async function continueOptimizationAction(input: {
   const tk = await credentialsFor(t.target, input.token);
   if ("error" in tk) return { error: tk.error };
 
+  const bot = await getBotTestTargetStrict(session.companyId, input.botId || base.job.botId || null);
+  if (!bot) return { error: "找不到選的機器人，請重新整理頁面再試。" };
   const from = base.job;
   const job = await prisma.optimizationJob.create({
     data: {
@@ -188,6 +197,8 @@ export async function continueOptimizationAction(input: {
       learnWaitMinutes: clamp(input.learnWaitMinutes, 0, 30, from.learnWaitMinutes),
       judgeModel: cleanAiModel(input.judgeModel),
       reviseModel: cleanAiModel(input.reviseModel),
+      botId: bot.botId,
+      botName: bot.botName,
       // 題目沿用起點版本，不會再產生相似題
       similarModel: from.similarModel,
       currentStep: "排隊中",

@@ -21,6 +21,8 @@ import {
   TokenField,
   UsageStatsContext,
   useTokenUsable,
+  BotsContext,
+  BotSelect,
 } from "./optimizeShared";
 import { collapseUnchanged, diffLines, diffStats } from "@/lib/lineDiff";
 import { EDIT_CAUSE_LABELS, type EditCause, type RevisionLog } from "@/lib/optimizationPrompts";
@@ -40,6 +42,7 @@ export type ContinueBase = {
   judgeModel: string;
   reviseModel: string;
   learnWaitMinutes: number;
+  botId: string | null;
 };
 
 function pctText(v: number | null) {
@@ -58,6 +61,8 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
   const [targetScore, setTargetScore] = useState(base.targetScore);
   const [stallRuns, setStallRuns] = useState(2);
   const [learnWaitMinutes, setLearnWaitMinutes] = useState(base.learnWaitMinutes);
+  const bots = useContext(BotsContext);
+  const [botId, setBotId] = useState(base.botId && bots.some((b) => b.id === base.botId) ? base.botId : (bots[0]?.id ?? ""));
   const [judgeModel, setJudgeModel] = useState(base.judgeModel);
   const [reviseModel, setReviseModel] = useState(base.reviseModel);
   const [token, setToken] = useState("");
@@ -103,6 +108,10 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
           suffix="分鐘"
         />
       </div>
+      <div className="mb-4">
+        <p className="mb-1.5 text-xs font-semibold text-slate-700">要問哪一隻機器人</p>
+        <BotSelect value={botId} onChange={setBotId} />
+      </div>
       <div className="mb-4 divide-y divide-slate-100 rounded-xl border border-slate-200">
         <ModelRow
           title="比對答案"
@@ -139,6 +148,7 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
                   learnWaitMinutes,
                   judgeModel,
                   reviseModel,
+                  botId,
                   token,
                 });
                 setResult(r);

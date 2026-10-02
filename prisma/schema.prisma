@@ -214,6 +214,9 @@ model BotTestRun {
   total        Int
   completed    Int      @default(0)
   errorMessage String?
+  // 測試的是公司設定裡哪一隻機器人（id 與當時的名稱）
+  botId        String?
+  botName      String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -324,6 +327,9 @@ model VersionTestRun {
   total        Int
   completed    Int      @default(0)
   errorMessage String?
+  // 測試的是公司設定裡哪一隻機器人（id 與當時的名稱）
+  botId        String?
+  botName      String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -392,6 +398,9 @@ model OptimizationJob {
   stallRuns        Int // 連續幾輪沒進步就停
   // 呼叫學習 API 後至少等幾分鐘才開始問（同時也要等後台顯示學習完成）
   learnWaitMinutes Int      @default(5)
+  // 這個任務測試、上傳知識用的機器人（整個任務固定同一隻）
+  botId            String?
+  botName          String?
   // 三個 AI 步驟各自用的模型（見 src/lib/aiModels.ts）
   judgeModel       String   @default("claude-sonnet-5")
   reviseModel      String   @default("claude-sonnet-5")

@@ -12,6 +12,8 @@ import {
   type OptimizeActionResult,
 } from "./actions";
 import {
+  BotsContext,
+  BotSelect,
   CanRefreshContext,
   estimatePlan,
   Feedback,
@@ -32,6 +34,7 @@ import {
   type UsageStats,
 } from "./optimizeShared";
 import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
+import type { BotOption } from "@/lib/botTest";
 import { CompareModal, ContinueModal, RevisionLogModal, type ContinueBase } from "./versionModals";
 import { LocalTime } from "@/components/LocalTime";
 import { IconAlertTriangle, IconChevronDown, IconSparkles, IconTrash, IconX } from "@/components/icons";
@@ -58,6 +61,8 @@ export type RunView = {
 export type JobView = {
   id: string;
   seq: number;
+  botId: string | null;
+  botName: string | null;
   baseVersionName: string | null;
   models: string;
   judgeModel: string;
@@ -104,6 +109,8 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
   const [judgeModel, setJudgeModel] = useState(DEFAULT_AI_MODEL);
   const [reviseModel, setReviseModel] = useState(DEFAULT_AI_MODEL);
   const [similarModel, setSimilarModel] = useState(DEFAULT_AI_MODEL);
+  const bots = useContext(BotsContext);
+  const [botId, setBotId] = useState(bots[0]?.id ?? "");
   const [token, setToken] = useState("");
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -138,6 +145,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
         judgeModel,
         reviseModel,
         similarModel,
+        botId,
         token,
       });
       setResult(r);
@@ -207,7 +215,11 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
           />
         </Step>
 
-        <Step no={4} title="參數" desc="什麼時候停、每題要多問幾種說法。">
+        <Step no={4} title="要問哪一隻機器人" desc="每一輪用這隻機器人回答題目；上傳的 md 一律放到同一個知識庫。">
+          <BotSelect value={botId} onChange={setBotId} />
+        </Step>
+
+        <Step no={5} title="參數" desc="什麼時候停、每題要多問幾種說法。">
           <div className="grid gap-3 sm:grid-cols-2">
             <StepperField label="最多跑幾輪" hint="1–10 輪，跑滿就停" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
             <StepperField label="目標正確率" hint="任何一輪達到就停" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
@@ -233,7 +245,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
           </div>
         </Step>
 
-        <Step no={5} title="AI 模型" desc="三個用到 Claude 的地方各自選模型，右邊的費用會即時重算。">
+        <Step no={6} title="AI 模型" desc="三個用到 Claude 的地方各自選模型，右邊的費用會即時重算。">
           <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
             <ModelRow
               title="比對答案"
@@ -259,7 +271,7 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
           </div>
         </Step>
 
-        <Step no={6} title="Access token" desc="用來呼叫後台知識庫與機器人的 API。" last>
+        <Step no={7} title="Access token" desc="用來呼叫後台知識庫與機器人的 API。" last>
           <TokenField value={token} onChange={setToken} />
         </Step>
       </ol>
@@ -352,6 +364,7 @@ function JobCard({
       judgeModel: job.judgeModel,
       reviseModel: job.reviseModel,
       learnWaitMinutes: job.learnWaitMinutes,
+      botId: job.botId,
     };
   }
 
@@ -377,7 +390,7 @@ function JobCard({
           <p className="mt-1 pl-6 text-xs text-slate-500">
             <LocalTime iso={job.createdAt} />・{job.contentKind === "DOC" ? "結構化文件" : "FAQ"}・題目：
             {job.questionSource === "TEST_BANK" ? "測試題庫" : "範圍內 FAQ"} {job.originalCount} 題＋相似題 {job.similarTotal} 題・目標 {job.targetScore}%・最多{" "}
-            {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停・呼叫學習後至少等 {job.learnWaitMinutes} 分・{job.models}
+            {job.maxRuns} 輪・連續 {job.stallRuns} 輪沒進步就停{job.botName ? `・問 ${job.botName}` : ""}・呼叫學習後至少等 {job.learnWaitMinutes} 分・{job.models}
           </p>
         </button>
         <div className="flex shrink-0 items-center gap-2">
@@ -555,7 +568,9 @@ export function OptimizeWorkspace(props: WorkspaceProps) {
   return (
     <CanRefreshContext.Provider value={props.canRefresh}>
       <UsageStatsContext.Provider value={props.usageStats}>
-        <Workspace {...props} />
+        <BotsContext.Provider value={props.bots}>
+          <Workspace {...props} />
+        </BotsContext.Provider>
       </UsageStatsContext.Provider>
     </CanRefreshContext.Provider>
   );
@@ -565,6 +580,7 @@ type WorkspaceProps = {
   targetReady: boolean;
   canRefresh: boolean;
   usageStats: UsageStats;
+  bots: BotOption[];
   sources: SourceOption[];
   testCaseCount: number;
   jobs: JobView[];

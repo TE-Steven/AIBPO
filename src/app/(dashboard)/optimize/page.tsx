@@ -1,7 +1,7 @@
 import { requireCompanyUser } from "@/lib/session";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { getBotTestTarget } from "@/lib/botTest";
+import { getBotTestSettings } from "@/lib/botTest";
 import { isJobLoopRunning, jobLabel } from "@/lib/optimizationRunner";
 import { findAiModel } from "@/lib/aiModels";
 import { OptimizeWorkspace, type JobView, type SourceOption } from "./OptimizeWorkspace";
@@ -14,7 +14,7 @@ export default async function OptimizePage() {
 
   const roleIds = (await prisma.role.findMany({ where: { companyId: session.companyId }, select: { id: true } })).map((r) => r.id);
   const [target, sources, entryCounts, testCaseCount, jobs, questionCounts, deployed] = await Promise.all([
-    getBotTestTarget(session.companyId),
+    getBotTestSettings(session.companyId),
     prisma.kmSource.findMany({ where: { roleId: session.roleId }, select: { id: true, title: true }, orderBy: { createdAt: "desc" } }),
     prisma.kmEntry.groupBy({ by: ["sourceId", "kind", "confirmed"], where: { roleId: session.roleId }, _count: { _all: true } }),
     prisma.testCase.count({ where: { roleId: session.roleId, archived: false } }),
@@ -53,6 +53,7 @@ export default async function OptimizePage() {
   ]);
   // 「從某版繼續」的任務：起點版本的名稱
   const baseIds = jobs.flatMap((j) => (j.baseVersionId ? [j.baseVersionId] : []));
+  const botOptions = (target?.bots ?? []).map((b) => ({ id: b.id, name: b.name, description: b.description, channel: b.platformId }));
   const versionNames = new Map(
     (baseIds.length > 0 ? await prisma.kbVersion.findMany({ where: { id: { in: baseIds } }, select: { id: true, name: true } }) : []).map((v) => [
       v.id,
@@ -97,6 +98,8 @@ export default async function OptimizePage() {
     id: j.id,
     label: jobLabel(j, j.source),
     seq: j.seq,
+    botId: j.botId,
+    botName: j.botName,
     judgeModel: j.judgeModel,
     learnWaitMinutes: j.learnWaitMinutes,
     reviseModel: j.reviseModel,
@@ -146,7 +149,8 @@ export default async function OptimizePage() {
         </p>
       </div>
       <OptimizeWorkspace
-        targetReady={Boolean(target?.knowledgePlatformId)}
+        targetReady={Boolean(target?.knowledgePlatformId && target.bots.length > 0)}
+        bots={botOptions}
         canRefresh={Boolean(target?.clientId && target?.clientSecret && target?.tokenCompanyId && target?.tokenCompanyCode)}
         usageStats={{ judge: judgeTokens, revise: reviseTokens }}
         sources={sourceOptions}

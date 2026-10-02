@@ -12,6 +12,7 @@ import {
 import { POINT_STATUS_LABELS, type JudgeDetail, type KeyPoint, type PointStatus } from "@/lib/keyPoints";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconX } from "@/components/icons";
 import { AI_MODELS, modelCostUsd } from "@/lib/aiModels";
+import type { BotOption } from "@/lib/botTest";
 
 // 自動優化頁面（任務／版本分頁）共用的元件
 
@@ -130,6 +131,28 @@ export function formatTwd(usdValue: number): string {
 }
 
 export const UsageStatsContext = createContext<UsageStats>({ judge: null, revise: null });
+
+// 公司設定的機器人（自動優化問題目用；md 一律上傳到同一個知識庫）
+export const BotsContext = createContext<BotOption[]>([]);
+
+export function BotSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const bots = useContext(BotsContext);
+  const current = bots.find((b) => b.id === value);
+  return (
+    <div>
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="要問哪一隻機器人" className={inputClass}>
+        {bots.map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11px] text-slate-400">
+        {current?.description || "（沒有說明）"}・channel {current?.channel}。md 一律上傳到同一個知識庫，這裡只決定問哪一隻機器人。
+      </p>
+    </div>
+  );
+}
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (

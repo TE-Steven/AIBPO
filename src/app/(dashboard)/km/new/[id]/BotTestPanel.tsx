@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { stripBotDisclaimer } from "@/lib/botTestShared";
 import { IconAlertTriangle, IconKey, IconSparkles, IconX } from "@/components/icons";
+import type { BotOption } from "@/lib/botTest";
 import { isPassVerdict } from "@/lib/keyPoints";
 
 export type BotTestResultView = {
@@ -30,6 +31,9 @@ export type BotTestRunView = {
   completed: number;
   errorMessage: string | null;
   createdAt: string;
+  // 測試的是哪一隻機器人（舊紀錄沒有）
+  botId: string | null;
+  botName: string | null;
   results: BotTestResultView[];
   // 這次測試之後才新增、還沒測過的題目
   untested: { entryId: string; question: string; expectedAnswer: string }[];
@@ -94,13 +98,15 @@ export function BotTestPanel({
   sourceId,
   entryCount,
   runs,
-  targetLabel,
+  bots,
 }: {
   sourceId: string;
   entryCount: number;
   runs: BotTestRunView[];
-  targetLabel: string | null;
+  // 公司設定的機器人（可以下拉選要問哪一隻）
+  bots: BotOption[];
 }) {
+  const hasBots = bots.length > 0;
   const router = useRouter();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(runs[0]?.id ?? null);
   const [patches, setPatches] = useState<Record<string, Patch>>({});
@@ -110,6 +116,7 @@ export function BotTestPanel({
   const [modal, setModal] = useState<ModalState | null>(null);
   // token 每次開始測試／重新測試都要重新輸入，不留在頁面上。
   const [tokenInput, setTokenInput] = useState("");
+  const [botId, setBotId] = useState<string>(bots[0]?.id ?? "");
   const [judging, setJudging] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   // 「重新測試」的勾選模式
@@ -149,6 +156,9 @@ export function BotTestPanel({
 
   function openModal(next: ModalState) {
     setTokenInput("");
+    // 重新測試預設用這次測試的機器人；新測試預設第一隻
+    const runBot = next.mode === "retest" ? runs.find((r) => r.id === next.runId)?.botId : null;
+    setBotId(runBot && bots.some((b) => b.id === runBot) ? runBot : (bots[0]?.id ?? ""));
     setModal(next);
   }
 
@@ -158,8 +168,8 @@ export function BotTestPanel({
     setTokenInput("");
     const payload =
       modal.mode === "retest"
-        ? { token: useToken, runId: modal.runId, resultIds: modal.resultIds, entryIds: modal.entryIds }
-        : { token: useToken };
+        ? { token: useToken, botId, runId: modal.runId, resultIds: modal.resultIds, entryIds: modal.entryIds }
+        : { token: useToken, botId };
     if (modal.mode === "retest") {
       const resetIds = modal.resultIds;
       setPatches((p) => {
@@ -333,7 +343,7 @@ export function BotTestPanel({
                   >
                     {runs.map((r) => (
                       <option key={r.id} value={r.id}>
-                        {formatTime(r.createdAt)}（{RUN_STATUS[r.status] ?? r.status}）
+                        {formatTime(r.createdAt)}（{RUN_STATUS[r.status] ?? r.status}）{r.botName ? `・${r.botName}` : ""}
                       </option>
                     ))}
                   </select>
@@ -342,7 +352,7 @@ export function BotTestPanel({
                   <button
                     type="button"
                     onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-                    disabled={running || !targetLabel}
+                    disabled={running || !hasBots}
                     className={`rounded-lg border px-3.5 py-2 text-xs font-semibold transition disabled:opacity-50 ${
                       selectMode
                         ? "border-teal-300 bg-teal-50 text-teal-700"
@@ -365,7 +375,7 @@ export function BotTestPanel({
                 <button
                   type="button"
                   onClick={() => openModal({ mode: "run" })}
-                  disabled={running || !targetLabel || entryCount === 0 || runs.length > 0}
+                  disabled={running || !hasBots || entryCount === 0 || runs.length > 0}
                   title={runs.length > 0 ? "這個來源已經測試過，請用「重新測試」" : undefined}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:opacity-50"
                 >
@@ -376,7 +386,7 @@ export function BotTestPanel({
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {!targetLabel && (
+              {!hasBots && (
                 <p className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-100">
                   <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   這間公司還沒設定機器人 API，請聯絡平台管理員設定後才能測試。
@@ -561,7 +571,7 @@ export function BotTestPanel({
                               <td className="px-3 py-2.5 text-slate-300">—</td>
                               <td className="px-3 py-2.5">
                                 <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500">未測試</span>
-                                {!running && !selectMode && targetLabel && (
+                                {!running && !selectMode && hasBots && (
                                   <button
                                     type="button"
                                     onClick={() => openModal({ mode: "retest", runId: selectedRun.id, resultIds: [], entryIds: [u.entryId] })}
@@ -587,7 +597,7 @@ export function BotTestPanel({
                   </div>
                 </div>
               )}
-              {!selectedRun && targetLabel && (
+              {!selectedRun && hasBots && (
                 <p className="py-16 text-center text-sm text-slate-400">還沒有測試紀錄，按右上角「開始機器人測試」開始。</p>
               )}
             </div>
@@ -609,8 +619,24 @@ export function BotTestPanel({
             </div>
             <dl className="mb-4 space-y-1.5 rounded-lg bg-slate-50 p-3 text-xs">
               <div className="flex gap-2">
-                <dt className="w-16 shrink-0 text-slate-400">測試目標</dt>
-                <dd className="break-all text-slate-700">{targetLabel}</dd>
+                <dt className="w-16 shrink-0 pt-1.5 text-slate-400">機器人</dt>
+                <dd className="min-w-0 flex-1">
+                  <select
+                    value={botId}
+                    onChange={(e) => setBotId(e.target.value)}
+                    aria-label="要問哪一隻機器人"
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
+                  >
+                    {bots.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 break-all text-[11px] text-slate-400">
+                    {bots.find((b) => b.id === botId)?.description || "（沒有說明）"}・channel {bots.find((b) => b.id === botId)?.channel}
+                  </p>
+                </dd>
               </div>
               <div className="flex gap-2">
                 <dt className="w-16 shrink-0 text-slate-400">題數</dt>

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { toggleCompanyMemberActiveAction, toggleCompanyMemberAdminAction } from "./actions";
 import { CreateCompanyMemberForm, ResetCompanyMemberPasswordForm } from "./CompanyMemberForms";
 import { BotTestTargetForm } from "./BotTestTargetForm";
-import { getBotTestTarget, DEFAULT_BOT_TEST_TARGET } from "@/lib/botTest";
+import { getBotTestSettings, DEFAULT_SHARED_SETTINGS } from "@/lib/botTest";
 import { IconUsers, IconArrowLeft, IconShieldCheck } from "@/components/icons";
 
 export default async function PlatformCompanyDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +22,7 @@ export default async function PlatformCompanyDetailPage({ params }: { params: Pr
       orderBy: { createdAt: "asc" },
     }),
     prisma.role.findMany({ where: { companyId: id }, orderBy: { name: "asc" } }),
-    getBotTestTarget(id),
+    getBotTestSettings(id),
   ]);
 
   return (
@@ -117,13 +117,13 @@ export default async function PlatformCompanyDetailPage({ params }: { params: Pr
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">機器人測試 API 設定</h2>
         <p className="mb-4 mt-1 text-xs text-slate-500">
-          這間公司在 KM 來源頁做「機器人測試」時，會把題目送到這組 API。
-          {!botTestTarget && <span className="ml-1 text-amber-600">尚未設定，公司成員目前無法使用機器人測試。</span>}
+          可以設定多隻機器人；公司成員做機器人測試、版本測試、自動優化時，可以下拉選要問哪一隻。
+          {!botTestTarget?.bots.length && <span className="ml-1 text-amber-600">尚未設定，公司成員目前無法使用機器人測試。</span>}
         </p>
         {/* client_secret 不送到瀏覽器，只告訴表單有沒有設定過 */}
         <BotTestTargetForm
           companyId={id}
-          target={{ ...(botTestTarget ?? DEFAULT_BOT_TEST_TARGET), clientSecret: "" }}
+          settings={(({ clientSecret: _secret, ...rest }) => (void _secret, rest))(botTestTarget ?? { ...DEFAULT_SHARED_SETTINGS, bots: [] })}
           hasClientSecret={Boolean(botTestTarget?.clientSecret)}
         />
       </div>

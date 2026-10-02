@@ -9,7 +9,7 @@ import { EditableTitle } from "./EditableTitle";
 import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
 import { AnalysisStuckNotice } from "./AnalysisStuckNotice";
 import { BotTestPanel } from "./BotTestPanel";
-import { getBotTestTarget } from "@/lib/botTest";
+import { getBotOptions } from "@/lib/botTest";
 import { companyIdForRole } from "@/lib/company";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import { getPromptConfig } from "@/lib/promptConfigStore";
@@ -45,7 +45,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
   ]);
 
   const companyId = await companyIdForRole(source.roleId);
-  const [entries, draftCount, botTestRuns, botTestTarget, promptConfig] = await Promise.all([
+  const [entries, draftCount, botTestRuns, botOptions, promptConfig] = await Promise.all([
     source.status === "DONE"
       ? prisma.kmEntry.findMany({ where: { sourceId: id }, orderBy: { createdAt: "asc" } })
       : Promise.resolve([]),
@@ -56,7 +56,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
       orderBy: { createdAt: "desc" },
       take: 10,
     }),
-    getBotTestTarget(companyId),
+    getBotOptions(companyId),
     getPromptConfig(companyId),
   ]);
   const promptOptions = resolveOptions(promptConfig);
@@ -131,7 +131,7 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           <BotTestPanel
             sourceId={source.id}
             entryCount={entries.filter((e) => e.kind === "FAQ").length}
-            targetLabel={botTestTarget ? `${botTestTarget.gatewayBaseUrl}（channel ${botTestTarget.platformId}）` : null}
+            bots={botOptions}
             runs={botTestRuns.map((r) => ({
               id: r.id,
               status: r.status,
@@ -139,6 +139,8 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
               completed: r.completed,
               errorMessage: r.errorMessage,
               createdAt: r.createdAt.toISOString(),
+              botId: r.botId,
+              botName: r.botName,
               // 這次測試之後才新增的題目：重新測試時可以勾選一起送出
               untested: entries
                 .filter((e) => e.kind === "FAQ" && !r.results.some((x) => x.entryId === e.id))

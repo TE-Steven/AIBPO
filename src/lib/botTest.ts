@@ -4,12 +4,21 @@ import { getSystemSetting, BOT_TEST_TARGET_KEY } from "@/lib/systemSettings";
 // 機器人測試：把 KM 題目送去現行 telligent chatbot，再撈回機器人的回答。
 // token 是使用者每次測試時貼上的 telligent access token（約 1 小時效期），只在記憶體裡用，不存 DB、不寫 log。
 
-export type BotTestTarget = {
+// 一間公司可以設定多隻要問的機器人（每隻：送題網址、取答案網址、channel）；
+// md 一律上傳到同一個知識庫，所以知識庫 platformId、上傳／知識庫路徑與自動換 token 的設定全公司共用。
+export type BotProfile = {
+  id: string;
+  name: string;
+  description: string;
   workflowBaseUrl: string;
   gatewayBaseUrl: string;
   platformId: string;
-  // 自動優化用的知識庫設定（選填）：知識庫的 platformId 跟聊天 channel 不同；路徑裡的 {code} 會換成 token 的 company_code
+};
+
+export type BotSharedSettings = {
+  // 自動優化上傳 md 用的知識庫 platform（全公司同一個；沒填就不能用自動優化）
   knowledgePlatformId: string;
+  // 路徑裡的 {code} 會換成 token 的 company_code
   uploadPath: string;
   knowledgePath: string;
   // 自動換 token（refresh token 換 access token）：token 網址留空就用 {送題網址}/oauth2api/connect/token
@@ -21,13 +30,18 @@ export type BotTestTarget = {
   tokenCompanyCode: string;
 };
 
+export type BotTestSettings = BotSharedSettings & { bots: BotProfile[] };
+
+// 實際呼叫 API 用的設定：選定的那隻機器人＋共用設定
+export type BotTestTarget = BotSharedSettings & Omit<BotProfile, "id" | "name" | "description"> & { botId: string; botName: string };
+
+// 給畫面下拉選單用（不含任何密碼）
+export type BotOption = { id: string; name: string; description: string; channel: string };
+
 export const DEFAULT_UPLOAD_PATH = "/{code}/file/api/file/upload";
 export const DEFAULT_KNOWLEDGE_PATH = "/{code}/knowledge/api/GenerativeKnowledge";
 
-export const DEFAULT_BOT_TEST_TARGET: BotTestTarget = {
-  workflowBaseUrl: "https://uat.telligentbiz.com",
-  gatewayBaseUrl: "https://gw-uat.telligentbiz.com",
-  platformId: "",
+export const DEFAULT_SHARED_SETTINGS: BotSharedSettings = {
   knowledgePlatformId: "",
   uploadPath: DEFAULT_UPLOAD_PATH,
   knowledgePath: DEFAULT_KNOWLEDGE_PATH,
@@ -38,33 +52,99 @@ export const DEFAULT_BOT_TEST_TARGET: BotTestTarget = {
   tokenCompanyCode: "",
 };
 
+export const DEFAULT_BOT_PROFILE: Omit<BotProfile, "id"> = {
+  name: "預設機器人",
+  description: "",
+  workflowBaseUrl: "https://uat.telligentbiz.com",
+  gatewayBaseUrl: "https://gw-uat.telligentbiz.com",
+  platformId: "",
+};
+
 // 送題後等多久才去撈答案、撈不到再隔多久重試、最多重試幾次。
 const ANSWER_WAIT_MS = 30_000;
 const ANSWER_MAX_RETRIES = 3;
 const REQUEST_TIMEOUT_MS = 120_000;
 
-export async function getBotTestTarget(companyId: string): Promise<BotTestTarget | null> {
+const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
+// 讀公司的機器人設定；舊格式（單一機器人的欄位放在最上層）自動轉成第一隻「預設機器人」
+export async function getBotTestSettings(companyId: string): Promise<BotTestSettings | null> {
   const raw = await getSystemSetting(companyId, BOT_TEST_TARGET_KEY);
-  if (!raw) return null;
+  return raw ? parseBotTestSettings(raw) : null;
+}
+
+export function parseBotTestSettings(raw: string): BotTestSettings | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<BotTestTarget>;
-    if (!parsed.workflowBaseUrl || !parsed.gatewayBaseUrl || !parsed.platformId) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const rawBots: Record<string, unknown>[] = Array.isArray(parsed.bots)
+      ? (parsed.bots as Record<string, unknown>[])
+      : parsed.workflowBaseUrl
+        ? [{ ...parsed, id: "default", name: DEFAULT_BOT_PROFILE.name }]
+        : [];
+    const bots: BotProfile[] = rawBots
+      .map((b, i) => ({
+        id: str(b.id) || `bot-${i + 1}`,
+        name: str(b.name) || `機器人 ${i + 1}`,
+        description: str(b.description),
+        workflowBaseUrl: str(b.workflowBaseUrl),
+        gatewayBaseUrl: str(b.gatewayBaseUrl),
+        platformId: str(b.platformId),
+      }))
+      .filter((b) => b.workflowBaseUrl && b.gatewayBaseUrl && b.platformId);
+    // 舊資料：知識庫 platformId 可能在最上層，或在第一隻機器人裡
+    const knowledgePlatformId = str(parsed.knowledgePlatformId) || str(rawBots[0]?.knowledgePlatformId);
     return {
-      workflowBaseUrl: parsed.workflowBaseUrl,
-      gatewayBaseUrl: parsed.gatewayBaseUrl,
-      platformId: parsed.platformId,
-      knowledgePlatformId: parsed.knowledgePlatformId?.trim() ?? "",
-      uploadPath: parsed.uploadPath?.trim() || DEFAULT_UPLOAD_PATH,
-      knowledgePath: parsed.knowledgePath?.trim() || DEFAULT_KNOWLEDGE_PATH,
-      tokenUrl: parsed.tokenUrl?.trim() ?? "",
-      clientId: parsed.clientId?.trim() ?? "",
-      clientSecret: parsed.clientSecret?.trim() ?? "",
-      tokenCompanyId: parsed.tokenCompanyId?.trim() ?? "",
-      tokenCompanyCode: parsed.tokenCompanyCode?.trim() ?? "",
+      bots,
+      knowledgePlatformId,
+      uploadPath: str(parsed.uploadPath) || DEFAULT_UPLOAD_PATH,
+      knowledgePath: str(parsed.knowledgePath) || DEFAULT_KNOWLEDGE_PATH,
+      tokenUrl: str(parsed.tokenUrl),
+      clientId: str(parsed.clientId),
+      clientSecret: str(parsed.clientSecret),
+      tokenCompanyId: str(parsed.tokenCompanyId),
+      tokenCompanyCode: str(parsed.tokenCompanyCode),
     };
   } catch {
     return null;
   }
+}
+
+export function toTarget(settings: BotTestSettings, bot: BotProfile): BotTestTarget {
+  const { bots: _bots, ...shared } = settings;
+  void _bots;
+  return {
+    ...shared,
+    botId: bot.id,
+    botName: bot.name,
+    workflowBaseUrl: bot.workflowBaseUrl,
+    gatewayBaseUrl: bot.gatewayBaseUrl,
+    platformId: bot.platformId,
+  };
+}
+
+// 取得要呼叫的機器人；沒指定（或指定的已被刪除）時用第一隻
+export async function getBotTestTarget(companyId: string, botId?: string | null): Promise<BotTestTarget | null> {
+  const settings = await getBotTestSettings(companyId);
+  if (!settings || settings.bots.length === 0) return null;
+  const bot = settings.bots.find((b) => b.id === botId) ?? settings.bots[0];
+  return toTarget(settings, bot);
+}
+
+// 指定的機器人一定要存在（例如自動優化任務、部署到後台），不自動換成別隻
+export async function getBotTestTargetStrict(companyId: string, botId: string | null | undefined): Promise<BotTestTarget | null> {
+  const settings = await getBotTestSettings(companyId);
+  const bot = settings?.bots.find((b) => b.id === botId) ?? (botId ? undefined : settings?.bots[0]);
+  return settings && bot ? toTarget(settings, bot) : null;
+}
+
+export async function getBotOptions(companyId: string): Promise<BotOption[]> {
+  const settings = await getBotTestSettings(companyId);
+  return (settings?.bots ?? []).map((b) => ({
+    id: b.id,
+    name: b.name,
+    description: b.description,
+    channel: b.platformId,
+  }));
 }
 
 export class BotTokenError extends Error {}

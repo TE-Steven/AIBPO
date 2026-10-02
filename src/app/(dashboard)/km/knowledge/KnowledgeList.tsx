@@ -52,7 +52,7 @@ export function KnowledgeList({
     setSelected((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((e) => e.id))));
   }
 
-  const exportHref = (format: "md" | "pdf") => `/api/km/export?format=${format}&ids=${Array.from(selected).join(",")}`;
+  const exportHref = (format: "md" | "pdf" | "xlsx") => `/api/km/export?format=${format}&ids=${Array.from(selected).join(",")}`;
 
   // ---- 建立版本／加入測試題庫 ----
   const [versionModal, setVersionModal] = useState(false);
@@ -196,7 +196,7 @@ export function KnowledgeList({
             <IconTrash className="h-4 w-4" />
             刪除
           </button>
-          {(["md", "pdf"] as const).map((format) => (
+          {(["md", "pdf", "xlsx"] as const).map((format) => (
             <a
               key={format}
               href={selected.size > 0 ? exportHref(format) : undefined}
@@ -207,7 +207,7 @@ export function KnowledgeList({
                   : "cursor-not-allowed bg-slate-300"
               }`}
             >
-              {format === "md" ? "匯出所選為 .md" : "匯出所選為 PDF"}
+              {format === "md" ? "匯出所選為 .md" : format === "pdf" ? "匯出所選為 PDF" : "匯出所選為 Excel"}
             </a>
           ))}
         </div>

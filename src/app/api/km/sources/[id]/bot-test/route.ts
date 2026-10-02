@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!source) return jsonError("找不到這個來源。", 404);
   if (source.roleId !== session.roleId) return jsonError("沒有權限。", 403);
 
-  const body = (await req.json().catch(() => ({}))) as { token?: unknown; runId?: unknown; resultIds?: unknown; entryIds?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { token?: unknown; botId?: unknown; runId?: unknown; resultIds?: unknown; entryIds?: unknown };
   const token = typeof body.token === "string" ? body.token.trim().replace(/^Bearer\s+/i, "") : "";
   const retestRunId = typeof body.runId === "string" ? body.runId : null;
   const stringIds = (value: unknown) =>
@@ -44,7 +44,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const companyId = await companyIdForRole(source.roleId);
-  const [target, promptConfig] = await Promise.all([getBotTestTarget(companyId), getPromptConfig(companyId)]);
+  // 要問哪一隻機器人：畫面有選就用選的；重新測試沒指定時沿用這次測試原本的機器人
+  const requestedBotId = typeof body.botId === "string" && body.botId ? body.botId : null;
+  const retestBotId =
+    !requestedBotId && retestRunId
+      ? ((await prisma.botTestRun.findUnique({ where: { id: retestRunId }, select: { botId: true } }))?.botId ?? null)
+      : null;
+  const [target, promptConfig] = await Promise.all([getBotTestTarget(companyId, requestedBotId ?? retestBotId), getPromptConfig(companyId)]);
   if (!target) return jsonError("這間公司還沒設定機器人測試 API，請聯絡平台管理員。", 400);
 
   // 決定這次要跑哪些題目
@@ -56,6 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (resultIds.length === 0 && entryIds.length === 0) return jsonError("請勾選要重新測試的題目。", 400);
     const run = await prisma.botTestRun.findUnique({ where: { id: retestRunId }, include: { results: true } });
     if (!run || run.sourceId !== id) return jsonError("找不到這次測試。", 404);
+    await prisma.botTestRun.update({ where: { id: run.id }, data: { botId: target.botId, botName: target.botName } });
 
     // 重測：只能挑這次測試裡的題目，新結果覆蓋舊的。
     const existing = await prisma.botTestResult.findMany({
@@ -124,6 +131,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         sourceId: id,
         roleId: source.roleId,
         createdById: session.id,
+        botId: target.botId,
+        botName: target.botName,
         total: entries.length,
         results: {
           create: entries.map((e, i) => ({
