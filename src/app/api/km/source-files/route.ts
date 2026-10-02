@@ -11,23 +11,29 @@ function jsonError(message: string, status: number) {
   return Response.json({ error: message }, { status });
 }
 
-async function currentUserId(): Promise<string | null> {
+async function currentUser(): Promise<{ id: string; roleId: string } | null> {
   const session = await getSession();
-  return session && session.kind === "user" ? session.id : null;
+  return session && session.kind === "user" ? { id: session.id, roleId: session.roleId } : null;
 }
 
-// POST multipart：file、imagesUsed（這個來源前面的檔案已附上的圖片張數）
+async function currentUserId(): Promise<string | null> {
+  return (await currentUser())?.id ?? null;
+}
+
+// POST multipart：file、imagesUsed（這個來源前面的檔案已附上的圖片張數）、purpose（questions＝題目來源）
 export async function POST(req: NextRequest) {
-  const userId = await currentUserId();
-  if (!userId) return jsonError("請先登入。", 401);
+  const user = await currentUser();
+  if (!user) return jsonError("請先登入。", 401);
+  const userId = user.id;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File) || file.size === 0) return jsonError("沒有收到檔案。", 400);
   const imagesUsed = Number(form?.get("imagesUsed") ?? 0) || 0;
+  const purpose = form?.get("purpose") === "questions" ? "questions" : "knowledge";
 
   try {
-    const uploaded = await processSourceFile(file, imagesUsed);
+    const uploaded = await processSourceFile(file, imagesUsed, { purpose, roleId: user.roleId });
     return Response.json({ ...signUpload(userId, uploaded), stats: uploaded.stats });
   } catch (err) {
     if (err instanceof UploadError) return jsonError(err.message, 400);

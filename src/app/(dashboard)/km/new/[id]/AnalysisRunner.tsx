@@ -30,8 +30,8 @@ function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: Que
     let imagesUsed = files.reduce((n, f) => n + f.images, 0);
     try {
       for (const [i, file] of picked.entries()) {
-        setUploading(`上傳中 ${i + 1}／${picked.length}：${file.name}`);
-        const { upload, stats } = await uploadSourceFile(file, imagesUsed);
+        setUploading(`處理中 ${i + 1}／${picked.length}：${file.name}（內容很多時會先由 AI 萃取客戶問題，可能需要 1～3 分鐘）`);
+        const { upload, stats } = await uploadSourceFile(file, imagesUsed, "questions");
         imagesUsed += stats.images;
         uploads.push(upload);
       }
@@ -89,7 +89,9 @@ function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: Que
         onChange={(e) => void addFiles(e.target.files)}
         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
       />
-      <p className="mt-1 text-[11px] text-slate-400">支援 PDF、Word（.docx）、Excel（.xlsx）、文字檔（.txt／.csv）。</p>
+      <p className="mt-1 text-[11px] text-slate-400">
+        支援 PDF、Word（.docx）、Excel（.xlsx）、文字檔（.txt／.csv）。對話紀錄很長時（超過約 30 萬字），會先由 AI 萃取出客戶問題並合併重複、記下次數，再拿去產生 FAQ；上限約 300 萬字。
+      </p>
       {uploading && <p className="mt-1.5 text-xs text-teal-700">{uploading}</p>}
       {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
     </div>

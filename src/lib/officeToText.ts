@@ -8,6 +8,9 @@ import ExcelJS from "exceljs";
 
 // 純文字檔太大時，Claude 一次讀不完，也會讓之後每次分析都很貴
 const MAX_CHARS = 1_500_000;
+
+// textOnly：只取文字（不擷取圖片，Excel 一律串流讀取），例如題目來源的對話紀錄；maxChars：字數上限
+export type OfficeOptions = { textOnly?: boolean; maxChars?: number };
 // Claude 一次請求最多讀 100 張圖，留一點餘裕給其他檔案
 export const MAX_IMAGES_PER_SOURCE = 80;
 // 單張圖片上限（Claude 讀圖的限制）；太小的多半是裝飾圖示，略過
@@ -85,7 +88,7 @@ function valueText(value: unknown): string {
   return "";
 }
 
-async function xlsxStreamToContent(buffer: Buffer): Promise<OfficeContent> {
+async function xlsxStreamToContent(buffer: Buffer, maxChars: number, textOnly: boolean): Promise<OfficeContent> {
   const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([buffer]), {
     worksheets: "emit",
     sharedStrings: "cache",
@@ -102,7 +105,7 @@ async function xlsxStreamToContent(buffer: Buffer): Promise<OfficeContent> {
       if (!cells.some(Boolean)) continue;
       rows.push(cells);
       total += cells.reduce((n, c) => n + c.length + 3, 0);
-      if (total > MAX_CHARS) throw new Error("Excel 內容太大，請拆成幾個較小的檔案。");
+      if (total > maxChars) throw new Error(`Excel 內容太大（超過 ${Math.round(maxChars / 10000)} 萬字），請拆成幾個較小的檔案。`);
     }
     if (rows.length === 0) continue;
     const width = Math.max(...rows.map((r) => r.length));
@@ -113,12 +116,14 @@ async function xlsxStreamToContent(buffer: Buffer): Promise<OfficeContent> {
       [`## 工作表：${name}`, "", `| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...body.map((r) => `| ${r.join(" | ")} |`)].join("\n"),
     );
   }
-  const note = "（檔案較大，已改用省記憶體的方式讀取，工作表裡的圖片沒有附上）";
-  return { text: sections.length > 0 ? `${note}\n\n${sections.join("\n\n")}` : "", images: [] };
+  const note = textOnly ? "" : "（檔案較大，已改用省記憶體的方式讀取，工作表裡的圖片沒有附上）\n\n";
+  return { text: sections.length > 0 ? `${note}${sections.join("\n\n")}` : "", images: [] };
 }
 
-async function xlsxToContent(buffer: Buffer, imageBudget: number): Promise<OfficeContent> {
-  if (buffer.length > XLSX_STREAM_THRESHOLD) return xlsxStreamToContent(buffer);
+async function xlsxToContent(buffer: Buffer, imageBudget: number, options: OfficeOptions): Promise<OfficeContent> {
+  if (options.textOnly || buffer.length > XLSX_STREAM_THRESHOLD) {
+    return xlsxStreamToContent(buffer, options.maxChars ?? MAX_CHARS, Boolean(options.textOnly));
+  }
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
   const collector = imageCollector(imageBudget);
@@ -149,10 +154,23 @@ async function xlsxToContent(buffer: Buffer, imageBudget: number): Promise<Offic
 }
 
 // 回傳要交給 Claude 的文字（開頭註明原始檔名與格式）與圖片；imageBudget＝這個來源還能附上的圖片張數
-export async function officeToContent(kind: OfficeKind, buffer: Buffer, fileName: string, imageBudget = MAX_IMAGES_PER_SOURCE): Promise<OfficeContent> {
-  const { text, images } = kind === "docx" ? await docxToContent(buffer, imageBudget) : await xlsxToContent(buffer, imageBudget);
+export async function officeToContent(
+  kind: OfficeKind,
+  buffer: Buffer,
+  fileName: string,
+  imageBudget = MAX_IMAGES_PER_SOURCE,
+  options: OfficeOptions = {},
+): Promise<OfficeContent> {
+  const maxChars = options.maxChars ?? MAX_CHARS;
+  const { text, images } =
+    kind === "docx"
+      ? options.textOnly
+        ? { text: (await mammoth.extractRawText({ buffer })).value.trim(), images: [] }
+        : await docxToContent(buffer, imageBudget)
+      : await xlsxToContent(buffer, imageBudget, options);
   if (!text.trim() && images.length === 0) throw new Error(`「${fileName}」裡沒有讀到任何內容。`);
-  if (text.length > MAX_CHARS) throw new Error(`「${fileName}」內容太大（約 ${Math.round(text.length / 10000)} 萬字），請拆成幾個較小的檔案。`);
+  if (text.length > maxChars) throw new Error(`「${fileName}」內容太大（約 ${Math.round(text.length / 10000)} 萬字），請拆成幾個較小的檔案。`);
+  if (options.textOnly) return { text, images: [] };
   const label =
     kind === "docx"
       ? "Word 文件（已轉成 HTML，保留標題、清單與表格結構；[圖片 N] 是原本圖片的位置，圖片另外附上）"

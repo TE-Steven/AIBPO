@@ -3,6 +3,7 @@ import { toFile } from "@anthropic-ai/sdk";
 import { PDFDocument } from "pdf-lib";
 import { anthropic } from "@/lib/anthropic";
 import { MAX_IMAGES_PER_SOURCE, officeKindOf, officeToContent } from "@/lib/officeToText";
+import { extractQuestionsFromText, QUESTION_EXTRACT_THRESHOLD, QUESTION_SOURCE_MAX_CHARS } from "@/lib/questionExtract";
 import { estimateTokens, formatBytes, maxBytesFor, type FileStats } from "@/lib/sourceLimits";
 import type { SourceFileRef } from "@/lib/kmAnalysis";
 
@@ -54,8 +55,46 @@ async function countPdfPages(buffer: Buffer, fileName: string): Promise<number> 
   }
 }
 
+// 讀 .txt／.csv：Windows 存的中文檔常是 Big5，先試 UTF-8、失敗再用 Big5
+function decodeText(buffer: Buffer): string {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    text = new TextDecoder("big5").decode(buffer);
+  }
+  return text.replace(/^\uFEFF/, "");
+}
+
+// 題目來源（例如客服對話紀錄）：只取文字；內容很多時先由 AI 萃取出客戶問題清單再上傳（AI 一次讀不完整份紀錄）
+async function processQuestionFile(file: File, kind: "docx" | "xlsx" | "text", buffer: Buffer, roleId: string | null): Promise<UploadedFile> {
+  const raw =
+    kind === "text"
+      ? decodeText(buffer)
+      : (await officeToContent(kind, buffer, file.name, 0, { textOnly: true, maxChars: QUESTION_SOURCE_MAX_CHARS })).text;
+  if (!raw.trim()) throw new UploadError(`「${file.name}」是空的。`);
+  if (raw.length > QUESTION_SOURCE_MAX_CHARS) {
+    throw new UploadError(`「${file.name}」內容太大（約 ${Math.round(raw.length / 10000)} 萬字，上限 ${QUESTION_SOURCE_MAX_CHARS / 10000} 萬字），請拆成幾個檔案。`);
+  }
+  const text =
+    raw.length > QUESTION_EXTRACT_THRESHOLD
+      ? await extractQuestionsFromText(raw, file.name, roleId)
+      : `【原始檔案：${file.name}】\n\n${raw}`;
+  const uploaded = await anthropic.files.upload({ file: await toFile(Buffer.from(text, "utf8"), `${file.name}.txt`, { type: "text/plain" }) });
+  const base = { kind, pages: 0, chars: text.length, images: 0 } as const;
+  return {
+    refs: [{ fileId: uploaded.id, fileName: file.name, kind: "document" }],
+    stats: { fileName: file.name, bytes: file.size, ...base, estTokens: estimateTokens(base) },
+  };
+}
+
 // imagesUsed：這個來源前面的檔案已經附上的圖片張數（每個來源最多 80 張）
-export async function processSourceFile(file: File, imagesUsed: number): Promise<UploadedFile> {
+// purpose：knowledge＝知識來源；questions＝題目來源（只取文字，太大時先萃取問題）
+export async function processSourceFile(
+  file: File,
+  imagesUsed: number,
+  options: { purpose?: "knowledge" | "questions"; roleId?: string | null } = {},
+): Promise<UploadedFile> {
   const kind = officeKindOf(file);
   if (kind === "legacy") throw new UploadError(`「${file.name}」是舊版 .doc／.xls，請在 Word／Excel 另存成 .docx／.xlsx 再上傳。`);
   if (kind === null) throw new UploadError(`「${file.name}」不是 PDF、Word（.docx）、Excel（.xlsx）或文字檔（.txt／.csv）。`);
@@ -64,6 +103,7 @@ export async function processSourceFile(file: File, imagesUsed: number): Promise
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  if (options.purpose === "questions" && kind !== "pdf") return processQuestionFile(file, kind, buffer, options.roleId ?? null);
   if (kind === "pdf") {
     const pages = await countPdfPages(buffer, file.name);
     const uploaded = await anthropic.files.upload({ file: await toFile(buffer, file.name, { type: "application/pdf" }) });
@@ -75,14 +115,7 @@ export async function processSourceFile(file: File, imagesUsed: number): Promise
   }
 
   if (kind === "text") {
-    // .txt／.csv：Windows 存的中文檔常是 Big5，先試 UTF-8、失敗再用 Big5 讀，統一轉成 UTF-8 上傳
-    let text: string;
-    try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-    } catch {
-      text = new TextDecoder("big5").decode(buffer);
-    }
-    text = text.replace(/^\uFEFF/, "");
+    const text = decodeText(buffer);
     if (!text.trim()) throw new UploadError(`「${file.name}」是空的。`);
     const uploaded = await anthropic.files.upload({
       file: await toFile(Buffer.from(`【原始檔案：${file.name}】\n\n${text}`, "utf8"), `${file.name}.txt`, { type: "text/plain" }),

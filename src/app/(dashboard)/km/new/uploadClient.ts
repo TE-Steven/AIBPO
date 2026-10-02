@@ -24,10 +24,16 @@ export function precheckSourceFile(file: File): string | null {
   return null;
 }
 
-export async function uploadSourceFile(file: File, imagesUsed: number): Promise<{ upload: SignedUpload; stats: FileStats }> {
+// purpose：questions＝題目來源（只取文字，內容很多時伺服器會先由 AI 萃取出問題清單）
+export async function uploadSourceFile(
+  file: File,
+  imagesUsed: number,
+  purpose: "knowledge" | "questions" = "knowledge",
+): Promise<{ upload: SignedUpload; stats: FileStats }> {
   const form = new FormData();
   form.append("file", file);
   form.append("imagesUsed", String(imagesUsed));
+  form.append("purpose", purpose);
   const res = await fetch("/api/km/source-files", { method: "POST", body: form });
   const data = (await res.json().catch(() => ({}))) as { error?: string; payload?: string; signature?: string; stats?: FileStats };
   if (!res.ok || !data.payload || !data.signature || !data.stats) throw new Error(data.error ?? `上傳失敗（HTTP ${res.status}）`);
