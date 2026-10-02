@@ -25,6 +25,7 @@ import {
 import { collapseUnchanged, diffLines, diffStats } from "@/lib/lineDiff";
 import { EDIT_CAUSE_LABELS, type EditCause, type RevisionLog } from "@/lib/optimizationPrompts";
 import { IconSparkles } from "@/components/icons";
+import { isPassVerdict } from "@/lib/keyPoints";
 
 // 「從這版繼續」需要的起點版本資訊
 export type ContinueBase = {
@@ -173,8 +174,9 @@ export function CompareModal({ ids, onClose }: { ids: [string, string]; onClose:
     const byQuestion = new Map(a.results.map((r) => [r.question.trim(), r]));
     return b.results.map((rb) => {
       const ra = byQuestion.get(rb.question.trim()) ?? null;
-      const okA = ra?.verdict === "MATCH";
-      const okB = rb.verdict === "MATCH";
+      // 答對：一致或部分一致
+      const okA = isPassVerdict(ra?.verdict);
+      const okB = isPassVerdict(rb.verdict);
       const change = !ra ? "new" : okA && !okB ? "regressed" : !okA && okB ? "improved" : okB ? "same-ok" : "same-wrong";
       return { question: rb.question, isSimilar: rb.isSimilar, a: ra, b: rb, change };
     });

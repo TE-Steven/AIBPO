@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { updateVersionAction, deleteVersionAction } from "./actions";
 import { accuracyOf, formatDateTime, type VersionView } from "./knowledgeTypes";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconPencil, IconSparkles, IconTrash, IconX } from "@/components/icons";
+import { isPassVerdict } from "@/lib/keyPoints";
 
 function tokenMinutesLeft(token: string): number | null {
   try {
@@ -132,7 +133,7 @@ function VersionRow({
           if (event === "start") {
             setProgress({ done: 0, total: data.total, matched: 0 });
           } else if (event === "result") {
-            setProgress((p) => (p ? { ...p, done: p.done + 1, matched: p.matched + (data.judgeVerdict === "MATCH" ? 1 : 0) } : p));
+            setProgress((p) => (p ? { ...p, done: p.done + 1, matched: p.matched + (isPassVerdict(data.judgeVerdict) ? 1 : 0) } : p));
           } else if (event === "done") {
             setMessage(data.status === "FAILED" ? { error: data.errorMessage ?? "測試中斷。" } : { success: "測試完成，可以到「版本比較」查看每一題的結果。" });
           }

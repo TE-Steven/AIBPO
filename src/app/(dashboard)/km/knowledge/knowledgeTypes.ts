@@ -1,3 +1,5 @@
+import { isPassVerdict } from "@/lib/keyPoints";
+
 // 知識列表頁（題目／版本／測試題庫／版本比較）在 server 頁面與 client 元件之間傳的資料形狀
 
 export type VersionResultView = {
@@ -47,7 +49,8 @@ export type TestCaseView = {
 
 export function accuracyOf(run: VersionRunView | null): { matched: number; total: number; percent: number } | null {
   if (!run || run.total === 0) return null;
-  const matched = run.results.filter((r) => r.judgeVerdict === "MATCH").length;
+  // 答對：一致或部分一致
+  const matched = run.results.filter((r) => isPassVerdict(r.judgeVerdict)).length;
   return { matched, total: run.total, percent: Math.round((matched / run.total) * 100) };
 }
 
@@ -90,8 +93,8 @@ export function buildComparison(versions: VersionView[]): CompareRow[] {
       const prev = row.cells[versions.length - 2];
       const curr = row.cells[versions.length - 1];
       if (!prev || !curr) continue;
-      const prevOk = prev.judgeVerdict === "MATCH";
-      const currOk = curr.judgeVerdict === "MATCH";
+      const prevOk = isPassVerdict(prev.judgeVerdict);
+      const currOk = isPassVerdict(curr.judgeVerdict);
       row.change =
         !prevOk && currOk ? "improved" : prevOk && !currOk ? "regressed" : (prev.botAnswer ?? "") !== (curr.botAnswer ?? "") ? "changed" : "same";
     }

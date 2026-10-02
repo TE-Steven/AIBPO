@@ -30,7 +30,6 @@ import {
   type RevisionLog,
 } from "@/lib/optimizationPrompts";
 import { applyMdEdits, type MdEdit } from "@/lib/mdEdits";
-import type { JudgeDetail } from "@/lib/keyPoints";
 import {
   createKnowledge,
   deleteKnowledge,
@@ -45,6 +44,7 @@ import {
   waitUntilDeleted,
   waitUntilAllLearned,
 } from "@/lib/telligentKb";
+import { isPassVerdict, type JudgeDetail } from "@/lib/keyPoints";
 
 // 自動優化的背景迴圈：每一輪 上傳 md → 後台學習 → 全部題目問機器人＋AI 比對 → 算分 → 沒達標就請 Claude 依答錯清單改整份 md。
 // 每一步做完都寫回 DB（resumeStep），所以暫停（token 過期、伺服器重啟）後貼新 token 可以從中斷的那一步繼續。
@@ -635,7 +635,7 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
   // 計分：全部題目一起算；原題、相似題另外算，看機器人是不是只會背原題
   const results = await prisma.versionTestResult.findMany({ where: { runId }, include: { jobQuestion: { select: { isSimilar: true } } } });
   const pct = (list: typeof results) =>
-    list.length === 0 ? null : Math.round((list.filter((r) => r.judgeVerdict === "MATCH").length / list.length) * 100);
+    list.length === 0 ? null : Math.round((list.filter((r) => isPassVerdict(r.judgeVerdict)).length / list.length) * 100);
   const scoreAll = pct(results) ?? 0;
   const scoreOriginal = pct(results.filter((r) => !r.jobQuestion?.isSimilar));
   const scoreSimilar = pct(results.filter((r) => r.jobQuestion?.isSimilar));
@@ -735,9 +735,9 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   });
   if (!run) throw new Error(`找不到 ${base.name} 的測試結果。`);
 
-  // 只把原題的不通過結果給 AI；相似題只當驗收（看換個問法是不是也會），避免 AI 照題目背答案
+  // 只把原題沒答對的（不一致、未回答）給 AI；部分一致算答對不再修改。相似題只當驗收，避免 AI 照題目背答案
   const skipped = await notInSourceQuestions(job.id);
-  const failing = run.results.filter((r) => r.judgeVerdict !== "MATCH" && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim()));
+  const failing = run.results.filter((r) => !isPassVerdict(r.judgeVerdict) && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim()));
   if (failing.length === 0) {
     await finishJob(job.id, "原題都已通過（或只剩原文沒有的題目）；相似題只當驗收、不給 AI 修改");
     return;

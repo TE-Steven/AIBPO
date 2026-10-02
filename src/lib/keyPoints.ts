@@ -16,6 +16,11 @@ export const VERDICT_LABELS: Record<string, string> = {
   ERROR: "比對失敗",
 };
 
+// 算「答對」：一致與部分一致都算（部分一致＝沒講錯，只是必要點沒講全）；正確率、版本比較、自動優化都用這個
+export function isPassVerdict(verdict: string | null | undefined): boolean {
+  return verdict === "MATCH" || verdict === "PARTIAL";
+}
+
 export const POINT_STATUS_LABELS: Record<PointStatus, string> = { COVERED: "有講到", MISSING: "沒講到", WRONG: "講錯" };
 
 const MAX_POINTS = 8;

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { stripBotDisclaimer } from "@/lib/botTestShared";
 import { IconAlertTriangle, IconKey, IconSparkles, IconX } from "@/components/icons";
+import { isPassVerdict } from "@/lib/keyPoints";
 
 export type BotTestResultView = {
   id: string;
@@ -64,7 +65,8 @@ function needsJudge(r: BotTestResultView) {
 }
 
 function accuracy(results: BotTestResultView[]) {
-  const matched = results.filter((r) => r.judgeVerdict === "MATCH").length;
+  // 答對：一致或部分一致
+  const matched = results.filter((r) => isPassVerdict(r.judgeVerdict)).length;
   return { matched, percent: results.length ? Math.round((matched / results.length) * 100) : 0 };
 }
 
@@ -284,7 +286,7 @@ export function BotTestPanel({
             {running
               ? `測試中… ${doneCount} / ${results.length || entryCount} 題完成`
               : latestRun
-                ? `上次測試 ${formatTime(latestRun.createdAt)}（${RUN_STATUS[latestRun.status] ?? latestRun.status}）：${latestAnswered} / ${latestRun.total} 題有回答，正確率 ${latestAccuracy.percent}%（${latestAccuracy.matched} / ${latestRun.total} 題一致）${latestRun.untested.length > 0 ? `・另有 ${latestRun.untested.length} 題新題目尚未測試` : ""}`
+                ? `上次測試 ${formatTime(latestRun.createdAt)}（${RUN_STATUS[latestRun.status] ?? latestRun.status}）：${latestAnswered} / ${latestRun.total} 題有回答，正確率 ${latestAccuracy.percent}%（${latestAccuracy.matched} / ${latestRun.total} 題答對）${latestRun.untested.length > 0 ? `・另有 ${latestRun.untested.length} 題新題目尚未測試` : ""}`
                 : `把這個來源的 ${entryCount} 題逐題丟給現行機器人，並排對照標準答案與機器人回答。`}
           </p>
         </div>
