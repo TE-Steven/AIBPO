@@ -168,3 +168,22 @@ export async function setTestCaseArchivedAction(testCaseId: string, archived: bo
   revalidatePath(PATH);
   return { success: archived ? "已停用這一題。" : "已重新啟用這一題。" };
 }
+
+// ---------------- 刪除知識列表的題目 ----------------
+
+// unconfirm：移出知識列表（題目留在 KM 來源，之後可以再加回來）；delete：永久刪除題目。
+// 已建立的版本與測試題庫存的是快照，不受影響。
+export async function removeEntriesAction(entryIds: string[], mode: "unconfirm" | "delete"): Promise<KnowledgeActionResult> {
+  const session = await requireCompanyUser();
+  if (entryIds.length === 0) return { error: "請先勾選題目。" };
+  const where = { id: { in: entryIds }, roleId: session.roleId, confirmed: true };
+  const sourceIds = [...new Set((await prisma.kmEntry.findMany({ where, select: { sourceId: true } })).map((e) => e.sourceId))];
+
+  const { count } =
+    mode === "delete" ? await prisma.kmEntry.deleteMany({ where }) : await prisma.kmEntry.updateMany({ where, data: { confirmed: false } });
+  if (count === 0) return { error: "沒有可以處理的題目。" };
+
+  revalidatePath(PATH);
+  for (const id of sourceIds) revalidatePath(`/km/new/${id}`);
+  return { success: mode === "delete" ? `已永久刪除 ${count} 題。` : `已把 ${count} 題移出知識列表（KM 來源裡仍保留，可以再加回來）。` };
+}

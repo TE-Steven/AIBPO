@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { EntryCard, type KmEntryLike } from "../EntryCard";
-import { createVersionAction, addToTestBankAction } from "./actions";
-import { IconAlertTriangle, IconCheckCircle, IconChevronDown, IconX } from "@/components/icons";
+import { createVersionAction, addToTestBankAction, removeEntriesAction } from "./actions";
+import { IconAlertTriangle, IconCheckCircle, IconChevronDown, IconTrash, IconX } from "@/components/icons";
 
 type Entry = KmEntryLike & { tallyId: string | null; sourceId: string; sourceTitle: string };
 
@@ -81,6 +81,21 @@ export function KnowledgeList({
         setVersionName("");
         setVersionNote("");
         onVersionCreated?.();
+      }
+    });
+  }
+
+  // ---- 刪除：移出知識列表或永久刪除 ----
+  const [removeModal, setRemoveModal] = useState(false);
+  const [removeMode, setRemoveMode] = useState<"unconfirm" | "delete">("unconfirm");
+
+  function removeEntries() {
+    startTransition(async () => {
+      const result = await removeEntriesAction(Array.from(selected), removeMode);
+      setMessage(result);
+      if (result.success) {
+        setRemoveModal(false);
+        setSelected(new Set());
       }
     });
   }
@@ -168,6 +183,19 @@ export function KnowledgeList({
           >
             加入測試題庫
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMessage({});
+              setRemoveMode("unconfirm");
+              setRemoveModal(true);
+            }}
+            disabled={selected.size === 0 || pending}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+          >
+            <IconTrash className="h-4 w-4" />
+            刪除
+          </button>
           {(["md", "pdf"] as const).map((format) => (
             <a
               key={format}
@@ -194,6 +222,62 @@ export function KnowledgeList({
           {message.error ? <IconAlertTriangle className="h-4 w-4 shrink-0" /> : <IconCheckCircle className="h-4 w-4 shrink-0" />}
           {message.error ?? message.success}
         </p>
+      )}
+
+      {removeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setRemoveModal(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">刪除 {selected.size} 題</h3>
+              <button type="button" onClick={() => setRemoveModal(false)} aria-label="關閉" className="text-slate-400 hover:text-slate-600">
+                <IconX className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {(
+                [
+                  { value: "unconfirm", label: "移出知識列表", desc: "題目仍留在 KM 來源裡，之後可以在來源頁重新勾選加回來。" },
+                  { value: "delete", label: "永久刪除", desc: "題目從系統刪除，KM 來源裡也看不到，無法復原。" },
+                ] as const
+              ).map((o) => (
+                <label
+                  key={o.value}
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
+                    removeMode === o.value ? (o.value === "delete" ? "border-rose-300 bg-rose-50/60" : "border-teal-300 bg-teal-50/60") : "border-slate-200"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="remove-mode"
+                    checked={removeMode === o.value}
+                    onChange={() => setRemoveMode(o.value)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className={`block text-sm font-semibold ${o.value === "delete" ? "text-rose-700" : "text-slate-800"}`}>{o.label}</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">{o.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-slate-400">已建立的版本與測試題庫存的是當時的內容，不受影響。</p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => setRemoveModal(false)} className="px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700">
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={removeEntries}
+                disabled={pending}
+                className={`rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50 ${
+                  removeMode === "delete" ? "bg-rose-600 hover:bg-rose-700" : "bg-gradient-to-r from-teal-600 to-cyan-500"
+                }`}
+              >
+                {pending ? "處理中…" : removeMode === "delete" ? `永久刪除 ${selected.size} 題` : `移出 ${selected.size} 題`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {versionModal && (
