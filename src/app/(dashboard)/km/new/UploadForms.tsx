@@ -52,7 +52,7 @@ export function UploadWizard() {
             className={inputClass}
           />
           <p className="mt-1 text-xs text-slate-400">
-            支援 PDF、Word（.docx）、Excel（.xlsx），可以一次選取多個。Word／Excel 會轉成文字給 AI 讀（保留標題、清單、表格），圖片不會保留；舊版 .doc／.xls 請先另存新格式。
+            支援 PDF、Word（.docx）、Excel（.xlsx），可以一次選取多個。Word／Excel 會轉成文字給 AI 讀（保留標題、清單、表格），裡面的圖片也會一起附上（PNG／JPG／GIF／WebP）；舊版 .doc／.xls 請先另存新格式。
           </p>
         </div>
 

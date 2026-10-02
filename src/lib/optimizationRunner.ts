@@ -13,7 +13,7 @@ import { resolveOptions, type PromptConfigData } from "@/lib/promptConfig";
 import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings";
 import { buildKnowledgeMarkdown, tallyPathOf, type ExportEntry } from "@/lib/kmExport";
 import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
-import { getSourceFiles, getSourceUrls } from "@/lib/kmAnalysis";
+import { getSourceFiles, getSourceUrls, sourceFileBlocks } from "@/lib/kmAnalysis";
 import { tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
@@ -683,9 +683,7 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
 
 // 把範圍內所有來源的原始文件（PDF＋網址）當成同一份參考資料附上
 function buildSourcesContent(sources: KmSource[]): { blocks: Anthropic.ContentBlockParam[]; urls: string[] } {
-  const blocks: Anthropic.ContentBlockParam[] = sources.flatMap((s) =>
-    getSourceFiles(s).map((f) => ({ type: "document" as const, source: { type: "file" as const, file_id: f.fileId }, title: f.fileName })),
-  );
+  const blocks: Anthropic.ContentBlockParam[] = sources.flatMap((s) => sourceFileBlocks(getSourceFiles(s)));
   const urls = [...new Set(sources.flatMap((s) => getSourceUrls(s)))];
   return { blocks, urls };
 }

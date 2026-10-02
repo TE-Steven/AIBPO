@@ -164,7 +164,24 @@ export function buildJudgeSystemPrompt(config?: PromptConfigData): string {
   return `${ruleText(config, "jp.intro")}\n${ruleLines(config, ["P1", "P2", "P3", "P4"])}`;
 }
 
-export type SourceFileRef = { fileId: string; fileName: string };
+// kind：document（PDF 或 Word／Excel 轉成的純文字）或 image（Word／Excel 裡取出的圖片，label 是文字裡的「[圖片 N]」標記）；舊資料沒有 kind＝document
+export type SourceFileRef = { fileId: string; fileName: string; kind?: "document" | "image"; label?: string };
+
+function isDocumentRef(f: SourceFileRef): boolean {
+  return f.kind !== "image";
+}
+
+// 把來源檔案轉成交給 Claude 的內容區塊：文件用 document，圖片前面加一句說明它是哪份文件的第幾張圖
+export function sourceFileBlocks(files: SourceFileRef[]): Anthropic.ContentBlockParam[] {
+  return files.flatMap((f): Anthropic.ContentBlockParam[] =>
+    isDocumentRef(f)
+      ? [{ type: "document", source: { type: "file", file_id: f.fileId }, title: f.fileName }]
+      : [
+          { type: "text", text: `以下是《${f.fileName}》內文 ${f.label ?? "[圖片]"} 位置的圖片：` },
+          { type: "image", source: { type: "file", file_id: f.fileId } },
+        ],
+  );
+}
 
 /** 多檔案優先讀新欄位 sourceFileIds；沒有就退回舊資料的單一 sourceFileId，維持舊來源可用。 */
 export function getSourceFiles(source: KmSource): SourceFileRef[] {
@@ -188,7 +205,7 @@ export function getSourceUrls(source: KmSource): string[] {
 
 /** 來源紀錄列表/詳情頁要顯示的簡短標籤，混合來源時檔案跟網址都會列出總數。 */
 export function sourceLabel(source: KmSource): string {
-  const files = getSourceFiles(source);
+  const files = getSourceFiles(source).filter(isDocumentRef);
   const urls = getSourceUrls(source);
   const parts: string[] = [];
   if (files.length > 0) {
@@ -211,18 +228,17 @@ export function hasSourceUrls(source: KmSource): boolean {
 }
 
 export function buildUserContent(source: KmSource, task: "faq" | "documents" = "faq"): Anthropic.MessageParam["content"] {
-  const files = getSourceFiles(source);
+  const allFiles = getSourceFiles(source);
+  const files = allFiles.filter(isDocumentRef);
+  const imageCount = allFiles.length - files.length;
   const urls = getSourceUrls(source);
 
-  const documentBlocks = files.map((f) => ({
-    type: "document" as const,
-    source: { type: "file" as const, file_id: f.fileId },
-  }));
+  const documentBlocks = sourceFileBlocks(allFiles);
 
   const instructions: string[] = [];
   if (files.length > 0) {
     instructions.push(
-      files.length > 1 ? `以上附了 ${files.length} 份文件` : "以上附了一份文件",
+      `${files.length > 1 ? `以上附了 ${files.length} 份文件` : "以上附了一份文件"}${imageCount > 0 ? `，以及文件裡的 ${imageCount} 張圖片（文件內文的 [圖片 N] 標出它們原本的位置，圖片裡的資訊同樣要納入）` : ""}`,
     );
   }
   if (urls.length > 0) {

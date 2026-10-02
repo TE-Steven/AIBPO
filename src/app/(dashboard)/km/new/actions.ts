@@ -6,7 +6,8 @@ import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { requireCompanyUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic } from "@/lib/anthropic";
-import { officeKindOf, officeToText } from "@/lib/officeToText";
+import { MAX_IMAGES_PER_SOURCE, officeKindOf, officeToContent } from "@/lib/officeToText";
+import type { SourceFileRef } from "@/lib/kmAnalysis";
 
 export type CreateSourceState = { error?: string };
 
@@ -42,18 +43,32 @@ export async function createSourceAction(
   const roleId = session.roleId;
   const createdById = session.id;
 
-  const fileRefs: { fileId: string; fileName: string }[] = [];
+  const fileRefs: SourceFileRef[] = [];
+  let imageCount = 0;
   try {
     for (const [i, file] of files.entries()) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const kind = kinds[i];
-      // PDF 直接上傳；Word／Excel 先轉成文字，以純文字檔上傳（Claude 只能直接讀 PDF 與純文字）
-      const upload =
-        kind === "docx" || kind === "xlsx"
-          ? await toFile(Buffer.from(await officeToText(kind, buffer, file.name), "utf8"), `${file.name}.txt`, { type: "text/plain" })
-          : await toFile(buffer, file.name, { type: "application/pdf" });
-      const uploaded = await anthropic.files.upload({ file: upload });
-      fileRefs.push({ fileId: uploaded.id, fileName: file.name });
+      if (kind === "docx" || kind === "xlsx") {
+        // Word／Excel：文字以純文字檔上傳；裡面的圖片一張張以圖片上傳，文字裡的「[圖片 N]」標出原本的位置
+        const content = await officeToContent(kind, buffer, file.name, MAX_IMAGES_PER_SOURCE - imageCount);
+        const textFile = await anthropic.files.upload({
+          file: await toFile(Buffer.from(content.text, "utf8"), `${file.name}.txt`, { type: "text/plain" }),
+        });
+        fileRefs.push({ fileId: textFile.id, fileName: file.name, kind: "document" });
+        for (const [n, image] of content.images.entries()) {
+          const ext = image.contentType.replace("image/", "");
+          const imageFile = await anthropic.files.upload({
+            file: await toFile(image.buffer, `${file.name}-圖${n + 1}.${ext}`, { type: image.contentType }),
+          });
+          fileRefs.push({ fileId: imageFile.id, fileName: file.name, kind: "image", label: image.label });
+        }
+        imageCount += content.images.length;
+      } else {
+        // PDF 直接上傳（Claude 會一併看到 PDF 裡的圖片）
+        const uploaded = await anthropic.files.upload({ file: await toFile(buffer, file.name, { type: "application/pdf" }) });
+        fileRefs.push({ fileId: uploaded.id, fileName: file.name, kind: "document" });
+      }
     }
   } catch (err) {
     if (err instanceof Anthropic.APIError) return { error: `上傳到 Claude 失敗：${err.message}` };
