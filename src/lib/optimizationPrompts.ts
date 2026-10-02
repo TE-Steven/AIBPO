@@ -1,6 +1,6 @@
 import { ruleText, type PromptConfigData } from "@/lib/promptConfig";
 
-// 自動優化的兩份提示詞（規則在 參數管理「自動優化」分頁可開關、可改）：
+// 自動優化的提示詞（規則在 參數管理「自動優化」分頁可開關、可改）：
 // 1. AI 依答錯清單修改 md　2. 為每一題產生相似問法
 
 function ruleLines(config: PromptConfigData | undefined, ids: string[]): string {
@@ -73,4 +73,105 @@ export const SIMILAR_QUESTIONS_SCHEMA = {
   },
   required: ["items"],
   additionalProperties: false,
+};
+
+// ---------------- 診斷原因＋局部修改（預設做法） ----------------
+
+export type EditCause = "MISSING_INFO" | "HARD_TO_FIND" | "AMBIGUOUS" | "NOT_IN_SOURCE" | "RETRIEVAL";
+
+export const EDIT_CAUSE_LABELS: Record<EditCause, string> = {
+  MISSING_INFO: "md 沒寫到",
+  HARD_TO_FIND: "寫了但找不到",
+  AMBIGUOUS: "寫得矛盾或模糊",
+  NOT_IN_SOURCE: "原文就沒有",
+  RETRIEVAL: "機器人本身的問題",
+};
+
+export function buildEditSystemPrompt(params: { guidelines?: string; config?: PromptConfigData }): string {
+  const { config } = params;
+  return [
+    `${guidelinesPrefix(params.guidelines)}${ruleText(config, "ed.intro")}`,
+    ruleText(config, "opt.language"),
+    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6"])}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export type EditFailure = {
+  question: string;
+  expectedAnswer: string;
+  botAnswer: string | null;
+  verdict: string | null;
+  missing: string[];
+  wrong: string[];
+  conflicts: string[];
+  reason: string | null;
+};
+
+export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean }): string {
+  const failures = params.failures
+    .map((f, i) => {
+      const lines = [
+        `<failure index="${i + 1}">`,
+        `<question>${f.question}</question>`,
+        `<expected_answer>${f.expectedAnswer}</expected_answer>`,
+        `<bot_answer>${f.botAnswer ?? "（機器人沒有回答）"}</bot_answer>`,
+        f.missing.length > 0 ? `<missing_key_points>${f.missing.join("；")}</missing_key_points>` : "",
+        f.wrong.length > 0 ? `<wrong_key_points>${f.wrong.join("；")}</wrong_key_points>` : "",
+        f.conflicts.length > 0 ? `<conflicts>${f.conflicts.join("；")}</conflicts>` : "",
+        f.missing.length + f.wrong.length + f.conflicts.length === 0 && f.reason ? `<reason>${f.reason}</reason>` : "",
+        `</failure>`,
+      ];
+      return lines.filter(Boolean).join("\n");
+    })
+    .join("\n");
+  const note = params.splitByH1 ? `\n\n${SPLIT_BY_H1_NOTE}` : "";
+  return `以上是原始文件。\n\n<current_markdown>\n${params.markdown}\n</current_markdown>\n\n以下是機器人答錯的 ${params.failures.length} 題：\n\n${failures}\n\n請依照系統指示，先為每一題寫出 diagnoses（index 對應題號），再列出要套用到 md 的 edits。${note}`;
+}
+
+export const EDIT_SCHEMA = {
+  type: "object",
+  properties: {
+    diagnoses: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          cause: { type: "string", enum: ["MISSING_INFO", "HARD_TO_FIND", "AMBIGUOUS", "NOT_IN_SOURCE", "RETRIEVAL"] },
+          note: { type: "string" },
+        },
+        required: ["index", "cause", "note"],
+        additionalProperties: false,
+      },
+    },
+    edits: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["replace", "insert_after", "delete"] },
+          anchor: { type: "string" },
+          text: { type: "string" },
+          reason: { type: "string" },
+          questions: { type: "array", items: { type: "integer" } },
+        },
+        required: ["action", "anchor", "text", "reason", "questions"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["diagnoses", "edits"],
+  additionalProperties: false,
+};
+
+// 每一版的修改紀錄（KbVersion.revisionLog）
+export type RevisionLog = {
+  mode: "edits" | "rewrite";
+  baseVersionId: string;
+  baseVersionName: string;
+  diagnoses: { question: string; cause: EditCause; note: string }[];
+  edits: { action: string; anchor: string; text: string; reason: string; questions: string[]; applied: boolean }[];
+  growthPct: number;
 };

@@ -20,7 +20,7 @@ import {
   buildJudgeSystemPrompt,
   buildKeyPointsSystemPrompt,
 } from "@/lib/kmAnalysis";
-import { buildRevisionSystemPrompt, buildSimilarQuestionsSystemPrompt } from "@/lib/optimizationPrompts";
+import { buildEditSystemPrompt, buildRevisionSystemPrompt, buildSimilarQuestionsSystemPrompt } from "@/lib/optimizationPrompts";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import type { Tally } from "@/generated/prisma/client";
 import { savePromptConfigAction } from "./actions";
@@ -35,7 +35,7 @@ const TABS: { id: Tab; label: string; desc: string }[] = [
   { id: "doc", label: SECTION_LABELS.doc, desc: "依分類範本產生結構化文件時使用（分析時勾選 Tally，或來源頁重新產生）。" },
   { id: "rag", label: SECTION_LABELS.rag, desc: "來源頁「產生 RAG 內容」時使用，對應 .md 的 12 項檢核。" },
   { id: "judge", label: SECTION_LABELS.judge, desc: "機器人測試時，AI 先把標準答案拆成關鍵答案，再逐點檢查機器人回答；是否算一致的門檻在「數值與匯出」分頁的比對規則。" },
-  { id: "optimize", label: SECTION_LABELS.optimize, desc: "自動優化時，AI 依答錯的題目修改 md、以及產生相似題的規則。" },
+  { id: "optimize", label: SECTION_LABELS.optimize, desc: "自動優化時，AI 先診斷答錯原因、再局部修改 md 的規則（局部修改失敗才整份重寫），以及產生相似題的規則。" },
   { id: "options", label: "數值與匯出", desc: "FAQ 題數預設、結構化文件顯示方式、知識列表匯出格式、機器人測試的比對規則。" },
 ];
 
@@ -79,7 +79,12 @@ ${buildKeyPointsSystemPrompt(config)}
 
 ${buildJudgeSystemPrompt(config)}`;
     case "optimize":
-      return `【修改 md 的提示詞】
+      return `【診斷原因＋局部修改 md 的提示詞（每輪預設做法）】
+
+${buildEditSystemPrompt({ guidelines, config })}
+
+
+【整份重寫 md 的提示詞（局部修改都定位不到時才用）】
 
 ${buildRevisionSystemPrompt({ guidelines, config })}
 

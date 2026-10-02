@@ -17,11 +17,20 @@ import { getSourceFiles, getSourceUrls } from "@/lib/kmAnalysis";
 import { tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
+  buildEditSystemPrompt,
+  buildEditUserText,
   buildRevisionSystemPrompt,
   buildRevisionUserText,
   buildSimilarQuestionsSystemPrompt,
+  EDIT_CAUSE_LABELS,
+  EDIT_SCHEMA,
   SIMILAR_QUESTIONS_SCHEMA,
+  type EditCause,
+  type EditFailure,
+  type RevisionLog,
 } from "@/lib/optimizationPrompts";
+import { applyMdEdits, type MdEdit } from "@/lib/mdEdits";
+import type { JudgeDetail } from "@/lib/keyPoints";
 import {
   createKnowledge,
   deleteKnowledge,
@@ -684,31 +693,183 @@ function stripCodeFence(text: string): string {
   return (m ? m[1] : text).trim();
 }
 
+// 修改的起點：這個任務裡分數最好的版本（從某版繼續時也比較起點版本）；退步的版本不在上面疊加修改
+async function pickBaseVersion(job: OptimizationJob) {
+  const ids = [
+    ...(await prisma.kbVersion.findMany({ where: { jobId: job.id, scoreAll: { not: null } }, select: { id: true } })).map((v) => v.id),
+    ...(job.baseVersionId ? [job.baseVersionId] : []),
+  ];
+  const candidates = await prisma.kbVersion.findMany({ where: { id: { in: ids }, scoreAll: { not: null } } });
+  if (candidates.length === 0) {
+    // 起點版本還沒分數（理論上不會發生）：退回目前這一輪
+    return job.currentRun === 0 && job.baseVersionId ? prisma.kbVersion.findUnique({ where: { id: job.baseVersionId } }) : currentVersion(job);
+  }
+  // 分數相同時選涵蓋率高的，再相同選比較新的
+  return candidates.sort(
+    (a, b) =>
+      (b.scoreAll ?? 0) - (a.scoreAll ?? 0) ||
+      (b.scoreCoverage ?? 0) - (a.scoreCoverage ?? 0) ||
+      b.createdAt.getTime() - a.createdAt.getTime(),
+  )[0];
+}
+
+// 這個任務先前診斷為「原文就沒有」的題目：之後不再拿來修改
+async function notInSourceQuestions(jobId: string): Promise<Set<string>> {
+  const versions = await prisma.kbVersion.findMany({ where: { jobId }, select: { revisionLog: true } });
+  const set = new Set<string>();
+  for (const v of versions) {
+    const log = v.revisionLog as RevisionLog | null;
+    for (const d of log?.diagnoses ?? []) if (d.cause === "NOT_IN_SOURCE") set.add(d.question.trim());
+  }
+  return set;
+}
+
 async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const n = job.currentRun;
-  // 第 0 輪＝起點版本（從某個版本繼續優化時）
-  const version =
-    n === 0 && job.baseVersionId ? await prisma.kbVersion.findUnique({ where: { id: job.baseVersionId } }) : await currentVersion(job);
-  if (!version) throw new Error("找不到起點版本，可能已被刪除。");
+  const base = await pickBaseVersion(job);
+  if (!base) throw new Error("找不到要修改的版本。");
   const run = await prisma.versionTestRun.findFirst({
-    where: { versionId: version.id, status: "DONE" },
+    where: { versionId: base.id, status: "DONE" },
     orderBy: { createdAt: "desc" },
-    include: { results: { orderBy: { order: "asc" } } },
+    include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true } } } } },
   });
-  if (!run) throw new Error(n === 0 ? `找不到 ${version.name} 的測試結果。` : `找不到第 ${n} 輪的測試結果。`);
+  if (!run) throw new Error(`找不到 ${base.name} 的測試結果。`);
 
-  const failures = run.results
-    .filter((r) => r.judgeVerdict !== "MATCH")
-    .map((r) => ({ question: r.question, expectedAnswer: r.expectedAnswer, botAnswer: r.botAnswer, reason: r.judgeReason ?? r.errorMessage }));
-  const passedCount = run.results.length - failures.length;
+  // 只把原題的不通過結果給 AI；相似題只當驗收（看換個問法是不是也會），避免 AI 照題目背答案
+  const skipped = await notInSourceQuestions(job.id);
+  const failing = run.results.filter((r) => r.judgeVerdict !== "MATCH" && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim()));
+  if (failing.length === 0) {
+    await finishJob(job.id, "原題都已通過（或只剩原文沒有的題目）；相似題只當驗收、不給 AI 修改");
+    return;
+  }
+  const failures: EditFailure[] = failing.map((r) => {
+    const detail = r.judgeDetail as JudgeDetail | null;
+    return {
+      question: r.question,
+      expectedAnswer: r.expectedAnswer,
+      botAnswer: r.botAnswer,
+      verdict: r.judgeVerdict,
+      missing: (detail?.points ?? []).filter((p) => p.status === "MISSING").map((p) => `${p.required ? "【必要】" : "【次要】"}${p.text}`),
+      wrong: (detail?.points ?? []).filter((p) => p.status === "WRONG").map((p) => `${p.text}（機器人說：${p.evidence}）`),
+      conflicts: detail?.conflicts ?? [],
+      reason: r.judgeReason ?? r.errorMessage,
+    };
+  });
 
   const entries = await prisma.kmEntry.findMany({ where: { id: { in: asIds(job.entryIds) } }, select: { sourceId: true } });
   const sources = await prisma.kmSource.findMany({ where: { id: { in: [...new Set(entries.map((e) => e.sourceId))] } } });
   const { blocks, urls } = buildSourcesContent(sources);
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
+  const splitByH1 = job.contentKind === "DOC";
 
-  await setStep(job.id, n === 0 ? `AI 依 ${version.name} 答錯的 ${failures.length} 題修改 md` : `第 ${n} 輪：AI 依 ${failures.length} 題答錯修改 md`);
+  await setStep(job.id, `第 ${n} 輪：AI 診斷 ${failures.length} 題答錯的原因並修改 md（從 ${base.name} 改）`);
   // 支援自適應思考的模型用 adaptive；不支援的（例如 Haiku）給固定思考預算
+  const reviseModel = findAiModel(job.reviseModel);
+  const response = await anthropic.messages
+    .stream({
+      model: reviseModel.id,
+      max_tokens: 32000,
+      thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
+      system: buildEditSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
+      output_config: { format: { type: "json_schema", schema: EDIT_SCHEMA } },
+      ...(urls.length > 0
+        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
+        : {}),
+      messages: [
+        {
+          role: "user",
+          content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown: base.markdown, failures, splitByH1 }) }],
+        },
+      ],
+    })
+    .finalMessage();
+  await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
+  if (response.stop_reason === "max_tokens") throw new Error("AI 的修改清單太長，輸出被截斷，這一輪沒有保存。");
+
+  const parsed = JSON.parse(
+    response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join(""),
+  ) as { diagnoses: { index: number; cause: EditCause; note: string }[]; edits: MdEdit[] };
+  const diagnoses = parsed.diagnoses
+    .filter((d) => d.index >= 1 && d.index <= failures.length)
+    .map((d) => ({ question: failures[d.index - 1].question, cause: d.cause, note: d.note }));
+  const questionOf = (i: number) => failures[i - 1]?.question ?? `第 ${i} 題`;
+
+  // 沒有任何可以修的：剩下的都是原文沒有、或機器人本身的問題
+  if (parsed.edits.length === 0) {
+    const counts = Object.entries(
+      diagnoses.reduce<Record<string, number>>((acc, d) => ({ ...acc, [d.cause]: (acc[d.cause] ?? 0) + 1 }), {}),
+    )
+      .map(([cause, count]) => `${EDIT_CAUSE_LABELS[cause as EditCause] ?? cause} ${count} 題`)
+      .join("、");
+    await finishJob(job.id, `剩下答錯的題目 md 改不了（${counts || "AI 沒有提出修改"}）`);
+    return;
+  }
+
+  const editResult = applyMdEdits(base.markdown, parsed.edits);
+  const edits = editResult.edits;
+  let markdown = editResult.markdown;
+  let mode: RevisionLog["mode"] = "edits";
+  // 修改清單一項都對不上 md（定位失敗）：退回整份重寫
+  if (!edits.some((e) => e.applied)) {
+    await setStep(job.id, `第 ${n} 輪：局部修改都定位不到，改成 AI 整份重寫`);
+    markdown = await rewriteWholeMarkdown(job, ctx, base.markdown, failures, run.results.length - failures.length, blocks, urlText);
+    mode = "rewrite";
+  }
+  const growthPct = base.markdown.length > 0 ? Math.round(((markdown.length - base.markdown.length) / base.markdown.length) * 100) : 0;
+  const applied = edits.filter((e) => e.applied).length;
+  const revisionLog: RevisionLog = {
+    mode,
+    baseVersionId: base.id,
+    baseVersionName: base.name,
+    diagnoses,
+    edits: edits.map((e) => ({ action: e.action, anchor: e.anchor, text: e.text, reason: e.reason, questions: e.questions.map(questionOf), applied: e.applied })),
+    growthPct,
+  };
+
+  const source = job.sourceId ? await prisma.kmSource.findUnique({ where: { id: job.sourceId } }) : null;
+  const settings = await versionSettings(job, ctx, n + 1);
+  const note =
+    mode === "edits"
+      ? `從 ${base.name} 修改：診斷 ${failures.length} 題，套用 ${applied} 項修改${edits.length > applied ? `（${edits.length - applied} 項定位不到）` : ""}，md ${growthPct >= 0 ? "+" : ""}${growthPct}%`
+      : `從 ${base.name} 整份重寫（局部修改定位不到），md ${growthPct >= 0 ? "+" : ""}${growthPct}%`;
+  await prisma.$transaction([
+    prisma.kbVersion.deleteMany({ where: { jobId: job.id, runIndex: n + 1 } }),
+    prisma.kbVersion.create({
+      data: {
+        roleId: job.roleId,
+        name: versionName(job, jobLabel(job, source), n + 1),
+        note,
+        createdById: job.createdById,
+        markdown,
+        entries: base.entries ?? [],
+        entryCount: base.entryCount,
+        settings,
+        revisionLog,
+        jobId: job.id,
+        runIndex: n + 1,
+      },
+    }),
+    prisma.optimizationJob.update({ where: { id: job.id }, data: { currentRun: n + 1, resumeStep: "UPLOAD" } }),
+  ]);
+}
+
+async function finishJob(jobId: string, stopReason: string) {
+  await prisma.optimizationJob.update({ where: { id: jobId }, data: { status: "DONE", stopReason, currentStep: `完成：${stopReason}` } });
+}
+
+// 退回方案：AI 依答錯清單整份重寫（舊做法），只在局部修改都定位不到時使用
+async function rewriteWholeMarkdown(
+  job: OptimizationJob,
+  ctx: JobContext,
+  baseMarkdown: string,
+  failures: EditFailure[],
+  passedCount: number,
+  blocks: Anthropic.ContentBlockParam[],
+  urlText: string,
+): Promise<string> {
   const reviseModel = findAiModel(job.reviseModel);
   const response = await anthropic.messages
     .stream({
@@ -716,20 +877,35 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       max_tokens: 64000,
       thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
       system: buildRevisionSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
-      ...(urls.length > 0
-        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
-        : {}),
+      ...(urlText ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: 5 }] } : {}),
       messages: [
         {
           role: "user",
-          content: [...blocks, { type: "text" as const, text: urlText + buildRevisionUserText({ markdown: version.markdown, failures, passedCount, splitByH1: job.contentKind === "DOC" }) }],
+          content: [
+            ...blocks,
+            {
+              type: "text" as const,
+              text:
+                urlText +
+                buildRevisionUserText({
+                  markdown: baseMarkdown,
+                  failures: failures.map((f) => ({
+                    question: f.question,
+                    expectedAnswer: f.expectedAnswer,
+                    botAnswer: f.botAnswer,
+                    reason: [...f.missing.map((m) => `沒講到 ${m}`), ...f.wrong.map((w) => `講錯 ${w}`), ...f.conflicts].join("；") || f.reason,
+                  })),
+                  passedCount,
+                  splitByH1: job.contentKind === "DOC",
+                }),
+            },
+          ],
         },
       ],
     })
     .finalMessage();
   await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
   if (response.stop_reason === "max_tokens") throw new Error("修改後的 md 太長，輸出被截斷，這一輪沒有保存。");
-
   const markdown = stripCodeFence(
     response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -737,25 +913,5 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       .join("\n"),
   );
   if (!markdown) throw new Error("AI 沒有輸出修改後的 md。");
-
-  const source = job.sourceId ? await prisma.kmSource.findUnique({ where: { id: job.sourceId } }) : null;
-  const settings = await versionSettings(job, ctx, n + 1);
-  await prisma.$transaction([
-    prisma.kbVersion.deleteMany({ where: { jobId: job.id, runIndex: n + 1 } }),
-    prisma.kbVersion.create({
-      data: {
-        roleId: job.roleId,
-        name: versionName(job, jobLabel(job, source), n + 1),
-        note: `自動優化第 ${n + 1} 輪：AI 依${n === 0 ? ` ${version.name} ` : `第 ${n} 輪`}答錯的 ${failures.length} 題修改`,
-        createdById: job.createdById,
-        markdown,
-        entries: version.entries ?? [],
-        entryCount: version.entryCount,
-        settings,
-        jobId: job.id,
-        runIndex: n + 1,
-      },
-    }),
-    prisma.optimizationJob.update({ where: { id: job.id }, data: { currentRun: n + 1, resumeStep: "UPLOAD" } }),
-  ]);
+  return markdown;
 }

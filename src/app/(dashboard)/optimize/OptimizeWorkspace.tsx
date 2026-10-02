@@ -32,7 +32,7 @@ import {
   type UsageStats,
 } from "./optimizeShared";
 import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
-import { CompareModal, ContinueModal, type ContinueBase } from "./versionModals";
+import { CompareModal, ContinueModal, RevisionLogModal, type ContinueBase } from "./versionModals";
 import { LocalTime } from "@/components/LocalTime";
 import { IconAlertTriangle, IconChevronDown, IconSparkles, IconTrash, IconX } from "@/components/icons";
 
@@ -46,6 +46,7 @@ export type RunView = {
   scoreOriginal: number | null;
   scoreSimilar: number | null;
   scoreCoverage: number | null;
+  hasRevisionLog: boolean;
   inBackend: boolean;
   testStatus: string | null;
   testTotal: number;
@@ -314,7 +315,12 @@ function JobCard({
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [modal, setModal] = useState<
-    null | { kind: "resume" } | { kind: "deploy"; run: RunView } | { kind: "results"; run: RunView } | { kind: "continue"; run: RunView }
+    | null
+    | { kind: "resume" }
+    | { kind: "deploy"; run: RunView }
+    | { kind: "results"; run: RunView }
+    | { kind: "continue"; run: RunView }
+    | { kind: "revision"; run: RunView }
   >(null);
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -477,6 +483,11 @@ function JobCard({
                           逐題結果
                         </button>
                       )}
+                      {r.hasRevisionLog && (
+                        <button type="button" onClick={() => setModal({ kind: "revision", run: r })} className="text-teal-700 hover:underline">
+                          修改說明
+                        </button>
+                      )}
                       <a href={`/api/km/versions/${r.versionId}/download`} className="text-teal-700 hover:underline">
                         下載 md
                       </a>
@@ -531,6 +542,9 @@ function JobCard({
       )}
       {modal?.kind === "results" && (
         <ResultsModal versionId={modal.run.versionId} title={`${modal.run.name} 逐題結果`} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === "revision" && (
+        <RevisionLogModal versionId={modal.run.versionId} title={`${modal.run.name} 修改說明`} onClose={() => setModal(null)} />
       )}
       {modal?.kind === "continue" && <ContinueModal base={continueBase(modal.run)} onClose={() => setModal(null)} />}
     </div>

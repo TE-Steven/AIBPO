@@ -8,6 +8,7 @@ import { resolveTokenInput, type TokenCredentials } from "@/lib/telligentAuth";
 import { cleanAiModel } from "@/lib/aiModels";
 import { cleanKeyPoints, type JudgeDetail, type KeyPoint } from "@/lib/keyPoints";
 import { answerHash } from "@/lib/botJudge";
+import type { RevisionLog } from "@/lib/optimizationPrompts";
 import { KnowledgeApiError, learnKnowledge } from "@/lib/telligentKb";
 import {
   ACTIVE_JOB_STATUSES,
@@ -407,4 +408,12 @@ export async function saveKeyPointsAction(expectedAnswer: string, rawPoints: Key
     update: { points, editedByUser: true },
   });
   return { success: "已儲存，下一次比對（下一輪或重新比對）就會用新的關鍵答案。" };
+}
+
+// 某一版是怎麼改出來的（自動優化修改紀錄）
+export async function getRevisionLogAction(versionId: string): Promise<RevisionLog | null> {
+  const session = await requireCompanyUser();
+  const version = await prisma.kbVersion.findUnique({ where: { id: versionId }, select: { roleId: true, revisionLog: true } });
+  if (!version || version.roleId !== session.roleId) return null;
+  return (version.revisionLog as RevisionLog | null) ?? null;
 }

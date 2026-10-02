@@ -782,6 +782,74 @@ export const RULES: RuleDef[] = [
   },
 
   // ---------------- 自動優化：產生相似題 ----------------
+  // ---------------- 自動優化：診斷原因＋局部修改（預設做法；全部修改失敗時才退回上面的整份重寫） ----------------
+  {
+    id: "ed.intro",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "角色與任務",
+    defaultText:
+      "你是客服知識庫的編輯。使用者會給你原始文件、目前上傳到客服機器人的 md，以及機器人答錯的題目（含沒講到或講錯的關鍵答案）。請先判斷每一題答錯的原因，再對 md 提出最小幅度的修改，讓機器人下次能答對。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "E1",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "原因分類",
+    defaultText:
+      "每題的 cause 只能是：MISSING_INFO（md 沒寫到這個資訊）、HARD_TO_FIND（md 有寫，但寫法讓機器人找不到，例如沒有客戶會用的說法或同義詞、標題不像問題）、AMBIGUOUS（md 寫得矛盾、模糊或容易誤解）、NOT_IN_SOURCE（原始文件也沒有這個資訊）、RETRIEVAL（md 寫得清楚也好找，問題在機器人本身）。note 用一句繁體中文說明判斷理由。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "E2",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "只修 md 修得好的",
+    defaultText: "NOT_IN_SOURCE 與 RETRIEVAL 的題目不要提出修改，md 怎麼改都沒用。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "E3",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "最小幅度修改",
+    defaultText:
+      "只改跟答錯題目有關的段落，其他內容與結構保持原樣。每項修改的 anchor 要逐字照抄 md 裡現有的一段文字（一到三行、足以唯一定位）；action 為 replace（用 text 取代 anchor）、insert_after（在 anchor 後面插入 text）或 delete（刪除 anchor）。questions 填這項修改對應的題號。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "E4",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "找不到的補法",
+    defaultText: "HARD_TO_FIND 的題目：補上客戶可能的問法、同義詞，或把相關標題改得更像客戶的問題，不要重複貼上整段內容。",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "E5",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "只用原文資訊",
+    defaultText: "新增或修改的內容只能來自原始文件，不可以編造或推測；標準答案只用來判斷 md 缺了什麼，不要把標準答案直接貼進 md。",
+    toggleable: false,
+    editable: false,
+  },
+  {
+    id: "E6",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "修改量上限",
+    defaultText: "一輪最多處理 10 題，優先處理必要關鍵答案沒講到或講錯、而且影響多題的問題；md 總長度增加不要超過兩成。",
+    toggleable: true,
+    editable: true,
+  },
+
   {
     id: "sim.intro",
     section: "optimize",

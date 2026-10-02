@@ -4,6 +4,7 @@ import { useContext, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   compareVersionsAction,
+  getRevisionLogAction,
   continueOptimizationAction,
   type CompareSide,
   type OptimizeActionResult,
@@ -22,6 +23,7 @@ import {
   useTokenUsable,
 } from "./optimizeShared";
 import { collapseUnchanged, diffLines, diffStats } from "@/lib/lineDiff";
+import { EDIT_CAUSE_LABELS, type EditCause, type RevisionLog } from "@/lib/optimizationPrompts";
 import { IconSparkles } from "@/components/icons";
 
 // 「從這版繼續」需要的起點版本資訊
@@ -297,6 +299,83 @@ export function CompareModal({ ids, onClose }: { ids: [string, string]; onClose:
                   </div>
                 ),
               )}
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+const CAUSE_STYLE: Record<EditCause, string> = {
+  MISSING_INFO: "bg-sky-50 text-sky-700",
+  HARD_TO_FIND: "bg-violet-50 text-violet-700",
+  AMBIGUOUS: "bg-amber-50 text-amber-700",
+  NOT_IN_SOURCE: "bg-slate-100 text-slate-600",
+  RETRIEVAL: "bg-rose-50 text-rose-700",
+};
+
+const ACTION_LABEL: Record<string, string> = { replace: "改寫", insert_after: "插入", delete: "刪除" };
+
+// 這一版怎麼來的：從哪一版改、每題答錯的原因、套用了哪些修改
+export function RevisionLogModal({ versionId, title, onClose }: { versionId: string; title: string; onClose: () => void }) {
+  const [log, setLog] = useState<RevisionLog | null | undefined>(undefined);
+  useEffect(() => {
+    getRevisionLogAction(versionId).then(setLog);
+  }, [versionId]);
+
+  return (
+    <Modal title={title} onClose={onClose} wide>
+      {log === undefined ? (
+        <p className="text-xs text-slate-500">載入中…</p>
+      ) : !log ? (
+        <p className="text-xs text-slate-500">這一版沒有修改紀錄（第一輪原始內容，或是舊版本）。</p>
+      ) : (
+        <div className="space-y-5 text-xs">
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-600">
+            從 <span className="font-semibold text-slate-800">{log.baseVersionName}</span>{" "}
+            {log.mode === "edits" ? "局部修改" : "整份重寫（局部修改都定位不到）"}，md 長度 {log.growthPct >= 0 ? "+" : ""}
+            {log.growthPct}%。只看原題的錯誤，相似題只當驗收。
+          </p>
+
+          <div>
+            <p className="mb-2 font-semibold text-slate-700">答錯原因（{log.diagnoses.length} 題）</p>
+            <div className="space-y-1.5">
+              {log.diagnoses.map((d, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${CAUSE_STYLE[d.cause] ?? "bg-slate-100 text-slate-600"}`}>
+                    {EDIT_CAUSE_LABELS[d.cause] ?? d.cause}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-800">{d.question}</p>
+                    <p className="text-slate-500">{d.note}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-400">「原文就沒有」的題目之後不再拿來修改；「機器人本身的問題」md 改了也沒用，可以請後台檢查。</p>
+          </div>
+
+          {log.mode === "edits" && (
+            <div>
+              <p className="mb-2 font-semibold text-slate-700">修改清單（套用 {log.edits.filter((e) => e.applied).length}／{log.edits.length} 項）</p>
+              <div className="space-y-2">
+                {log.edits.map((e, i) => (
+                  <div key={i} className={`rounded-lg border p-3 ${e.applied ? "border-slate-200" : "border-dashed border-slate-300 opacity-60"}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded bg-teal-50 px-1.5 py-0.5 font-semibold text-teal-700">{ACTION_LABEL[e.action] ?? e.action}</span>
+                      {!e.applied && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">定位不到，沒有套用</span>}
+                      <span className="text-slate-600">{e.reason}</span>
+                    </div>
+                    {e.questions.length > 0 && <p className="mt-1 text-[11px] text-slate-400">對應題目：{e.questions.join("、")}</p>}
+                    <div className="mt-2 space-y-1 font-mono text-[11px] leading-relaxed">
+                      {e.action !== "insert_after" && <p className="whitespace-pre-wrap rounded bg-rose-50 px-2 py-1 text-rose-800 line-through decoration-rose-300">{e.anchor}</p>}
+                      {e.action === "insert_after" && <p className="whitespace-pre-wrap rounded bg-slate-50 px-2 py-1 text-slate-500">接在：{e.anchor}</p>}
+                      {e.action !== "delete" && <p className="whitespace-pre-wrap rounded bg-emerald-50 px-2 py-1 text-emerald-800">{e.text}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

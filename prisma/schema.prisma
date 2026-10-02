@@ -278,6 +278,8 @@ model KbVersion {
   scoreSimilar        Int?
   // 平均涵蓋率（0–100）：關鍵答案講到的比例，看部分一致的題目有沒有在進步
   scoreCoverage       Int?
+  // 自動優化這一版怎麼來的：從哪一版修改、每題答錯的原因、套用的修改清單、md 成長比例
+  revisionLog         Json?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
