@@ -742,7 +742,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
     await finishJob(job.id, "原題都已通過（或只剩原文沒有的題目）；相似題只當驗收、不給 AI 修改");
     return;
   }
-  const failures: EditFailure[] = failing.map((r) => {
+  const allFailures: EditFailure[] = failing.map((r) => {
     const detail = r.judgeDetail as JudgeDetail | null;
     return {
       question: r.question,
@@ -755,6 +755,10 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       reason: r.judgeReason ?? r.errorMessage,
     };
   });
+  // 一輪只處理最嚴重的幾題（講錯優先，再來是必要點沒講到最多的），其餘留到下一輪；
+  // 一次丟太多題，AI 的思考加上修改清單容易超過輸出上限而被截斷
+  const severity = (f: EditFailure) => (f.wrong.length > 0 || f.conflicts.length > 0 ? 1000 : 0) + f.missing.filter((m) => m.startsWith("【必要】")).length;
+  const prioritized = [...allFailures].sort((a, b) => severity(b) - severity(a));
 
   const entries = await prisma.kmEntry.findMany({ where: { id: { in: asIds(job.entryIds) } }, select: { sourceId: true } });
   const sources = await prisma.kmSource.findMany({ where: { id: { in: [...new Set(entries.map((e) => e.sourceId))] } } });
@@ -762,29 +766,45 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
   const splitByH1 = job.contentKind === "DOC";
 
-  await setStep(job.id, `第 ${n} 輪：AI 診斷 ${failures.length} 題答錯的原因並修改 md（從 ${base.name} 改）`);
-  // 支援自適應思考的模型用 adaptive；不支援的（例如 Haiku）給固定思考預算
+  // 支援自適應思考的模型用 adaptive（effort 中等，避免思考用掉太多輸出額度）；不支援的（例如 Haiku）給固定思考預算
   const reviseModel = findAiModel(job.reviseModel);
-  const response = await anthropic.messages
-    .stream({
-      model: reviseModel.id,
-      max_tokens: 32000,
-      thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
-      system: buildEditSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
-      output_config: { format: { type: "json_schema", schema: EDIT_SCHEMA } },
-      ...(urls.length > 0
-        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
-        : {}),
-      messages: [
-        {
-          role: "user",
-          content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown: base.markdown, failures, splitByH1 }) }],
+  let failures: EditFailure[] = [];
+  let response: Anthropic.Message | null = null;
+  // 先送最多 10 題；萬一還是被截斷，改送 5 題再試一次
+  for (const batchSize of [10, 5]) {
+    failures = prioritized.slice(0, batchSize);
+    const remaining = prioritized.length - failures.length;
+    await setStep(
+      job.id,
+      `第 ${n} 輪：AI 診斷 ${failures.length} 題答錯的原因並修改 md（從 ${base.name} 改${remaining > 0 ? `，另有 ${remaining} 題留到下一輪` : ""}）`,
+    );
+    response = await anthropic.messages
+      .stream({
+        model: reviseModel.id,
+        max_tokens: 64000,
+        thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
+        system: buildEditSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
+        output_config: {
+          ...(reviseModel.effort ? { effort: "medium" as const } : {}),
+          format: { type: "json_schema", schema: EDIT_SCHEMA },
         },
-      ],
-    })
-    .finalMessage();
-  await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
-  if (response.stop_reason === "max_tokens") throw new Error("AI 的修改清單太長，輸出被截斷，這一輪沒有保存。");
+        ...(urls.length > 0
+          ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
+          : {}),
+        messages: [
+          {
+            role: "user",
+            content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown: base.markdown, failures, splitByH1 }) }],
+          },
+        ],
+      })
+      .finalMessage();
+    await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
+    if (response.stop_reason !== "max_tokens") break;
+  }
+  if (!response || response.stop_reason === "max_tokens") {
+    throw new Error("AI 的修改清單太長，減少到 5 題後輸出仍被截斷，這一輪沒有保存（原始文件可能太長）。");
+  }
 
   const parsed = JSON.parse(
     response.content
