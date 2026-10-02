@@ -14,7 +14,8 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   FAILED: { label: "失敗", className: "bg-rose-50 text-rose-600" },
 };
 
-const SOURCE_TYPE_LABEL: Record<string, string> = { PDF: "PDF", URL: "URL", MIXED: "PDF + URL" };
+// sourceType 的 PDF 代表「上傳檔案」（PDF、Word、Excel 都算）
+const SOURCE_TYPE_LABEL: Record<string, string> = { PDF: "檔案", URL: "URL", MIXED: "檔案 + URL" };
 
 export default async function NewKmPage() {
   const session = await requireSession();

@@ -222,7 +222,7 @@ export function buildUserContent(source: KmSource, task: "faq" | "documents" = "
   const instructions: string[] = [];
   if (files.length > 0) {
     instructions.push(
-      files.length > 1 ? `以上附了 ${files.length} 份 PDF 文件` : "以上附了一份 PDF 文件",
+      files.length > 1 ? `以上附了 ${files.length} 份文件` : "以上附了一份文件",
     );
   }
   if (urls.length > 0) {
@@ -267,9 +267,9 @@ export function ragDocId(source: KmSource): string {
 export function ragSourceDescription(source: KmSource): string {
   const hasFiles = getSourceFiles(source).length > 0;
   const hasUrls = getSourceUrls(source).length > 0;
-  if (hasFiles && hasUrls) return "PDF 上傳 + 網址擷取";
+  if (hasFiles && hasUrls) return "檔案上傳 + 網址擷取";
   if (hasUrls) return "網址擷取";
-  return "PDF 上傳";
+  return "檔案上傳";
 }
 
 export function buildRagSystemPrompt(params: {

@@ -43,9 +43,17 @@ export function UploadWizard() {
         <input type="hidden" name="title" value={title} />
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">步驟 2：上傳 PDF（選填，可多選）</label>
-          <input name="file" type="file" accept="application/pdf" multiple className={inputClass} />
-          <p className="mt-1 text-xs text-slate-400">可以一次選取多個 PDF。</p>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">步驟 2：上傳檔案（選填，可多選）</label>
+          <input
+            name="file"
+            type="file"
+            accept="application/pdf,.pdf,.docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            multiple
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            支援 PDF、Word（.docx）、Excel（.xlsx），可以一次選取多個。Word／Excel 會轉成文字給 AI 讀（保留標題、清單、表格），圖片不會保留；舊版 .doc／.xls 請先另存新格式。
+          </p>
         </div>
 
         <div>
@@ -83,7 +91,7 @@ export function UploadWizard() {
           </button>
         </div>
 
-        <p className="text-xs text-slate-400">PDF 和網址可以同時選填，全部會合併成同一個知識來源一起分析。</p>
+        <p className="text-xs text-slate-400">檔案和網址可以同時選填，全部會合併成同一個知識來源一起分析。</p>
 
         <ErrorMessage error={state.error} />
 

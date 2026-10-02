@@ -68,7 +68,7 @@ function buildPreview(section: PromptSection, config: PromptConfigData, guidelin
     case "doc":
       return buildDocumentsSystemPrompt({ templates: sampleTemplates(), guidelines, config });
     case "rag":
-      return buildRagSystemPrompt({ docId: "（來源 ID）", sourceDescription: "PDF 上傳", guidelines, config });
+      return buildRagSystemPrompt({ docId: "（來源 ID）", sourceDescription: "檔案上傳", guidelines, config });
     case "judge":
       return `【拆關鍵答案的提示詞（每個標準答案只拆一次）】
 
