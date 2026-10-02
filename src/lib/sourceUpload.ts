@@ -37,7 +37,15 @@ export function verifyUpload(userId: string, signed: SignedUpload): UploadedFile
   return parsed.userId === userId ? { refs: parsed.refs, stats: parsed.stats } : null;
 }
 
+// PDF 頁數：完整解析大 PDF 很吃記憶體（伺服器會被撐爆），所以先直接數檔案裡的頁面標記；
+// 數不到（頁面資料被壓縮）時，10MB 以下才完整解析，更大的依檔案大小估算
+const PDF_FULL_PARSE_LIMIT = 10 * 1024 * 1024;
+const PDF_BYTES_PER_PAGE_ESTIMATE = 100 * 1024;
+
 async function countPdfPages(buffer: Buffer, fileName: string): Promise<number> {
+  const marked = (buffer.toString("latin1").match(/\/Type\s*\/Page(?![a-zA-Z])/g) ?? []).length;
+  if (marked > 0) return marked;
+  if (buffer.length > PDF_FULL_PARSE_LIMIT) return Math.max(1, Math.round(buffer.length / PDF_BYTES_PER_PAGE_ESTIMATE));
   try {
     const doc = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
     return doc.getPageCount();

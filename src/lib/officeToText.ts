@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import mammoth from "mammoth";
 import ExcelJS from "exceljs";
 
@@ -69,7 +70,55 @@ function cellText(value: string): string {
   return value.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").trim();
 }
 
+// 大的 Excel 一次整份載入會吃掉好幾倍的記憶體（伺服器會被撐爆），超過這個大小改成邊讀邊轉、不擷取圖片
+const XLSX_STREAM_THRESHOLD = 2 * 1024 * 1024;
+
+// 串流讀到的儲存格值轉成文字（文字、數字、日期、公式結果、超連結、多格式文字）
+function valueText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value !== "object") return String(value);
+  const v = value as { richText?: { text: string }[]; result?: unknown; text?: unknown; error?: unknown };
+  if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join("");
+  if ("result" in v) return valueText(v.result);
+  if (typeof v.text === "string") return v.text;
+  return "";
+}
+
+async function xlsxStreamToContent(buffer: Buffer): Promise<OfficeContent> {
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([buffer]), {
+    worksheets: "emit",
+    sharedStrings: "cache",
+    hyperlinks: "ignore",
+    styles: "ignore",
+  });
+  const sections: string[] = [];
+  let total = 0;
+  for await (const sheet of reader) {
+    const rows: string[][] = [];
+    for await (const row of sheet) {
+      const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+      const cells = values.map((v) => cellText(valueText(v)));
+      if (!cells.some(Boolean)) continue;
+      rows.push(cells);
+      total += cells.reduce((n, c) => n + c.length + 3, 0);
+      if (total > MAX_CHARS) throw new Error("Excel 內容太大，請拆成幾個較小的檔案。");
+    }
+    if (rows.length === 0) continue;
+    const width = Math.max(...rows.map((r) => r.length));
+    const pad = (r: string[]) => [...r, ...Array(width - r.length).fill("")];
+    const [header, ...body] = rows.map(pad);
+    const name = (sheet as unknown as { name?: string }).name ?? "工作表";
+    sections.push(
+      [`## 工作表：${name}`, "", `| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...body.map((r) => `| ${r.join(" | ")} |`)].join("\n"),
+    );
+  }
+  const note = "（檔案較大，已改用省記憶體的方式讀取，工作表裡的圖片沒有附上）";
+  return { text: sections.length > 0 ? `${note}\n\n${sections.join("\n\n")}` : "", images: [] };
+}
+
 async function xlsxToContent(buffer: Buffer, imageBudget: number): Promise<OfficeContent> {
+  if (buffer.length > XLSX_STREAM_THRESHOLD) return xlsxStreamToContent(buffer);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
   const collector = imageCollector(imageBudget);
