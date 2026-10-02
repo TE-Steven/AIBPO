@@ -73,13 +73,28 @@ export async function processSourceFile(file: File, imagesUsed: number): Promise
     file: await toFile(Buffer.from(content.text, "utf8"), `${file.name}.txt`, { type: "text/plain" }),
   });
   refs.push({ fileId: textFile.id, fileName: file.name, kind: "document" });
-  for (const [n, image] of content.images.entries()) {
-    const ext = image.contentType.replace("image/", "");
-    const imageFile = await anthropic.files.upload({
-      file: await toFile(image.buffer, `${file.name}-圖${n + 1}.${ext}`, { type: image.contentType }),
-    });
-    refs.push({ fileId: imageFile.id, fileName: file.name, kind: "image", label: image.label });
+  // 圖片同時傳 4 張（一張張傳，圖片多的文件要等很久）；結果依原本順序排回去
+  const imageRefs: SourceFileRef[] = new Array(content.images.length);
+  let next = 0;
+  async function worker() {
+    while (next < content.images.length) {
+      const n = next++;
+      const image = content.images[n];
+      const ext = image.contentType.replace("image/", "");
+      const imageFile = await anthropic.files.upload({
+        file: await toFile(image.buffer, `${file.name}-圖${n + 1}.${ext}`, { type: image.contentType }),
+      });
+      imageRefs[n] = { fileId: imageFile.id, fileName: file.name, kind: "image", label: image.label };
+    }
   }
+  try {
+    await Promise.all(Array.from({ length: Math.min(4, content.images.length) }, worker));
+  } catch (err) {
+    // 有一張失敗就整個檔案算失敗：已經傳上去的刪掉，避免留下沒用的檔案
+    await deleteUploadedFiles([...refs, ...imageRefs.filter(Boolean)]);
+    throw err;
+  }
+  refs.push(...imageRefs);
   const base = { kind, pages: 0, chars: content.text.length, images: content.images.length } as const;
   return { refs, stats: { fileName: file.name, bytes: file.size, ...base, estTokens: estimateTokens(base) } };
 }
