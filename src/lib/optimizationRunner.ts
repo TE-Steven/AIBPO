@@ -735,9 +735,9 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   });
   if (!run) throw new Error(`找不到 ${base.name} 的測試結果。`);
 
-  // 只把原題沒答對的（不一致、未回答）給 AI；部分一致算答對不再修改。相似題只當驗收，避免 AI 照題目背答案
+  // 原題只要不是「一致」都交給 AI 修改（部分一致算答對，但仍可以補強）；相似題只當驗收，避免 AI 照題目背答案
   const skipped = await notInSourceQuestions(job.id);
-  const failing = run.results.filter((r) => !isPassVerdict(r.judgeVerdict) && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim()));
+  const failing = run.results.filter((r) => r.judgeVerdict !== "MATCH" && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim()));
   if (failing.length === 0) {
     await finishJob(job.id, "原題都已通過（或只剩原文沒有的題目）；相似題只當驗收、不給 AI 修改");
     return;
@@ -755,9 +755,12 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       reason: r.judgeReason ?? r.errorMessage,
     };
   });
-  // 一輪只處理最嚴重的幾題（講錯優先，再來是必要點沒講到最多的），其餘留到下一輪；
+  // 一輪只處理最嚴重的幾題（講錯優先，再來是沒答對的，最後是部分一致；同級看必要點沒講到幾個），其餘留到下一輪；
   // 一次丟太多題，AI 的思考加上修改清單容易超過輸出上限而被截斷
-  const severity = (f: EditFailure) => (f.wrong.length > 0 || f.conflicts.length > 0 ? 1000 : 0) + f.missing.filter((m) => m.startsWith("【必要】")).length;
+  const severity = (f: EditFailure) =>
+    (f.wrong.length > 0 || f.conflicts.length > 0 ? 1000 : 0) +
+    (isPassVerdict(f.verdict) ? 0 : 500) +
+    f.missing.filter((m) => m.startsWith("【必要】")).length;
   const prioritized = [...allFailures].sort((a, b) => severity(b) - severity(a));
 
   const entries = await prisma.kmEntry.findMany({ where: { id: { in: asIds(job.entryIds) } }, select: { sourceId: true } });
