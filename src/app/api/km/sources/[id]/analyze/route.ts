@@ -77,10 +77,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         ]);
 
         // ---- 第一段：FAQ ----
+        // 思考的字數也算在 max_tokens 內：上限給足（串流不會逾時），思考 effort 中等，避免題數多或文件長時被截斷
         const apiStream = anthropic.messages.stream({
           model: KM_ANALYSIS_MODEL,
-          max_tokens: 16000,
+          max_tokens: 64000,
           thinking: { type: "adaptive", display: "summarized" },
+          output_config: { effort: "medium" },
           system: buildSystemPrompt({
             dimensions,
             tallyPaths: tallyPathLines(tallyOptions),

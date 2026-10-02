@@ -176,18 +176,25 @@ async function generateMoreEntries(sourceId: string, roleId: string, input: { di
   });
   const content = buildUserContent(source);
 
-  const response = await anthropic.messages.create({
-    model: KM_ANALYSIS_MODEL,
-    max_tokens: 16000,
-    thinking: { type: "adaptive" },
-    system,
-    ...(hasSourceUrls(source)
-      ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
-      : {}),
-    messages: [{ role: "user", content }],
-  });
+  // 思考的字數也算在 max_tokens 內：用串流才能給足上限（不會逾時），思考 effort 中等
+  const response = await anthropic.messages
+    .stream({
+      model: KM_ANALYSIS_MODEL,
+      max_tokens: 64000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
+      system,
+      ...(hasSourceUrls(source)
+        ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
+        : {}),
+      messages: [{ role: "user", content }],
+    })
+    .finalMessage();
 
   await recordApiUsage({ model: KM_ANALYSIS_MODEL, purpose: "km_generate_more", usage: response.usage, roleId });
+  if (response.stop_reason === "max_tokens") {
+    return { error: "產生的題目太長，輸出被截斷。請減少一次產生的題數，或把來源拆成幾份較小的文件後再試。" };
+  }
 
   const text = response.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")

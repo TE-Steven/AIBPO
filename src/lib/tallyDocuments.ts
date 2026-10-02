@@ -33,6 +33,8 @@ export async function generateTallyDocuments(params: {
     model: KM_ANALYSIS_MODEL,
     max_tokens: 64000,
     thinking: { type: "adaptive", display: "summarized" },
+    // 思考的字數也算在 max_tokens 內，effort 中等避免思考用掉太多輸出額度
+    output_config: { effort: "medium" },
     system: buildDocumentsSystemPrompt({ templates, guidelines: params.guidelines, config: params.config }),
     ...(hasSourceUrls(source)
       ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: webFetchMaxUses(source) }] }
