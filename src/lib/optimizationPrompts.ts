@@ -92,7 +92,7 @@ export function buildEditSystemPrompt(params: { guidelines?: string; config?: Pr
   return [
     `${guidelinesPrefix(params.guidelines)}${ruleText(config, "ed.intro")}`,
     ruleText(config, "opt.language"),
-    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6"])}`,
+    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6", "E7"])}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -107,6 +107,8 @@ export type EditFailure = {
   wrong: string[];
   conflicts: string[];
   reason: string | null;
+  // 使用者在逐題結果寫的備註
+  userNote: string | null;
 };
 
 export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean }): string {
@@ -121,6 +123,7 @@ export function buildEditUserText(params: { markdown: string; failures: EditFail
         f.wrong.length > 0 ? `<wrong_key_points>${f.wrong.join("；")}</wrong_key_points>` : "",
         f.conflicts.length > 0 ? `<conflicts>${f.conflicts.join("；")}</conflicts>` : "",
         f.missing.length + f.wrong.length + f.conflicts.length === 0 && f.reason ? `<reason>${f.reason}</reason>` : "",
+        f.userNote ? `<user_note>${f.userNote}</user_note>` : "",
         `</failure>`,
       ];
       return lines.filter(Boolean).join("\n");

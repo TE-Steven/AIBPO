@@ -309,6 +309,8 @@ export async function clearBackendAction(rawToken: string): Promise<OptimizeActi
 
 export type RunResultView = {
   order: number;
+  jobQuestionId: string | null;
+  userNote: string | null;
   detail: JudgeDetail | null;
   question: string;
   expectedAnswer: string;
@@ -326,10 +328,12 @@ export async function getRunResultsAction(versionId: string): Promise<RunResultV
   const run = await prisma.versionTestRun.findFirst({
     where: { versionId },
     orderBy: { createdAt: "desc" },
-    include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true } } } } },
+    include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true, userNote: true } } } } },
   });
   return (run?.results ?? []).map((r) => ({
     order: r.order,
+    jobQuestionId: r.jobQuestionId,
+    userNote: r.jobQuestion?.userNote ?? null,
     question: r.question,
     expectedAnswer: r.expectedAnswer,
     botAnswer: r.botAnswer,
@@ -359,7 +363,7 @@ export async function compareVersionsAction(versionIds: [string, string]): Promi
       testRuns: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true } } } } },
+        include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true, userNote: true } } } } },
       },
     },
   });
@@ -373,6 +377,8 @@ export async function compareVersionsAction(versionIds: [string, string]): Promi
     scoreSimilar: v.scoreSimilar,
     results: (v.testRuns[0]?.results ?? []).map((r) => ({
       order: r.order,
+      jobQuestionId: r.jobQuestionId,
+      userNote: r.jobQuestion?.userNote ?? null,
       question: r.question,
       expectedAnswer: r.expectedAnswer,
       botAnswer: r.botAnswer,
@@ -416,4 +422,17 @@ export async function getRevisionLogAction(versionId: string): Promise<RevisionL
   const version = await prisma.kbVersion.findUnique({ where: { id: versionId }, select: { roleId: true, revisionLog: true } });
   if (!version || version.roleId !== session.roleId) return null;
   return (version.revisionLog as RevisionLog | null) ?? null;
+}
+
+// 使用者在逐題結果寫的備註（存在題目上）：AI 下一次修改 md 時優先參考
+export async function saveQuestionNoteAction(jobQuestionId: string, note: string): Promise<OptimizeActionResult> {
+  const session = await requireCompanyUser();
+  const question = await prisma.optimizationQuestion.findUnique({ where: { id: jobQuestionId }, select: { job: { select: { roleId: true } } } });
+  if (!question || question.job.roleId !== session.roleId) return { error: "找不到這一題。" };
+  const text = note.trim().slice(0, 2000);
+  await prisma.optimizationQuestion.update({
+    where: { id: jobQuestionId },
+    data: { userNote: text || null, userNoteUpdatedAt: text ? new Date() : null },
+  });
+  return { success: text ? "已儲存備註，下一次修改 md 時 AI 會優先參考。" : "已清除備註。" };
 }

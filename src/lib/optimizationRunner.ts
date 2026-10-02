@@ -319,6 +319,8 @@ async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersio
     expectedAnswer: q.expectedAnswer,
     isSimilar: q.isSimilar,
     parentId: q.parentId ? (idMap.get(q.parentId) ?? null) : null,
+    userNote: q.userNote,
+    userNoteUpdatedAt: q.userNoteUpdatedAt,
   }));
   const reset = [
     prisma.optimizationQuestion.deleteMany({ where: { jobId: job.id } }),
@@ -731,13 +733,34 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const run = await prisma.versionTestRun.findFirst({
     where: { versionId: base.id, status: "DONE" },
     orderBy: { createdAt: "desc" },
-    include: { results: { orderBy: { order: "asc" }, include: { jobQuestion: { select: { isSimilar: true } } } } },
+    include: {
+      results: {
+        orderBy: { order: "asc" },
+        include: { jobQuestion: { select: { isSimilar: true, userNote: true, userNoteUpdatedAt: true } } },
+      },
+    },
   });
   if (!run) throw new Error(`找不到 ${base.name} 的測試結果。`);
 
-  // 原題只要不是「一致」都交給 AI 修改（部分一致算答對，但仍可以補強）；相似題只當驗收，避免 AI 照題目背答案
+  // 使用者備註：以這個任務的題目為準（起點版本來自別的任務時，用題目文字對應），再退回結果所屬題目上的備註
+  const notedQuestions = await prisma.optimizationQuestion.findMany({
+    where: { jobId: job.id, userNote: { not: null } },
+    select: { question: true, userNote: true, userNoteUpdatedAt: true },
+  });
+  const noteByText = new Map(notedQuestions.map((q) => [q.question.trim(), q]));
+  const noteOf = (r: (typeof run.results)[number]) => {
+    const note = noteByText.get(r.question.trim()) ?? r.jobQuestion ?? null;
+    return note?.userNote?.trim() ? { text: note.userNote.trim(), updatedAt: note.userNoteUpdatedAt } : null;
+  };
+
+  // 原題只要不是「一致」都交給 AI 修改（部分一致算答對，但仍可以補強）；相似題只當驗收，避免 AI 照題目背答案。
+  // 寫了備註的題目一定處理：沒答對的每輪都帶著備註；已經一致的只在寫完備註之後的那次修改處理
   const skipped = await notInSourceQuestions(job.id);
-  const failing = run.results.filter((r) => r.judgeVerdict !== "MATCH" && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim()));
+  const failing = run.results.filter((r) => {
+    const note = noteOf(r);
+    if (note && (r.judgeVerdict !== "MATCH" || (note.updatedAt && note.updatedAt > base.createdAt))) return true;
+    return r.judgeVerdict !== "MATCH" && !r.jobQuestion?.isSimilar && !skipped.has(r.question.trim());
+  });
   if (failing.length === 0) {
     await finishJob(job.id, "原題都已通過（或只剩原文沒有的題目）；相似題只當驗收、不給 AI 修改");
     return;
@@ -753,11 +776,14 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       wrong: (detail?.points ?? []).filter((p) => p.status === "WRONG").map((p) => `${p.text}（機器人說：${p.evidence}）`),
       conflicts: detail?.conflicts ?? [],
       reason: r.judgeReason ?? r.errorMessage,
+      userNote: noteOf(r)?.text ?? null,
     };
   });
   // 一輪只處理最嚴重的幾題（講錯優先，再來是沒答對的，最後是部分一致；同級看必要點沒講到幾個），其餘留到下一輪；
   // 一次丟太多題，AI 的思考加上修改清單容易超過輸出上限而被截斷
+  // 有使用者備註的最優先
   const severity = (f: EditFailure) =>
+    (f.userNote ? 2000 : 0) +
     (f.wrong.length > 0 || f.conflicts.length > 0 ? 1000 : 0) +
     (isPassVerdict(f.verdict) ? 0 : 500) +
     f.missing.filter((m) => m.startsWith("【必要】")).length;
@@ -916,7 +942,13 @@ async function rewriteWholeMarkdown(
                     question: f.question,
                     expectedAnswer: f.expectedAnswer,
                     botAnswer: f.botAnswer,
-                    reason: [...f.missing.map((m) => `沒講到 ${m}`), ...f.wrong.map((w) => `講錯 ${w}`), ...f.conflicts].join("；") || f.reason,
+                    reason:
+                      [
+                        ...f.missing.map((m) => `沒講到 ${m}`),
+                        ...f.wrong.map((w) => `講錯 ${w}`),
+                        ...f.conflicts,
+                        ...(f.userNote ? [`使用者備註：${f.userNote}`] : []),
+                      ].join("；") || f.reason,
                   })),
                   passedCount,
                   splitByH1: job.contentKind === "DOC",

@@ -1,7 +1,14 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
-import { getKeyPointsAction, getRunResultsAction, saveKeyPointsAction, type OptimizeActionResult, type RunResultView } from "./actions";
+import {
+  getKeyPointsAction,
+  getRunResultsAction,
+  saveKeyPointsAction,
+  saveQuestionNoteAction,
+  type OptimizeActionResult,
+  type RunResultView,
+} from "./actions";
 import { POINT_STATUS_LABELS, type JudgeDetail, type KeyPoint, type PointStatus } from "@/lib/keyPoints";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconX } from "@/components/icons";
 import { AI_MODELS, modelCostUsd } from "@/lib/aiModels";
@@ -469,6 +476,78 @@ export function KeyPointList({ detail }: { detail: JudgeDetail }) {
   );
 }
 
+// 題目備註：寫給 AI 下一次修改 md 時參考（存在題目上，換版本也還在）
+function QuestionNote({ jobQuestionId, note, onSaved }: { jobQuestionId: string; note: string | null; onSaved: (note: string | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(note ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const r = await saveQuestionNoteAction(jobQuestionId, text);
+      if (r.error) {
+        setError(r.error);
+        return;
+      }
+      onSaved(text.trim() || null);
+      setEditing(false);
+    });
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-2 rounded-lg bg-amber-50/70 p-2.5 ring-1 ring-inset ring-amber-100">
+        <p className="mb-1.5 text-[11px] font-semibold text-amber-800">備註（AI 下一次修改 md 時會優先參考）</p>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={3}
+          placeholder="例：保固要講到延長保固的條件；這題其實是問 L380 不是 L600"
+          className={`${inputClass} text-xs`}
+        />
+        {error && <p className="mt-1 text-[11px] text-rose-600">{error}</p>}
+        <div className="mt-2 flex justify-end gap-3 text-[11px]">
+          <button
+            type="button"
+            onClick={() => {
+              setText(note ?? "");
+              setEditing(false);
+            }}
+            className="text-slate-500 hover:text-slate-700"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending}
+            className="rounded-md bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {pending ? "儲存中…" : "儲存備註"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return note ? (
+    <div className="mt-2 flex items-start justify-between gap-3 rounded-lg bg-amber-50/70 px-2.5 py-2 ring-1 ring-inset ring-amber-100">
+      <p className="whitespace-pre-wrap text-amber-900">
+        <span className="mr-1.5 font-semibold">備註：</span>
+        {note}
+      </p>
+      <button type="button" onClick={() => setEditing(true)} className="shrink-0 text-[11px] font-semibold text-amber-700 hover:underline">
+        編輯
+      </button>
+    </div>
+  ) : (
+    <button type="button" onClick={() => setEditing(true)} className="mt-2 text-[11px] font-semibold text-amber-700 hover:underline">
+      ＋ 寫備註給 AI 修改參考
+    </button>
+  );
+}
+
 export function ResultsModal({ versionId, title, onClose }: { versionId: string; title: string; onClose: () => void }) {
   const [results, setResults] = useState<RunResultView[] | null>(null);
   const [filter, setFilter] = useState<"unanswered" | "mismatch" | "partial" | "match" | "all">("mismatch");
@@ -540,6 +619,15 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
                   </div>
                 ) : (
                   r.verdict !== "MATCH" && r.reason && <p className="mt-2 text-rose-600">原因：{r.reason}</p>
+                )}
+                {r.jobQuestionId && (
+                  <QuestionNote
+                    jobQuestionId={r.jobQuestionId}
+                    note={r.userNote}
+                    onSaved={(note) =>
+                      setResults((cur) => (cur ? cur.map((x) => (x.jobQuestionId === r.jobQuestionId ? { ...x, userNote: note } : x)) : cur))
+                    }
+                  />
                 )}
               </div>
             );

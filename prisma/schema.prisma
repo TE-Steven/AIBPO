@@ -417,14 +417,17 @@ model OptimizationJob {
 
 // 自動優化的固定題目：原題＋第一輪前產生一次的相似題（同一個標準答案），每一輪都用同一套
 model OptimizationQuestion {
-  id             String   @id @default(cuid())
-  jobId          String
-  order          Int
-  question       String   @db.Text
-  expectedAnswer String   @db.Text
-  isSimilar      Boolean  @default(false)
-  parentId       String?
-  createdAt      DateTime @default(now())
+  id                String    @id @default(cuid())
+  jobId             String
+  order             Int
+  question          String    @db.Text
+  expectedAnswer    String    @db.Text
+  isSimilar         Boolean   @default(false)
+  parentId          String?
+  // 使用者在逐題結果寫的備註：AI 下一次修改 md 時優先參考（換版本、從這版繼續都會帶著）
+  userNote          String?   @db.Text
+  userNoteUpdatedAt DateTime?
+  createdAt         DateTime  @default(now())
 
   job     OptimizationJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
   results VersionTestResult[]

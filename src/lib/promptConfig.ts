@@ -849,6 +849,16 @@ export const RULES: RuleDef[] = [
     toggleable: true,
     editable: true,
   },
+  {
+    id: "E7",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "使用者備註",
+    defaultText:
+      "題目附有 user_note 時，代表使用者指出的問題或期望，請優先依照備註判斷原因並修改；備註要求的內容如果原始文件沒有，仍然不可以編造，判為 NOT_IN_SOURCE 並在 note 說明。",
+    toggleable: false,
+    editable: true,
+  },
 
   {
     id: "sim.intro",
