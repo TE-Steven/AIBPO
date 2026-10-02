@@ -73,5 +73,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // api/km/source-files 不經過 proxy：proxy 只會暫存請求內容前 10MB，大檔案上傳會被截斷（該路徑自己檢查登入）
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/km/source-files).*)"],
 };
