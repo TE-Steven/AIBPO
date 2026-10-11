@@ -288,7 +288,8 @@ export function AnalysisRunner({
         setError("分析連線中斷，請重試。");
       }
       es.close();
-      setRunning(false);
+      // 停在分析畫面顯示這次失敗的原因（使用者按「回到設定」再回去），頁面上方的「上次分析失敗」也一起更新
+      router.refresh();
     });
   }
 
@@ -299,7 +300,7 @@ export function AnalysisRunner({
           <span className="flex h-8 w-8 shrink-0 animate-pulse items-center justify-center rounded-lg bg-teal-100 text-teal-600">
             <IconSparkles className="h-4 w-4" />
           </span>
-          <h2 className="text-sm font-semibold text-slate-900">AI 分析中…</h2>
+          <h2 className="text-sm font-semibold text-slate-900">{error ? "AI 分析失敗" : "AI 分析中…"}</h2>
         </div>
 
         <ol className={`mb-4 grid grid-cols-2 gap-2 ${stages.length > 4 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
@@ -320,10 +321,19 @@ export function AnalysisRunner({
         </ol>
 
         {error ? (
-          <p className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-600 ring-1 ring-inset ring-rose-100">
-            <IconAlertTriangle className="h-4 w-4 shrink-0" />
-            {error}
-          </p>
+          <div>
+            <p className="flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm break-all text-rose-600 ring-1 ring-inset ring-rose-100">
+              <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              這次分析失敗：{error}
+            </p>
+            <button
+              type="button"
+              onClick={() => setRunning(false)}
+              className="mt-3 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              回到設定
+            </button>
+          </div>
         ) : doneCount !== null ? (
           <>
           <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-100">
