@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { aiErrorText } from "@/lib/claudeFileErrors";
 import { getSession, roleScope } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { anthropic, KM_ANALYSIS_MODEL, recordApiUsage } from "@/lib/anthropic";
@@ -171,7 +171,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               docCount = documents.length;
             }
           } catch (err) {
-            docError = err instanceof Error ? err.message : "結構化文件產生失敗。";
+            docError = aiErrorText(err, "結構化文件產生失敗。");
             await prisma.kmSource.updateMany({
               where: sameDocAttempt,
               data: { docStatus: "FAILED", docErrorMessage: docError, docStartedAt: null },
@@ -182,11 +182,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         await prisma.kmSource.updateMany({ where: sameAttempt, data: { status: "DONE", analysisStartedAt: null } });
         send("done", { count: faqDrafts.length, docCount, docError });
       } catch (err) {
-        let message = err instanceof Error ? err.message : "分析失敗，發生未知錯誤。";
-        // 上傳到 Claude 的檔案屬於當時 API key 的工作區：換成別的工作區的 key 後，舊檔案會找不到
-        if (err instanceof Anthropic.APIError && /file/i.test(message) && /not found|not_found|does not exist/i.test(message)) {
-          message = `Claude 找不到這個來源上傳過的檔案，通常是 API key 換到不同的工作區（workspace）造成的：請改用原本工作區的 API key，或重新上傳這個來源的檔案。（${message}）`;
-        }
+        const message = aiErrorText(err, "分析失敗，發生未知錯誤。");
         await prisma.kmSource.updateMany({
           where: sameAttempt,
           data: { status: "FAILED", errorMessage: message, analysisStartedAt: null },

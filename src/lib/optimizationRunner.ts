@@ -14,6 +14,7 @@ import { getSystemSetting, KM_OUTPUT_GUIDELINES_KEY } from "@/lib/systemSettings
 import { buildKnowledgeMarkdown, tallyPathOf, type ExportEntry } from "@/lib/kmExport";
 import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
 import { getSourceFiles, getSourceUrls, sourceFileBlocks } from "@/lib/kmAnalysis";
+import { aiErrorText } from "@/lib/claudeFileErrors";
 import { tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
@@ -85,7 +86,7 @@ export function launchOptimizationJob(jobId: string, creds: TokenCredentials): v
 }
 
 function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : "未知錯誤";
+  return aiErrorText(err);
 }
 
 // 版本名稱：v{第幾次優化}.{輪次}・範圍，例如「v3.2・三產品測試」

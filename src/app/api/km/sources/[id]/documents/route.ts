@@ -1,3 +1,4 @@
+import { aiErrorText } from "@/lib/claudeFileErrors";
 import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
@@ -73,7 +74,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         await prisma.kmSource.updateMany({ where: sameDocAttempt, data: { docStatus: "DONE", docStartedAt: null } });
         send("done", { docCount: documents.length });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "結構化文件產生失敗。";
+        const message = aiErrorText(err, "結構化文件產生失敗。");
         if (started) {
           // 失敗時舊文件保持不動：有舊文件就維持「已完成」，只記錄這次的錯誤
           const hasDocs = (await prisma.kmEntry.count({ where: { sourceId: id, kind: "DOC" } })) > 0;

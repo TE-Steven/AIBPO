@@ -1,3 +1,4 @@
+import { aiErrorText } from "@/lib/claudeFileErrors";
 import type { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getSession } from "@/lib/session";
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           messages = [...messages, { role: "user", content: toolResults }];
         }
       } catch (err) {
-        controller.enqueue(encoder.encode(`\n\n[錯誤：${err instanceof Error ? err.message : "未知錯誤"}]`));
+        controller.enqueue(encoder.encode(`\n\n[錯誤：${aiErrorText(err)}]`));
       } finally {
         controller.close();
       }

@@ -1,5 +1,6 @@
 "use server";
 
+import { aiErrorText } from "@/lib/claudeFileErrors";
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
@@ -95,7 +96,7 @@ export async function generateRagContentAction(sourceId: string): Promise<RagAct
     revalidatePath(`/km/new/${sourceId}`);
     return { success: "RAG 內容已產生。" };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "未知錯誤";
+    const message = aiErrorText(err);
     const { count } = await prisma.kmSource.updateMany({
       where: sameAttempt,
       data: { ragStatus: "FAILED", ragErrorMessage: message },

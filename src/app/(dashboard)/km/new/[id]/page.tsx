@@ -8,13 +8,14 @@ import { ChatPanel } from "./ChatPanel";
 import { EditableTitle } from "./EditableTitle";
 import { ExtraOutputsPanel } from "./ExtraOutputsPanel";
 import { AnalysisStuckNotice } from "./AnalysisStuckNotice";
+import { SourceFilesCard } from "./SourceFilesCard";
 import { BotTestPanel } from "./BotTestPanel";
 import { getBotOptions } from "@/lib/botTest";
 import { companyIdForRole } from "@/lib/company";
 import { buildTallyTree, tallyTemplates } from "@/lib/tallyTree";
 import { getPromptConfig } from "@/lib/promptConfigStore";
 import { resolveOptions } from "@/lib/promptConfig";
-import { sourceLabel, getQuestionFiles } from "@/lib/kmAnalysis";
+import { sourceLabel, getQuestionFiles, getSourceFiles } from "@/lib/kmAnalysis";
 import { IconArrowLeft, IconAlertTriangle } from "@/components/icons";
 
 function tallyLabel(t: { name: string; parent?: { name: string; parent?: { name: string } | null } | null }): string {
@@ -63,6 +64,15 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
 
   const tallyOptions = tallies.map((t) => ({ id: t.id, label: tallyLabel(t) }));
   const templateNames = tallyTemplates(buildTallyTree(tallies)).map((t) => t.name);
+  // 來源檔案：依檔名合併（Word／Excel 會帶著取出的圖片）
+  const sourceFileViews = Object.values(
+    getSourceFiles(source).reduce<Record<string, { fileName: string; images: number }>>((acc, r) => {
+      const cur = acc[r.fileName] ?? { fileName: r.fileName, images: 0 };
+      if (r.kind === "image") cur.images += 1;
+      acc[r.fileName] = cur;
+      return acc;
+    }, {}),
+  );
   // 題目來源檔案：依檔名合併（Word／Excel 會帶著取出的圖片）
   const questionFileViews = Object.values(
     getQuestionFiles(source).reduce<Record<string, { fileName: string; images: number }>>((acc, r) => {
@@ -89,6 +99,10 @@ export default async function KmSourceDetailPage({ params }: { params: Promise<{
           <IconAlertTriangle className="h-4 w-4 shrink-0" />
           上次分析失敗：{source.errorMessage}
         </p>
+      )}
+
+      {sourceFileViews.length > 0 && (
+        <SourceFilesCard sourceId={source.id} files={sourceFileViews} busy={source.status === "PROCESSING"} />
       )}
 
       {(source.status === "PENDING" || source.status === "FAILED") && (

@@ -1,5 +1,6 @@
 "use server";
 
+import { aiErrorText } from "@/lib/claudeFileErrors";
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
@@ -82,7 +83,7 @@ export async function generateWorkflowDraftsAction(sourceId: string): Promise<Wo
     revalidatePath("/agents/drafts");
     return { success: `已產出 ${drafts.length} 個 Agent 草稿，可以到「Workflow 草稿」頁面審核。` };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "未知錯誤";
+    const message = aiErrorText(err);
     const { count } = await prisma.kmSource.updateMany({
       where: sameAttempt,
       data: { workflowStatus: "FAILED", workflowErrorMessage: message },
