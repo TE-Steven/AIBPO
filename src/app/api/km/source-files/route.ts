@@ -32,14 +32,43 @@ export async function POST(req: NextRequest) {
   const imagesUsed = Number(form?.get("imagesUsed") ?? 0) || 0;
   const purpose = form?.get("purpose") === "questions" ? "questions" : "knowledge";
 
+  // 題目來源可能要先跑好幾分鐘的 AI 萃取：改成串流回應（每行一個 JSON），邊做邊回報進度，最後一行是結果或錯誤
+  if (purpose === "questions") {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (obj: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+        // 某個步驟跑很久時也定期送一行，避免連線被中間的代理當成閒置切斷
+        const heartbeat = setInterval(() => send({ ping: true }), 15_000);
+        try {
+          const uploaded = await processSourceFile(file, imagesUsed, { purpose, roleId: user.roleId, onProgress: (p) => send({ progress: p }) });
+          send({ ...signUpload(userId, uploaded), stats: uploaded.stats });
+        } catch (err) {
+          send({ error: uploadErrorMessage(err, file.name) });
+        } finally {
+          clearInterval(heartbeat);
+          controller.close();
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },
+    });
+  }
+
   try {
     const uploaded = await processSourceFile(file, imagesUsed, { purpose, roleId: user.roleId });
     return Response.json({ ...signUpload(userId, uploaded), stats: uploaded.stats });
   } catch (err) {
-    if (err instanceof UploadError) return jsonError(err.message, 400);
-    if (err instanceof Anthropic.APIError) return jsonError(`「${file.name}」上傳到 Claude 失敗：${err.message}`, 502);
-    return jsonError(`「${file.name}」處理失敗：${err instanceof Error ? err.message : "未知錯誤"}`, 500);
+    const status = err instanceof UploadError ? 400 : err instanceof Anthropic.APIError ? 502 : 500;
+    return jsonError(uploadErrorMessage(err, file.name), status);
   }
+}
+
+function uploadErrorMessage(err: unknown, fileName: string): string {
+  if (err instanceof UploadError) return err.message;
+  if (err instanceof Anthropic.APIError) return `「${fileName}」上傳到 Claude 失敗：${err.message}`;
+  return `「${fileName}」處理失敗：${err instanceof Error ? err.message : "未知錯誤"}`;
 }
 
 // DELETE JSON { uploads: SignedUpload[] }：取消建立時刪掉已上傳的檔案（只能刪自己上傳、簽章正確的）

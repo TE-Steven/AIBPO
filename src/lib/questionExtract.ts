@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, recordApiUsage } from "@/lib/anthropic";
+import type { UploadProgress } from "@/lib/sourceLimits";
 
 // 題目來源（例如客服對話紀錄）太長、AI 一次讀不完時：切成很多段，用 Haiku 從每一段萃取客戶問的問題，
 // 再合併相同的問題、累計出現次數，存成一份精簡的問題清單（產生 FAQ 時優先挑問最多次的）。
@@ -138,12 +139,20 @@ async function mergeSimilar(
 }
 
 // 回傳要上傳的問題清單文字（依出現次數排序）
-export async function extractQuestionsFromText(text: string, fileName: string, roleId: string | null, truncated = false): Promise<string> {
+export async function extractQuestionsFromText(
+  text: string,
+  fileName: string,
+  roleId: string | null,
+  truncated = false,
+  onProgress?: (p: UploadProgress) => void,
+): Promise<string> {
   const chunks = splitChunks(text);
   const results: { question: string; count: number }[][] = new Array(chunks.length);
   let next = 0;
+  let done = 0;
   let failed = 0;
   let lastError: unknown = null;
+  onProgress?.({ stage: "extract", done: 0, total: chunks.length });
   async function worker() {
     while (next < chunks.length) {
       const i = next++;
@@ -155,6 +164,7 @@ export async function extractQuestionsFromText(text: string, fileName: string, r
         lastError = err;
         results[i] = [];
       }
+      onProgress?.({ stage: "extract", done: ++done, total: chunks.length });
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
@@ -170,6 +180,7 @@ export async function extractQuestionsFromText(text: string, fileName: string, r
     if (cur) cur.count += Math.max(1, q.count);
     else merged.set(key, { question: q.question.trim(), count: Math.max(1, q.count) });
   }
+  onProgress?.({ stage: "merge" });
   const sorted = await mergeSimilar([...merged.values()].sort((a, b) => b.count - a.count).slice(0, MAX_QUESTIONS), roleId);
   if (sorted.length === 0) throw new Error(`「${fileName}」裡沒有找到客戶的問題。`);
   const scope = truncated ? `檔案太長，只讀了前 ${Math.round(text.length / 10000)} 萬字` : `約 ${Math.round(text.length / 10000)} 萬字`;

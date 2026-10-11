@@ -1,24 +1,95 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { IconSparkles, IconAlertTriangle, IconCheckCircle, IconX } from "@/components/icons";
 import { addQuestionFilesAction, removeQuestionFileAction } from "./questionFileActions";
 import { precheckSourceFile, SOURCE_FILE_ACCEPT, uploadSourceFile } from "../uploadClient";
+import type { UploadProgress } from "@/lib/sourceLimits";
 
 // 題目來源檔案：已存在來源上的（檔名＋取出的圖片數）
 export type QuestionFileView = { fileName: string; images: number };
 
-function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: QuestionFileView[] }) {
+// 處理中的檔案與進度（伺服器回報）
+type UploadStatus = { fileName: string; index: number; count: number; startedAt: number; progress: UploadProgress | null };
+
+function progressText(p: UploadProgress | null): string {
+  if (!p) return "上傳檔案到伺服器…";
+  if (p.stage === "read") return "讀取檔案內容…";
+  if (p.stage === "extract") return `AI 萃取客戶問題：第 ${p.done ?? 0}／${p.total ?? 0} 段`;
+  if (p.stage === "merge") return "合併意思相同的問題…";
+  return "儲存題目清單…";
+}
+
+function progressPercent(p: UploadProgress | null): number {
+  if (!p) return 3;
+  if (p.stage === "read") return 6;
+  if (p.stage === "extract") return 8 + Math.round((84 * (p.done ?? 0)) / Math.max(1, p.total ?? 1));
+  if (p.stage === "merge") return 94;
+  return 98;
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function UploadProgressPanel({ status }: { status: UploadStatus }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const percent = progressPercent(status.progress);
+  return (
+    <div className="mt-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3.5" role="status" aria-live="polite">
+      <div className="flex items-center gap-2.5">
+        <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-[3px] border-amber-200 border-t-amber-600" />
+        <span className="text-sm font-semibold text-amber-900">
+          題目來源處理中（{status.index}／{status.count}）：{progressText(status.progress)}
+        </span>
+        <span className="ml-auto shrink-0 text-xs tabular-nums text-amber-800">已經過 {formatElapsed(now - status.startedAt)}</span>
+      </div>
+      <div className="mt-2.5 h-2.5 overflow-hidden rounded-full bg-amber-100">
+        <div className="h-full rounded-full bg-amber-500 transition-all duration-700" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="mt-2 truncate text-xs text-amber-800">{status.fileName}</p>
+      <p className="mt-1 text-xs font-medium text-amber-900">
+        大檔案可能需要 3～5 分鐘。處理完成前請不要關掉或重新整理頁面，也先不要按「開始分析」。
+      </p>
+    </div>
+  );
+}
+
+function QuestionFilesPicker({
+  sourceId,
+  files,
+  onBusyChange,
+}: {
+  sourceId: string;
+  files: QuestionFileView[];
+  onBusyChange: (busy: boolean) => void;
+}) {
   const router = useRouter();
-  const [uploading, setUploading] = useState<string | null>(null);
+  const [status, setStatus] = useState<UploadStatus | null>(null);
+  const [justAdded, setJustAdded] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const input = useRef<HTMLInputElement>(null);
+  const uploading = status !== null;
+
+  // 處理中要離開頁面時先跳出提醒
+  useEffect(() => {
+    if (!uploading) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [uploading]);
 
   async function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
     setError(null);
+    setJustAdded([]);
     const picked = Array.from(list);
     const bad = picked.map((f) => [f.name, precheckSourceFile(f)] as const).find(([, err]) => err);
     if (bad) {
@@ -28,22 +99,28 @@ function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: Que
     }
     const uploads = [];
     let imagesUsed = files.reduce((n, f) => n + f.images, 0);
+    const startedAt = Date.now();
+    onBusyChange(true);
     try {
       for (const [i, file] of picked.entries()) {
-        setUploading(`處理中 ${i + 1}／${picked.length}：${file.name}（內容很多時會先由 AI 萃取客戶問題，大檔案可能需要 3～5 分鐘，請不要關掉頁面）`);
-        const { upload, stats } = await uploadSourceFile(file, imagesUsed, "questions");
+        setStatus({ fileName: file.name, index: i + 1, count: picked.length, startedAt, progress: null });
+        const { upload, stats } = await uploadSourceFile(file, imagesUsed, "questions", (progress) =>
+          setStatus((s) => (s ? { ...s, progress } : s)),
+        );
         imagesUsed += stats.images;
         uploads.push(upload);
       }
       const result = await addQuestionFilesAction(sourceId, uploads);
       if (result.error) setError(result.error);
+      else setJustAdded(picked.map((f) => f.name));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "上傳失敗");
       // 已經傳上去、但沒有加入的檔案從 Claude 刪掉
       if (uploads.length > 0) void fetch("/api/km/source-files", { method: "DELETE", body: JSON.stringify({ uploads }) });
     } finally {
-      setUploading(null);
+      setStatus(null);
+      onBusyChange(false);
       if (input.current) input.current.value = "";
     }
   }
@@ -64,7 +141,7 @@ function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: Que
               </span>
               <button
                 type="button"
-                disabled={pending || uploading !== null}
+                disabled={pending || uploading}
                 onClick={() =>
                   startTransition(async () => {
                     await removeQuestionFileAction(sourceId, f.fileName);
@@ -85,14 +162,20 @@ function QuestionFilesPicker({ sourceId, files }: { sourceId: string; files: Que
         type="file"
         multiple
         accept={SOURCE_FILE_ACCEPT}
-        disabled={uploading !== null}
+        disabled={uploading}
         onChange={(e) => void addFiles(e.target.files)}
         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
       />
       <p className="mt-1 text-[11px] text-slate-400">
         支援 PDF、Word（.docx）、Excel（.xlsx）、文字檔（.txt／.csv）。對話紀錄很長時（超過約 30 萬字），會先由 AI 萃取出客戶問題並合併重複、記下次數，再拿去產生 FAQ；最多讀約 1000 萬字（ID、時間等欄位不算），更長的只讀前面。
       </p>
-      {uploading && <p className="mt-1.5 text-xs text-teal-700">{uploading}</p>}
+      {status && <UploadProgressPanel status={status} />}
+      {!status && justAdded.length > 0 && (
+        <div className="mt-2 flex items-center gap-2 rounded-xl border-2 border-emerald-300 bg-emerald-50 px-3.5 py-2.5 text-sm font-semibold text-emerald-800">
+          <IconCheckCircle className="h-5 w-5 shrink-0 text-emerald-600" />
+          題目來源處理完成，可以按「開始分析」了。
+        </div>
+      )}
       {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
     </div>
   );
@@ -137,6 +220,8 @@ export function AnalysisRunner({
   const [useQuestionFiles, setUseQuestionFiles] = useState(questionFiles.length > 0);
 
   const [running, setRunning] = useState(false);
+  // 題目來源檔案還在處理（AI 萃取問題）時不能開始分析
+  const [questionBusy, setQuestionBusy] = useState(false);
   const [stageIndex, setStageIndex] = useState(0);
   const [thinkingText, setThinkingText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -336,7 +421,7 @@ export function AnalysisRunner({
             FAQ 完成後，會再依「{templateNames.join("」「")}」範本找出文件裡每一個項目，各整理成一份結構化文件（多一次 AI 呼叫）。不勾的話，之後也可以在「結構化文件」卡片產生。
           </p>
         )}
-        {useQuestionFiles && <QuestionFilesPicker sourceId={sourceId} files={questionFiles} />}
+        {useQuestionFiles && <QuestionFilesPicker sourceId={sourceId} files={questionFiles} onBusyChange={setQuestionBusy} />}
         <div className="flex items-center gap-2 text-sm text-slate-700">
           FAQ 數量
           <input
@@ -371,10 +456,11 @@ export function AnalysisRunner({
       <button
         type="button"
         onClick={startAnalysis}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600"
+        disabled={questionBusy}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-500/25 transition hover:from-teal-700 hover:to-cyan-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <IconSparkles className="h-4 w-4" />
-        開始分析
+        {questionBusy ? "題目來源處理中，請稍候…" : "開始分析"}
       </button>
     </div>
   );

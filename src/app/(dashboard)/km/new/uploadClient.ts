@@ -1,5 +1,5 @@
 // 來源檔案上傳的前端共用工具：新增來源、分析頁的「題目來源」都用這裡（一個檔案一個請求上傳到 /api/km/source-files）。
-import { formatBytes, maxBytesFor, type FileStats, type SourceFileKind } from "@/lib/sourceLimits";
+import { formatBytes, maxBytesFor, type FileStats, type SourceFileKind, type UploadProgress } from "@/lib/sourceLimits";
 import type { SignedUpload } from "@/lib/sourceUpload";
 
 export const SOURCE_FILE_ACCEPT =
@@ -29,13 +29,39 @@ export async function uploadSourceFile(
   file: File,
   imagesUsed: number,
   purpose: "knowledge" | "questions" = "knowledge",
+  onProgress?: (p: UploadProgress) => void,
 ): Promise<{ upload: SignedUpload; stats: FileStats }> {
   const form = new FormData();
   form.append("file", file);
   form.append("imagesUsed", String(imagesUsed));
   form.append("purpose", purpose);
   const res = await fetch("/api/km/source-files", { method: "POST", body: form });
-  const data = (await res.json().catch(() => ({}))) as { error?: string; payload?: string; signature?: string; stats?: FileStats };
+  type Result = { error?: string; payload?: string; signature?: string; stats?: FileStats };
+  let data: Result = {};
+  if (res.ok && res.body && (res.headers.get("content-type") ?? "").includes("ndjson")) {
+    // 題目來源：伺服器每行送一個 JSON（進度、心跳），最後一行是結果或錯誤
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const handle = (line: string) => {
+      if (!line.trim()) return;
+      const msg = JSON.parse(line) as Result & { progress?: UploadProgress; ping?: boolean };
+      if (msg.progress) onProgress?.(msg.progress);
+      else if (!msg.ping) data = msg;
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      lines.forEach(handle);
+    }
+    handle(buffer);
+    if (!data.payload && !data.error) data.error = "連線中斷，伺服器沒有回傳結果，請再試一次。";
+  } else {
+    data = (await res.json().catch(() => ({}))) as Result;
+  }
   if (!res.ok || !data.payload || !data.signature || !data.stats) throw new Error(data.error ?? `上傳失敗（HTTP ${res.status}）`);
   return { upload: { payload: data.payload, signature: data.signature }, stats: data.stats };
 }

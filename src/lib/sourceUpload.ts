@@ -5,7 +5,7 @@ import { anthropic } from "@/lib/anthropic";
 import mammoth from "mammoth";
 import { MAX_IMAGES_PER_SOURCE, officeKindOf, officeToContent, RepeatedLines, xlsxToQuestionText } from "@/lib/officeToText";
 import { extractQuestionsFromText, QUESTION_EXTRACT_THRESHOLD, QUESTION_SOURCE_MAX_CHARS } from "@/lib/questionExtract";
-import { estimateTokens, formatBytes, maxBytesFor, type FileStats } from "@/lib/sourceLimits";
+import { estimateTokens, formatBytes, maxBytesFor, type FileStats, type UploadProgress } from "@/lib/sourceLimits";
 import type { SourceFileRef } from "@/lib/kmAnalysis";
 
 // 來源檔案一個一個上傳：轉換（Word／Excel 轉文字＋圖片）→ 上傳到 Claude Files API → 回傳檔案參照與分量統計。
@@ -68,7 +68,14 @@ function decodeText(buffer: Buffer): string {
 }
 
 // 題目來源（例如客服對話紀錄）：只取文字；內容很多時先由 AI 萃取出客戶問題清單再上傳（AI 一次讀不完整份紀錄）
-async function processQuestionFile(file: File, kind: "docx" | "xlsx" | "text", buffer: Buffer, roleId: string | null): Promise<UploadedFile> {
+async function processQuestionFile(
+  file: File,
+  kind: "docx" | "xlsx" | "text",
+  buffer: Buffer,
+  roleId: string | null,
+  onProgress?: (p: UploadProgress) => void,
+): Promise<UploadedFile> {
+  onProgress?.({ stage: "read" });
   // 超過上限不擋：只讀前面 QUESTION_SOURCE_MAX_CHARS 字，結果裡會註明
   let raw: string;
   let truncated = false;
@@ -88,8 +95,9 @@ async function processQuestionFile(file: File, kind: "docx" | "xlsx" | "text", b
   if (!raw.trim()) throw new UploadError(`「${file.name}」裡沒有讀到任何文字。`);
   const text =
     raw.length > QUESTION_EXTRACT_THRESHOLD
-      ? await extractQuestionsFromText(raw, file.name, roleId, truncated)
+      ? await extractQuestionsFromText(raw, file.name, roleId, truncated, onProgress)
       : `【原始檔案：${file.name}】\n\n${raw}`;
+  onProgress?.({ stage: "save" });
   const uploaded = await anthropic.files.upload({ file: await toFile(Buffer.from(text, "utf8"), `${file.name}.txt`, { type: "text/plain" }) });
   const base = { kind, pages: 0, chars: text.length, images: 0 } as const;
   return {
@@ -103,7 +111,7 @@ async function processQuestionFile(file: File, kind: "docx" | "xlsx" | "text", b
 export async function processSourceFile(
   file: File,
   imagesUsed: number,
-  options: { purpose?: "knowledge" | "questions"; roleId?: string | null } = {},
+  options: { purpose?: "knowledge" | "questions"; roleId?: string | null; onProgress?: (p: UploadProgress) => void } = {},
 ): Promise<UploadedFile> {
   const kind = officeKindOf(file);
   if (kind === "legacy") throw new UploadError(`「${file.name}」是舊版 .doc／.xls，請在 Word／Excel 另存成 .docx／.xlsx 再上傳。`);
@@ -113,7 +121,7 @@ export async function processSourceFile(
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  if (options.purpose === "questions" && kind !== "pdf") return processQuestionFile(file, kind, buffer, options.roleId ?? null);
+  if (options.purpose === "questions" && kind !== "pdf") return processQuestionFile(file, kind, buffer, options.roleId ?? null, options.onProgress);
   if (kind === "pdf") {
     const pages = await countPdfPages(buffer, file.name);
     const uploaded = await anthropic.files.upload({ file: await toFile(buffer, file.name, { type: "application/pdf" }) });

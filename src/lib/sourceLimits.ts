@@ -68,3 +68,6 @@ export function checkTotals(files: FileStats[]): TotalsCheck {
   }
   return { level: "ok", pages, images, estTokens, percent, message: null };
 }
+
+// 題目來源大檔處理進度（伺服器邊做邊回報給畫面）
+export type UploadProgress = { stage: "read" | "extract" | "merge" | "save"; done?: number; total?: number };
