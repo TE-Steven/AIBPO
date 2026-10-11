@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { AI_MODELS } from "@/lib/aiModels";
 
-export const anthropic = new Anthropic();
+// API key 沒有綁定工作區（workspace）時，Anthropic 要求每個請求帶上工作區 ID：在環境變數 ANTHROPIC_WORKSPACE_ID 設定即可
+const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+export const anthropic = new Anthropic(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {});
 
 export const KM_ANALYSIS_MODEL = "claude-sonnet-5";
 
