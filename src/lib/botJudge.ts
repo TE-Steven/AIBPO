@@ -10,7 +10,7 @@ import { cleanKeyPoints, decideVerdict, type JudgeDetail, type JudgedPoint, type
 
 // 機器人測試的 AI 比對（關鍵答案版）：
 // 1. 標準答案拆成關鍵答案（每個標準答案只拆一次，存 AnswerKeyPoints，原題與相似題共用）
-// 2. AI 逐點標記機器人回答「有講到／沒講到／講錯」並引用原句，另列多講且講錯的內容
+// 2. AI 逐點標記機器人回答「有講到／沒講到／講錯」並引用原句，另列多講且跟標準答案矛盾的內容
 // 3. 是否一致由 decideVerdict 依參數管理的比對規則計算（src/lib/keyPoints.ts）
 
 export type JudgeResult = { verdict: JudgeVerdict; reason: string | null; detail?: JudgeDetail };
@@ -52,7 +52,20 @@ const POINT_JUDGE_SCHEMA = {
         additionalProperties: false,
       },
     },
-    conflicts: { type: "array", items: { type: "string" } },
+    // 多講且跟標準答案矛盾的內容：一定要引用標準答案裡被推翻的原句（contradicts），引用不出來的不算（見 realConflicts）
+    conflicts: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          bot_says: { type: "string" },
+          contradicts: { type: "string" },
+          explanation: { type: "string" },
+        },
+        required: ["bot_says", "contradicts", "explanation"],
+        additionalProperties: false,
+      },
+    },
   },
   required: ["points", "conflicts"],
   additionalProperties: false,
@@ -124,9 +137,38 @@ export async function getOrCreateKeyPoints(params: {
   return pending;
 }
 
-// 逐點標記：回傳每個關鍵答案的狀態與引用原句，以及多講且講錯的內容
+type RawConflict = { bot_says: string; contradicts: string; explanation: string };
+
+// 比對用的正規化：去掉空白、標點、markdown 符號，大小寫一致
+function looseText(s: string): string {
+  return s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
+}
+
+// 只留真正跟標準答案矛盾的項目：引用的「標準答案原句」要真的出現在標準答案裡（允許少量抄寫差異）。
+// AI 常把「標準答案沒提到的補充」當成衝突，這種引用不出原句，會在這裡被濾掉
+export function realConflicts(raw: RawConflict[], expectedAnswer: string): string[] {
+  const expected = looseText(expectedAnswer);
+  return raw
+    .filter((c) => {
+      const quote = looseText(c.contradicts ?? "");
+      if (quote.length < 2) return false;
+      if (expected.includes(quote)) return true;
+      // 抄寫有些微差異：引用裡八成以上的雙字詞出現在標準答案中就算
+      const grams = Array.from({ length: quote.length - 1 }, (_, i) => quote.slice(i, i + 2));
+      return grams.filter((g) => expected.includes(g)).length / grams.length >= 0.8;
+    })
+    .map((c) => {
+      const explanation = (c.explanation ?? "").trim();
+      return `機器人說「${(c.bot_says ?? "").trim()}」，但標準答案是「${c.contradicts.trim()}」${explanation ? `（${explanation}）` : ""}`;
+    })
+    .slice(0, 10);
+}
+
+// 逐點標記：回傳每個關鍵答案的狀態與引用原句，以及多講且跟標準答案矛盾的內容
 export async function judgeWithKeyPoints(params: {
   question: string;
+  // 完整標準答案：判斷多講的內容有沒有跟標準答案矛盾時要對照原文（只看關鍵答案，會把清單沒列到的補充誤當成衝突）
+  expectedAnswer: string;
   keyPoints: KeyPoint[];
   botAnswer: string;
   roleId: string;
@@ -151,23 +193,21 @@ export async function judgeWithKeyPoints(params: {
     messages: [
       {
         role: "user",
-        content: `<question>\n${params.question}\n</question>\n\n<key_points>\n${list}\n</key_points>\n\n<bot_answer>\n${stripBotDisclaimer(params.botAnswer)}\n</bot_answer>`,
+        content: `<question>\n${params.question}\n</question>\n\n<expected_answer>\n${params.expectedAnswer}\n</expected_answer>\n\n<key_points>\n${list}\n</key_points>\n\n<bot_answer>\n${stripBotDisclaimer(params.botAnswer)}\n</bot_answer>`,
       },
     ],
   });
   await recordApiUsage({ model, purpose: "bot_test_judge", usage: response.usage, roleId: params.roleId });
 
-  const parsed = JSON.parse(textOf(response)) as { points: { index: number; status: string; evidence: string }[]; conflicts: string[] };
+  const parsed = JSON.parse(textOf(response)) as { points: { index: number; status: string; evidence: string }[]; conflicts: RawConflict[] };
   const byIndex = new Map(parsed.points.map((p) => [p.index, p]));
   const points: JudgedPoint[] = params.keyPoints.map((kp, i) => {
     const judged = byIndex.get(i + 1);
     const status: PointStatus = judged && ["COVERED", "MISSING", "WRONG"].includes(judged.status) ? (judged.status as PointStatus) : "MISSING";
     return { text: kp.text, required: kp.required, status, evidence: status === "MISSING" ? "" : (judged?.evidence ?? "").trim().slice(0, 500) };
   });
-  // 參數管理關掉「多講且講錯」（P3）時不列入判定
-  const conflicts = ruleText(params.config, "P3")
-    ? parsed.conflicts.map((c) => c.trim()).filter(Boolean).slice(0, 10)
-    : [];
+  // 參數管理關掉「多講且矛盾」（P3）時不列入判定
+  const conflicts = ruleText(params.config, "P3") ? realConflicts(parsed.conflicts, params.expectedAnswer) : [];
   return { points, conflicts };
 }
 

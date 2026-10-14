@@ -52,7 +52,7 @@ export function coverageOf(points: JudgedPoint[]): number {
 }
 
 // 判定規則：
-// - 講錯（任何一點，或設定為只看必要點時的必要點）或多講且講錯 → 不一致
+// - 講錯（任何一點，或設定為只看必要點時的必要點）或多講且跟標準答案矛盾 → 不一致
 // - 一個關鍵答案都沒講到 → 不一致
 // - 必要的關鍵答案全部講到、整體涵蓋率達門檻、沒有次要點講錯 → 一致
 // - 其他 → 部分一致
@@ -67,7 +67,7 @@ export function decideVerdict(
   if (fatalWrong.length > 0 || conflicts.length > 0) {
     const parts = [
       fatalWrong.length > 0 ? `講錯：${fatalWrong.map((p) => p.text).join("；")}` : null,
-      conflicts.length > 0 ? `多講且講錯：${conflicts.join("；")}` : null,
+      conflicts.length > 0 ? `多講且矛盾：${conflicts.join("；")}` : null,
     ].filter(Boolean);
     return { verdict: "MISMATCH", reason: parts.join("。"), coverage };
   }

@@ -490,7 +490,7 @@ export function KeyPointList({ detail }: { detail: JudgeDetail }) {
         <div key={`c${i}`} className="flex items-start gap-2">
           <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-rose-500" />
           <p>
-            <span className="mr-1.5 font-semibold text-rose-700">多講且講錯</span>
+            <span className="mr-1.5 font-semibold text-rose-700">多講且矛盾</span>
             <span className="text-slate-700">{c}</span>
           </p>
         </div>

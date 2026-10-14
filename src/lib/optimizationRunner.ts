@@ -46,6 +46,7 @@ import {
   waitUntilAllLearned,
 } from "@/lib/telligentKb";
 import { isPassVerdict, type JudgeDetail } from "@/lib/keyPoints";
+import { judgeBotAnswer } from "@/lib/botJudge";
 
 // 自動優化的背景迴圈：每一輪 上傳 md → 後台學習 → 全部題目問機器人＋AI 比對 → 算分 → 沒達標就請 Claude 依答錯清單改整份 md。
 // 每一步做完都寫回 DB（resumeStep），所以暫停（token 過期、伺服器重啟）後貼新 token 可以從中斷的那一步繼續。
@@ -575,6 +576,84 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
 
 // ---------------- 問機器人、算分、決定要不要繼續 ----------------
 
+// 計分：全部題目一起算；原題、相似題另外算，看機器人是不是只會背原題。回傳全部題目的正確率
+async function scoreVersionRun(versionId: string, runId: string): Promise<number> {
+  const results = await prisma.versionTestResult.findMany({ where: { runId }, include: { jobQuestion: { select: { isSimilar: true } } } });
+  const pct = (list: typeof results) =>
+    list.length === 0 ? null : Math.round((list.filter((r) => isPassVerdict(r.judgeVerdict)).length / list.length) * 100);
+  const scoreAll = pct(results) ?? 0;
+  const scoreOriginal = pct(results.filter((r) => !r.jobQuestion?.isSimilar));
+  const scoreSimilar = pct(results.filter((r) => r.jobQuestion?.isSimilar));
+  // 平均涵蓋率：每題講到的關鍵答案比例（沒回答、比對失敗算 0），看部分一致的題目有沒有在進步
+  const scoreCoverage =
+    results.length === 0
+      ? null
+      : Math.round(results.reduce((sum, r) => sum + ((r.judgeDetail as { coverage?: number } | null)?.coverage ?? 0), 0) / results.length);
+  await prisma.kbVersion.update({ where: { id: versionId }, data: { scoreAll, scoreOriginal, scoreSimilar, scoreCoverage } });
+  return scoreAll;
+}
+
+// ---------------- 重新比對（不重問機器人）----------------
+// 用某一版最後一次測試存下來的機器人回答，依目前的比對規則重判一次並重算分數。
+// 比對規則改過、或想換比對模型時用；在背景執行，進度記在那次測試的 completed。
+
+const rejudging: Set<string> = ((globalThis as unknown as { __aibpoRejudging?: Set<string> }).__aibpoRejudging ??= new Set());
+const REJUDGE_CONCURRENCY = 6;
+
+export function isRejudging(versionId: string): boolean {
+  return rejudging.has(versionId);
+}
+
+export async function startRejudge(versionId: string, model: string): Promise<{ error?: string; count?: number }> {
+  if (rejudging.has(versionId)) return { error: "這一版正在重新比對中。" };
+  const version = await prisma.kbVersion.findUnique({ where: { id: versionId }, include: { job: true } });
+  if (!version) return { error: "找不到這個版本。" };
+  if (version.job?.status === "RUNNING") return { error: "這個任務正在執行，請先停止或等它跑完再重新比對。" };
+  const run = await prisma.versionTestRun.findFirst({ where: { versionId, status: "DONE" }, orderBy: { createdAt: "desc" } });
+  if (!run) return { error: "這一版還沒有完成的測試結果。" };
+  const results = await prisma.versionTestResult.findMany({
+    where: { runId: run.id, status: "ANSWERED", botAnswer: { not: null } },
+    orderBy: { order: "asc" },
+  });
+  if (results.length === 0) return { error: "這一版沒有機器人回答可以比對。" };
+
+  rejudging.add(versionId);
+  await prisma.versionTestRun.update({ where: { id: run.id }, data: { status: "RUNNING", completed: run.total - results.length } });
+  void (async () => {
+    try {
+      const config = await getPromptConfig(await companyIdForRole(version.roleId));
+      let next = 0;
+      const worker = async () => {
+        while (next < results.length) {
+          const r = results[next++];
+          const judged = await judgeBotAnswer({
+            question: r.question,
+            expectedAnswer: r.expectedAnswer,
+            botAnswer: r.botAnswer ?? "",
+            roleId: version.roleId,
+            config,
+            model,
+          });
+          await prisma.versionTestResult.update({
+            where: { id: r.id },
+            data: { judgeVerdict: judged.verdict, judgeReason: judged.reason, judgeDetail: judged.detail ?? Prisma.DbNull },
+          });
+          await prisma.versionTestRun.update({ where: { id: run.id }, data: { completed: { increment: 1 } } });
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(REJUDGE_CONCURRENCY, results.length) }, worker));
+    } catch (err) {
+      console.error("rejudge failed", err);
+    } finally {
+      // 失敗的題目會是「比對失敗」，分數照樣重算；測試狀態一定改回完成，任務之後才找得到這次結果
+      await prisma.versionTestRun.update({ where: { id: run.id }, data: { status: "DONE", completed: run.total } }).catch(() => {});
+      await scoreVersionRun(versionId, run.id).catch(() => {});
+      rejudging.delete(versionId);
+    }
+  })();
+  return { count: results.length };
+}
+
 async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
   const n = job.currentRun;
   const version = await currentVersion(job);
@@ -635,20 +714,7 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
     return; // 使用者按了停止：迴圈下一圈會把任務標成已停止
   }
   await prisma.versionTestRun.update({ where: { id: runId }, data: { status: "DONE" } });
-
-  // 計分：全部題目一起算；原題、相似題另外算，看機器人是不是只會背原題
-  const results = await prisma.versionTestResult.findMany({ where: { runId }, include: { jobQuestion: { select: { isSimilar: true } } } });
-  const pct = (list: typeof results) =>
-    list.length === 0 ? null : Math.round((list.filter((r) => isPassVerdict(r.judgeVerdict)).length / list.length) * 100);
-  const scoreAll = pct(results) ?? 0;
-  const scoreOriginal = pct(results.filter((r) => !r.jobQuestion?.isSimilar));
-  const scoreSimilar = pct(results.filter((r) => r.jobQuestion?.isSimilar));
-  // 平均涵蓋率：每題講到的關鍵答案比例（沒回答、比對失敗算 0），看部分一致的題目有沒有在進步
-  const scoreCoverage =
-    results.length === 0
-      ? null
-      : Math.round(results.reduce((sum, r) => sum + ((r.judgeDetail as { coverage?: number } | null)?.coverage ?? 0), 0) / results.length);
-  await prisma.kbVersion.update({ where: { id: version.id }, data: { scoreAll, scoreOriginal, scoreSimilar, scoreCoverage } });
+  const scoreAll = await scoreVersionRun(version.id, runId);
 
   const scored = await prisma.kbVersion.findMany({
     where: { jobId: job.id, scoreAll: { not: null } },

@@ -16,6 +16,8 @@ import {
   isJobLoopRunning,
   launchOptimizationJob,
   isDocVersion,
+  isRejudging,
+  startRejudge,
   uploadVersionToBackend,
 } from "@/lib/optimizationRunner";
 
@@ -170,6 +172,7 @@ export async function continueOptimizationAction(input: {
   const base = await prisma.kbVersion.findUnique({ where: { id: input.baseVersionId }, include: { job: true } });
   if (!base || base.roleId !== session.roleId) return { error: "找不到這個版本。" };
   if (!base.job) return { error: "這個版本的原任務已被刪除，沒有可以沿用的題目，請改從 KM 內容開始新的自動優化。" };
+  if (isRejudging(base.id)) return { error: "這一版正在重新比對，請等比對完成再繼續。" };
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
   if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
@@ -239,6 +242,8 @@ export async function resumeOptimizationAction(jobId: string, rawToken: string):
   const session = await requireCompanyUser();
   const job = await ownJob(jobId, session.roleId);
   if (!job) return { error: "找不到這個任務。" };
+  const versionIds = (await prisma.kbVersion.findMany({ where: { jobId }, select: { id: true } })).map((v) => v.id);
+  if (versionIds.some(isRejudging)) return { error: "這個任務有版本正在重新比對，請等比對完成再繼續。" };
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
   const tk = await credentialsFor(t.target, rawToken);
@@ -425,6 +430,17 @@ export async function saveKeyPointsAction(expectedAnswer: string, rawPoints: Key
     update: { points, editedByUser: true },
   });
   return { success: "已儲存，下一次比對（下一輪或重新比對）就會用新的關鍵答案。" };
+}
+
+// 重新比對某一版：用存好的機器人回答依目前的比對規則重判（不重問機器人、不需要 token），在背景執行
+export async function rejudgeVersionAction(versionId: string, model: string): Promise<OptimizeActionResult> {
+  const session = await requireCompanyUser();
+  const version = await prisma.kbVersion.findUnique({ where: { id: versionId }, select: { roleId: true } });
+  if (!version || version.roleId !== session.roleId) return { error: "找不到這個版本。" };
+  const started = await startRejudge(versionId, cleanAiModel(model));
+  if (started.error) return { error: started.error };
+  revalidatePath(PATH);
+  return { success: `開始重新比對 ${started.count} 題，完成後分數會自動更新。` };
 }
 
 // 某一版是怎麼改出來的（自動優化修改紀錄）

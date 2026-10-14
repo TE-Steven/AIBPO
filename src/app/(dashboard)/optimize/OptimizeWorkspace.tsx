@@ -35,7 +35,7 @@ import {
 } from "./optimizeShared";
 import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
 import type { BotOption } from "@/lib/botTest";
-import { CompareModal, ContinueModal, RevisionLogModal, type ContinueBase } from "./versionModals";
+import { CompareModal, ContinueModal, RejudgeModal, RevisionLogModal, type ContinueBase } from "./versionModals";
 import { LocalTime } from "@/components/LocalTime";
 import { IconAlertTriangle, IconChevronDown, IconSparkles, IconTrash, IconX } from "@/components/icons";
 
@@ -333,6 +333,7 @@ function JobCard({
     | { kind: "results"; run: RunView }
     | { kind: "continue"; run: RunView }
     | { kind: "revision"; run: RunView }
+    | { kind: "rejudge"; run: RunView }
   >(null);
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -505,6 +506,21 @@ function JobCard({
                           逐題結果
                         </button>
                       )}
+                      {r.testTotal > 0 && job.status !== "RUNNING" && r.testStatus === "DONE" && (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ kind: "rejudge", run: r })}
+                          title="用存好的機器人回答依目前的比對規則重判，不重問機器人"
+                          className="text-teal-700 hover:underline"
+                        >
+                          重新比對
+                        </button>
+                      )}
+                      {r.testStatus === "RUNNING" && job.status !== "RUNNING" && (
+                        <span className="text-amber-700">
+                          重新比對中 {r.testCompleted}／{r.testTotal}
+                        </span>
+                      )}
                       {r.hasRevisionLog && (
                         <button type="button" onClick={() => setModal({ kind: "revision", run: r })} className="text-teal-700 hover:underline">
                           修改說明
@@ -569,6 +585,15 @@ function JobCard({
         <RevisionLogModal versionId={modal.run.versionId} title={`${modal.run.name} 修改說明`} onClose={() => setModal(null)} />
       )}
       {modal?.kind === "continue" && <ContinueModal base={continueBase(modal.run)} onClose={() => setModal(null)} />}
+      {modal?.kind === "rejudge" && (
+        <RejudgeModal
+          versionId={modal.run.versionId}
+          name={modal.run.name.split("・")[0]}
+          answered={modal.run.testTotal}
+          defaultModel={job.judgeModel}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -605,7 +630,8 @@ function Workspace({
 }: WorkspaceProps) {
   const router = useRouter();
   const hasActive = jobs.some((j) => j.status === "RUNNING" || j.status === "PAUSED_TOKEN");
-  const hasRunning = jobs.some((j) => j.status === "RUNNING");
+  // 任務在跑，或有版本在重新比對：定時更新進度
+  const hasRunning = jobs.some((j) => j.status === "RUNNING" || j.runs.some((r) => r.testStatus === "RUNNING"));
   const [showForm, setShowForm] = useState(!hasActive && jobs.length === 0);
   const [clearing, setClearing] = useState(false);
   // 版本比較：可以跨任務勾選（從某版繼續的任務，起點版本在另一個任務裡）

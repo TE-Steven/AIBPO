@@ -6,6 +6,7 @@ import {
   compareVersionsAction,
   getRevisionLogAction,
   continueOptimizationAction,
+  rejudgeVersionAction,
   type CompareSide,
   type OptimizeActionResult,
 } from "./actions";
@@ -28,6 +29,7 @@ import { collapseUnchanged, diffLines, diffStats } from "@/lib/lineDiff";
 import { EDIT_CAUSE_LABELS, type EditCause, type RevisionLog } from "@/lib/optimizationPrompts";
 import { IconSparkles } from "@/components/icons";
 import { isPassVerdict } from "@/lib/keyPoints";
+import { modelCostUsd } from "@/lib/aiModels";
 
 // 「從這版繼續」需要的起點版本資訊
 export type ContinueBase = {
@@ -392,6 +394,63 @@ export function RevisionLogModal({ versionId, title, onClose }: { versionId: str
           )}
         </div>
       )}
+    </Modal>
+  );
+}
+
+// 重新比對某一版：用存好的機器人回答依目前的比對規則重判（不重問機器人、不需要 token）
+export function RejudgeModal({
+  versionId,
+  name,
+  answered,
+  defaultModel,
+  onClose,
+}: {
+  versionId: string;
+  name: string;
+  // 有機器人回答、會重新比對的題數
+  answered: number;
+  defaultModel: string;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const stats = useContext(UsageStatsContext);
+  const [model, setModel] = useState(defaultModel);
+  const [result, setResult] = useState<OptimizeActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  // 新的比對會多附完整標準答案，輸入量比過去的平均多一些
+  const unit = stats.judge ?? { input: 900, output: 80 };
+  const cost = answered * modelCostUsd(model, unit.input + 400, unit.output + 60);
+  return (
+    <Modal title={`重新比對 ${name}`} onClose={onClose}>
+      <p className="mb-3 text-xs leading-relaxed text-slate-500">
+        用這一版測試時存下來的機器人回答，依目前的比對規則再判一次，重算正確率。不會重新問機器人，也不需要 token；約需 1～5 分鐘，完成後分數自動更新。
+      </p>
+      <div className="mb-4 overflow-hidden rounded-xl ring-1 ring-inset ring-slate-200">
+        <ModelRow title="AI 比對" desc={`約 ${answered} 題`} value={model} onChange={setModel} cost={formatTwd(cost)} />
+      </div>
+      <Feedback result={result} />
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+          {result?.success ? "關閉" : "取消"}
+        </button>
+        {!result?.success && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                const r = await rejudgeVersionAction(versionId, model);
+                setResult(r);
+                router.refresh();
+              })
+            }
+            className="rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+          >
+            開始重新比對
+          </button>
+        )}
+      </div>
     </Modal>
   );
 }
