@@ -394,6 +394,15 @@ function JobCard({
           </p>
         </button>
         <div className="flex shrink-0 items-center gap-2">
+          {job.runs.length > 0 && (
+            <a
+              href={`/api/optimize/jobs/${job.id}/diagnostics`}
+              title="下載這個任務各版本的分數、逐題結果、AI 修改紀錄與 md（JSON），用來分析分數變化"
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50"
+            >
+              下載診斷資料
+            </a>
+          )}
           {(job.status === "PAUSED_TOKEN" || job.status === "FAILED") && (
             <button
               type="button"
