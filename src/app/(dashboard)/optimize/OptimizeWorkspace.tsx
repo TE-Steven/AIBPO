@@ -460,7 +460,7 @@ function JobCard({
 
       {open && job.runs.length > 0 && (
         <div className="overflow-x-auto border-t border-slate-100 bg-slate-50/50">
-          <table className="w-full min-w-[760px] text-xs">
+          <table className="w-full min-w-[900px] text-xs">
             <thead>
               <tr className="text-left text-[11px] text-slate-400">
                 <th className="w-10 py-2 pl-5" />
@@ -469,7 +469,7 @@ function JobCard({
                 <th className="w-16 py-2 text-right font-medium">原題</th>
                 <th className="w-16 py-2 text-right font-medium">相似題</th>
                 <th className="w-16 py-2 text-right font-medium" title="關鍵答案講到的平均比例">涵蓋率</th>
-                <th className="w-80 py-2 pr-5 text-right font-medium">操作</th>
+                <th className="w-[26rem] py-2 pr-5 text-right font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -500,7 +500,7 @@ function JobCard({
                   <td className="py-2.5 text-right tabular-nums text-slate-600">{r.scoreSimilar !== null ? `${r.scoreSimilar}%` : "—"}</td>
                   <td className="py-2.5 text-right tabular-nums text-slate-500">{r.scoreCoverage !== null ? `${r.scoreCoverage}%` : "—"}</td>
                   <td className="py-2.5 pr-5 text-right">
-                    <div className="flex items-center justify-end gap-3">
+                    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 whitespace-nowrap">
                       {r.testTotal > 0 && (
                         <button type="button" onClick={() => setModal({ kind: "results", run: r })} className="text-teal-700 hover:underline">
                           逐題結果
