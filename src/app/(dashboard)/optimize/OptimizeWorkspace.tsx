@@ -590,7 +590,7 @@ function JobCard({
           versionId={modal.run.versionId}
           name={modal.run.name.split("・")[0]}
           answered={modal.run.testTotal}
-          defaultModel={job.judgeModel}
+          defaultModel={DEFAULT_AI_MODEL}
           onClose={() => setModal(null)}
         />
       )}

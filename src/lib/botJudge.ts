@@ -146,9 +146,13 @@ function looseText(s: string): string {
 
 // 只留真正跟標準答案矛盾的項目：引用的「標準答案原句」要真的出現在標準答案裡（允許少量抄寫差異）。
 // AI 常把「標準答案沒提到的補充」當成衝突，這種引用不出原句，會在這裡被濾掉
+// 說明裡出現這些字，講的是「沒講到／多講／不完整」，不是矛盾（便宜的模型常把這些硬列成矛盾）
+const NOT_CONFLICT_HINT = /未提及|沒有提到|未提到|沒提到|未說明|沒有說明|找不到|漏掉|漏了|遺漏|未包含|沒有包含|超出|不完整|額外|補充|無衝突|不衝突|沒有衝突|並非矛盾|不算矛盾|未明確|沒有明確/;
+
 export function realConflicts(raw: RawConflict[], expectedAnswer: string): string[] {
   const expected = looseText(expectedAnswer);
   return raw
+    .filter((c) => !NOT_CONFLICT_HINT.test(c.explanation ?? ""))
     .filter((c) => {
       const quote = looseText(c.contradicts ?? "");
       if (quote.length < 2) return false;
@@ -223,10 +227,23 @@ export async function judgeBotAnswer(params: {
 }): Promise<JudgeResult> {
   try {
     const keyPoints = await getOrCreateKeyPoints(params);
-    const { points, conflicts } = await judgeWithKeyPoints({ ...params, keyPoints });
+    let judged = await judgeWithKeyPoints({ ...params, keyPoints });
+    // 便宜的模型（不支援 effort 的，例如 Haiku）判出講錯或矛盾時，改由 Sonnet 複核：
+    // 判「不一致」的影響最大（會被拿去修改 md），而便宜模型常把講對的判成講錯、把補充當成矛盾
+    let verifiedBy: string | undefined;
+    const model = params.model ?? KM_ANALYSIS_MODEL;
+    if (!findAiModel(model).effort && (judged.conflicts.length > 0 || judged.points.some((p) => p.status === "WRONG"))) {
+      judged = await judgeWithKeyPoints({ ...params, keyPoints, model: KM_ANALYSIS_MODEL });
+      verifiedBy = KM_ANALYSIS_MODEL;
+    }
+    const { points, conflicts } = judged;
     const options = resolveOptions(params.config);
     const decided = decideVerdict(points, conflicts, { minCoverage: options.judgeMinCoverage, wrongTolerance: options.judgeWrongTolerance });
-    return { verdict: decided.verdict, reason: decided.reason, detail: { points, conflicts, coverage: decided.coverage } };
+    return {
+      verdict: decided.verdict,
+      reason: decided.reason,
+      detail: { points, conflicts, coverage: decided.coverage, ...(verifiedBy ? { verifiedBy } : {}) },
+    };
   } catch (err) {
     if (err instanceof Anthropic.APIError) {
       return { verdict: "ERROR", reason: `AI 比對失敗（${err.status ?? "連線錯誤"}），請按「重新比對」再試一次。` };

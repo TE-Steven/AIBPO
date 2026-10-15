@@ -5,7 +5,14 @@ export type KeyPoint = { text: string; required: boolean; aliases: string[] };
 
 export type PointStatus = "COVERED" | "MISSING" | "WRONG";
 export type JudgedPoint = { text: string; required: boolean; status: PointStatus; evidence: string };
-export type JudgeDetail = { points: JudgedPoint[]; conflicts: string[]; coverage: number };
+// verifiedBy：便宜的比對模型判出講錯／矛盾時，改由這個模型複核後的結果；retry：答錯重問一次時第一次的結果
+export type JudgeDetail = {
+  points: JudgedPoint[];
+  conflicts: string[];
+  coverage: number;
+  verifiedBy?: string;
+  retry?: { firstVerdict: string | null; firstAnswer: string | null };
+};
 
 export type JudgeVerdict = "MATCH" | "PARTIAL" | "MISMATCH" | "ERROR";
 

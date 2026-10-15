@@ -92,7 +92,7 @@ export function buildEditSystemPrompt(params: { guidelines?: string; config?: Pr
   return [
     `${guidelinesPrefix(params.guidelines)}${ruleText(config, "ed.intro")}`,
     ruleText(config, "opt.language"),
-    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6", "E7"])}`,
+    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"])}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -109,6 +109,8 @@ export type EditFailure = {
   reason: string | null;
   // 使用者在逐題結果寫的備註
   userNote: string | null;
+  // 之前幾輪對這題做過的診斷與改法（這題還沒答對＝那些改法沒用）
+  previousAttempts?: string[];
 };
 
 export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean }): string {
@@ -124,6 +126,7 @@ export function buildEditUserText(params: { markdown: string; failures: EditFail
         f.conflicts.length > 0 ? `<conflicts>${f.conflicts.join("；")}</conflicts>` : "",
         f.missing.length + f.wrong.length + f.conflicts.length === 0 && f.reason ? `<reason>${f.reason}</reason>` : "",
         f.userNote ? `<user_note>${f.userNote}</user_note>` : "",
+        f.previousAttempts?.length ? `<previous_attempts>\n${f.previousAttempts.join("\n")}\n</previous_attempts>` : "",
         `</failure>`,
       ];
       return lines.filter(Boolean).join("\n");

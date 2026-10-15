@@ -870,6 +870,16 @@ export const RULES: RuleDef[] = [
     toggleable: false,
     editable: true,
   },
+  {
+    id: "E8",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "之前的嘗試",
+    defaultText:
+      "題目附有 previous_attempts 時，代表之前幾輪已經照那樣診斷、修改過，但機器人仍然沒答對：請重新判斷原因並換一種做法（例如改標題或段落位置、補上客戶常用的問法、把答案寫得更直接完整），不要重複同樣的修改。",
+    toggleable: true,
+    editable: true,
+  },
 
   {
     id: "sim.intro",

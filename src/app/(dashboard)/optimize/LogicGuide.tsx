@@ -87,7 +87,7 @@ function GuideContent() {
           <Arrow vertical />
           <FlowBox no="②" title="上傳＋學習" sub="換掉後台上一版" color="sky" />
           <Arrow vertical />
-          <FlowBox no="③" title="測試＋比對" sub="問機器人、算正確率" color="amber" />
+          <FlowBox no="③" title="測試＋比對" sub="問機器人、錯題重問、算分" color="amber" />
           <Arrow vertical />
           <div className="flex-1 rounded-xl bg-white px-3 py-2.5 text-center ring-1 ring-inset ring-slate-200">
             <p className="text-sm font-semibold text-slate-700">要停嗎？</p>
@@ -149,7 +149,7 @@ function GuideContent() {
       </Section>
 
       <Section no="③" title="測試＋比對＋算分" color="amber">
-        <p>每題用全新的對話問機器人（原題＋相似題），再由 AI 比對。比對分三步：</p>
+        <p>每題用全新的對話問機器人（原題＋相似題），再由 AI 比對。<b>第一次沒答對的題目會再問一次，第二次答對就算對</b>：機器人每次回答都不太一樣，這樣可以降低偶爾答壞造成的起伏，AI 也不會去修只是剛好答壞的題目。比對分三步：</p>
         {/* 比對圖解 */}
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-200">
@@ -183,7 +183,7 @@ function GuideContent() {
                 <span className="font-bold text-rose-600">!</span>多講且跟標準答案矛盾
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-400">矛盾一定要引用標準答案裡被推翻的原句；標準答案沒提到的補充不算矛盾。</p>
+            <p className="mt-2 text-[11px] text-slate-400">矛盾一定要引用標準答案裡被推翻的原句；標準答案沒提到的補充、沒講到、不完整都不算矛盾。比對模型選 Haiku 時，判出講錯或矛盾的題目會再由 Sonnet 複核。</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-200">
             <p className="mb-2 text-xs font-semibold text-slate-700">3. 由程式決定結果</p>
@@ -229,9 +229,9 @@ function GuideContent() {
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           {[
             ["最高分版本", "退步的版本不疊加修改"],
-            ["挑要修的題目", "一輪最多 10 題"],
+            ["挑要修的題目", "一輪最多 20 題"],
             ["AI 診斷原因", "讀來源原始檔案＋md"],
-            ["局部修改", "程式套用修改清單"],
+            ["局部修改", "分兩批，各 10 題"],
             ["新版本", "附修改紀錄，回到 ②"],
           ].map(([t, d], i, all) => (
             <div key={t} className="flex flex-1 items-center gap-2">
@@ -252,26 +252,27 @@ function GuideContent() {
                 "相似題不給 AI 看，只當驗收，避免照題目背答案",
                 "之前判定「原文就沒有」的題目不再處理",
                 "寫了備註的題目一定處理（包含已經一致的）",
+                "之前幾輪改過但還沒答對的題目，會附上當時的診斷和改法，請 AI 換一種做法",
               ]}
             />
           </div>
           <div>
-            <p className="mb-1.5 font-medium text-slate-700">優先順序（超過 10 題留到下一輪）</p>
+            <p className="mb-1.5 font-medium text-slate-700">優先順序（超過 20 題留到下一輪）</p>
             <div className="space-y-1">
-              {["有備註", "講錯／矛盾", "沒答對", "部分一致"].map((t, i) => (
+              {["有備註且沒答對", "講錯／矛盾", "沒答對", "有備註但已一致", "部分一致"].map((t, i) => (
                 <div key={t} className="flex items-center gap-2 text-xs">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-100 text-[10px] font-bold text-violet-700">{i + 1}</span>
-                  <span className="rounded-lg bg-white px-2 py-1 ring-1 ring-inset ring-slate-200" style={{ width: `${100 - i * 15}%` }}>
+                  <span className="rounded-lg bg-white px-2 py-1 ring-1 ring-inset ring-slate-200" style={{ width: `${100 - i * 12}%` }}>
                     {t}
                   </span>
                 </div>
               ))}
-              <p className="pt-1 text-[11px] text-slate-400">同一級再比必要點漏了幾個。</p>
+              <p className="pt-1 text-[11px] text-slate-400">同一級再比必要點漏了幾個；已經試過還沒改好的題目稍微往後排，讓從沒處理過的錯題也輪得到。</p>
             </div>
           </div>
         </div>
         <div className="rounded-xl bg-violet-50/60 px-3 py-2 text-xs text-violet-900 ring-1 ring-inset ring-violet-100">
-          修改內容一定要有來源原始檔案當根據；你的備註只當方向，原文沒有的內容不會被寫進 md（會標成「原文沒有」）。局部修改一項都套不上時，才退回整份重寫。
+          第二批接著第一批改好的 md 修改；某一批輸出太長會減半重試，第二批失敗時保留第一批的修改。修改內容一定要有來源原始檔案當根據；你的備註只當方向，原文沒有的內容不會被寫進 md（會標成「原文沒有」）。局部修改一項都套不上時，才退回整份重寫。
         </div>
       </Section>
 
@@ -297,7 +298,8 @@ function GuideContent() {
         <p className="mb-1 font-semibold">看分數的小提醒</p>
         <Bullets
           items={[
-            "機器人每次回答都不太一樣，同一份 md 測兩次也可能差幾個百分點；小幅起伏不一定是改壞了。",
+            "機器人每次回答都不太一樣，同一份 md 測兩次也可能差幾個百分點（錯題重問已經降低這個影響）；小幅起伏不一定是改壞了。",
+            "比對規則改過之後，舊版本可以按「重新比對」用新規則重判，分數才能跟新版本比較。",
             "想知道某一版到底改了什麼、改好或改壞哪些題，可以勾兩個版本「比較」，或看「修改說明」。",
           ]}
         />

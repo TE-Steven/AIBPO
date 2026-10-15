@@ -600,6 +600,10 @@ async function scoreVersionRun(versionId: string, runId: string): Promise<number
 const rejudging: Set<string> = ((globalThis as unknown as { __aibpoRejudging?: Set<string> }).__aibpoRejudging ??= new Set());
 const REJUDGE_CONCURRENCY = 6;
 
+// AI 修改：一輪分幾批、每批幾題（第二批接著第一批改好的 md 修改）
+const REVISE_BATCHES = 2;
+const REVISE_BATCH_SIZE = 10;
+
 export function isRejudging(versionId: string): boolean {
   return rejudging.has(versionId);
 }
@@ -712,6 +716,46 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
     await prisma.versionTestRun.update({ where: { id: runId }, data: { status: "FAILED", errorMessage: tokenError ?? "已停止" } });
     if (tokenError) throw new BotTokenError(tokenError);
     return; // 使用者按了停止：迴圈下一圈會把任務標成已停止
+  }
+
+  // 機器人每次回答都不太一樣：沒答對的題目再問一次，第二次答對就算對（第一次的回答記在 judgeDetail.retry）。
+  // 降低雜訊，AI 修改時也不會去修只是偶爾答壞的題目
+  const firstFails = (await prisma.versionTestResult.findMany({ where: { runId }, orderBy: { order: "asc" } })).filter(
+    (r) => !isPassVerdict(r.judgeVerdict),
+  );
+  if (firstFails.length > 0) {
+    const byId = new Map(firstFails.map((r) => [r.id, r]));
+    await setStep(job.id, `第 ${n} 輪：沒答對的 ${firstFails.length} 題再問一次`);
+    const retry = await runBotJobs({
+      jobs: firstFails.map((r) => ({ id: r.id, question: r.question, expectedAnswer: r.expectedAnswer })),
+      target: ctx.target,
+      token,
+      roleId: job.roleId,
+      config: ctx.config,
+      saveResult: async (resultId, data) => {
+        const first = byId.get(resultId);
+        if (!first) return;
+        // 第二次答對才換；第一次根本沒回答、第二次有回答也換（至少有回答可以分析）
+        const better = isPassVerdict(data.judgeVerdict ?? null) || (first.status !== "ANSWERED" && data.status === "ANSWERED");
+        if (!better) return;
+        await prisma.versionTestResult.update({
+          where: { id: resultId },
+          data: {
+            ...data,
+            judgeDetail: data.judgeDetail
+              ? { ...data.judgeDetail, retry: { firstVerdict: first.judgeVerdict, firstAnswer: first.botAnswer } }
+              : Prisma.DbNull,
+          },
+        });
+      },
+      shouldStop: () => isStopRequested(job.id),
+      judgeModel: job.judgeModel,
+    });
+    if (retry.tokenError) {
+      await prisma.versionTestRun.update({ where: { id: runId }, data: { status: "FAILED", errorMessage: retry.tokenError } });
+      throw new BotTokenError(retry.tokenError);
+    }
+    if (await isStopRequested(job.id)) return;
   }
   await prisma.versionTestRun.update({ where: { id: runId }, data: { status: "DONE" } });
   const scoreAll = await scoreVersionRun(version.id, runId);
@@ -845,14 +889,38 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       userNote: noteOf(r)?.text ?? null,
     };
   });
-  // 一輪只處理最嚴重的幾題（講錯優先，再來是沒答對的，最後是部分一致；同級看必要點沒講到幾個），其餘留到下一輪；
-  // 一次丟太多題，AI 的思考加上修改清單容易超過輸出上限而被截斷
-  // 有使用者備註的最優先
+  // 之前幾輪對同一題的修改嘗試（還在答錯清單上＝那些改法沒用）：附給 AI，請它換一種做法
+  const priorVersions = await prisma.kbVersion.findMany({
+    where: { jobId: job.id, revisionLog: { not: Prisma.DbNull } },
+    select: { name: true, revisionLog: true },
+    orderBy: { runIndex: "asc" },
+  });
+  const attemptsByQuestion = new Map<string, string[]>();
+  for (const v of priorVersions) {
+    const log = v.revisionLog as RevisionLog | null;
+    const vn = v.name.split("・")[0];
+    for (const d of log?.diagnoses ?? []) {
+      const reasons = (log?.edits ?? []).filter((e) => e.applied && e.questions.includes(d.question)).map((e) => e.reason).filter(Boolean);
+      const text = `${vn}：判斷為「${EDIT_CAUSE_LABELS[d.cause] ?? d.cause}」${d.note ? `（${d.note}）` : ""}${reasons.length > 0 ? `，改法：${reasons.join("；")}` : "，沒有修改"}`;
+      const key = d.question.trim();
+      attemptsByQuestion.set(key, [...(attemptsByQuestion.get(key) ?? []), text.slice(0, 400)].slice(-3));
+    }
+  }
+  for (const f of allFailures) {
+    const attempts = attemptsByQuestion.get(f.question.trim());
+    if (attempts) f.previousAttempts = attempts;
+  }
+
+  // 一輪處理最多 REVISE_BATCHES × REVISE_BATCH_SIZE 題，其餘留到下一輪。優先順序：
+  // 有備註且沒答對 ＞ 講錯／矛盾 ＞ 沒答對 ＞ 有備註但已一致 ＞ 部分一致；同級看必要點沒講到幾個。
+  // 已經試過好幾次仍沒改好的題目往後排一點，讓從沒處理過的錯題也輪得到
   const severity = (f: EditFailure) =>
-    (f.userNote ? 2000 : 0) +
+    (f.userNote && f.verdict !== "MATCH" ? 3000 : 0) +
     (f.wrong.length > 0 || f.conflicts.length > 0 ? 1000 : 0) +
     (isPassVerdict(f.verdict) ? 0 : 500) +
-    f.missing.filter((m) => m.startsWith("【必要】")).length;
+    (f.userNote && f.verdict === "MATCH" ? 200 : 0) +
+    f.missing.filter((m) => m.startsWith("【必要】")).length -
+    Math.min(2, f.previousAttempts?.length ?? 0) * 150;
   const prioritized = [...allFailures].sort((a, b) => severity(b) - severity(a));
 
   const entries = await prisma.kmEntry.findMany({ where: { id: { in: asIds(job.entryIds) } }, select: { sourceId: true } });
@@ -863,57 +931,93 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
 
   // 支援自適應思考的模型用 adaptive（effort 中等，避免思考用掉太多輸出額度）；不支援的（例如 Haiku）給固定思考預算
   const reviseModel = findAiModel(job.reviseModel);
-  let failures: EditFailure[] = [];
-  let response: Anthropic.Message | null = null;
-  // 先送最多 10 題；萬一還是被截斷，改送 5 題再試一次
-  for (const batchSize of [10, 5]) {
-    failures = prioritized.slice(0, batchSize);
-    const remaining = prioritized.length - failures.length;
-    await setStep(
-      job.id,
-      `第 ${n} 輪：AI 診斷 ${failures.length} 題答錯的原因並修改 md（從 ${base.name} 改${remaining > 0 ? `，另有 ${remaining} 題留到下一輪` : ""}）`,
-    );
-    response = await anthropic.messages
-      .stream({
-        model: reviseModel.id,
-        max_tokens: 64000,
-        thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
-        system: buildEditSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
-        output_config: {
-          ...(reviseModel.effort ? { effort: "medium" as const } : {}),
-          format: { type: "json_schema", schema: EDIT_SCHEMA },
-        },
-        ...(urls.length > 0
-          ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
-          : {}),
-        messages: [
-          {
-            role: "user",
-            content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown: base.markdown, failures, splitByH1 }) }],
+  const groups = Array.from({ length: REVISE_BATCHES }, (_, i) => prioritized.slice(i * REVISE_BATCH_SIZE, (i + 1) * REVISE_BATCH_SIZE)).filter(
+    (g) => g.length > 0,
+  );
+  const leftover = prioritized.length - groups.reduce((sum, g) => sum + g.length, 0);
+
+  // 一批：AI 診斷原因並列出修改清單，套用到目前的 md（第二批接著第一批改好的 md 修改）。被截斷就減半重試，還是截斷就跳過這批
+  async function reviseBatch(markdown: string, batch: EditFailure[], batchIndex: number) {
+    let failures: EditFailure[] = [];
+    let response: Anthropic.Message | null = null;
+    for (const size of [batch.length, Math.ceil(batch.length / 2)]) {
+      failures = batch.slice(0, size);
+      await setStep(
+        job.id,
+        `第 ${n} 輪：AI 診斷答錯原因並修改 md（第 ${batchIndex + 1}／${groups.length} 批，${failures.length} 題，從 ${base!.name} 改${leftover > 0 ? `，另有 ${leftover} 題留到下一輪` : ""}）`,
+      );
+      response = await anthropic.messages
+        .stream({
+          model: reviseModel.id,
+          max_tokens: 64000,
+          thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
+          system: buildEditSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
+          output_config: {
+            ...(reviseModel.effort ? { effort: "medium" as const } : {}),
+            format: { type: "json_schema", schema: EDIT_SCHEMA },
           },
-        ],
-      })
-      .finalMessage();
-    await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
-    if (response.stop_reason !== "max_tokens") break;
-  }
-  if (!response || response.stop_reason === "max_tokens") {
-    throw new Error("AI 的修改清單太長，減少到 5 題後輸出仍被截斷，這一輪沒有保存（原始文件可能太長）。");
+          ...(urls.length > 0
+            ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, urls.length + 1) }] }
+            : {}),
+          messages: [
+            {
+              role: "user",
+              content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown, failures, splitByH1 }) }],
+            },
+          ],
+        })
+        .finalMessage();
+      await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
+      if (response.stop_reason !== "max_tokens" || size === 1) break;
+    }
+    if (!response || response.stop_reason === "max_tokens") return null;
+
+    const parsed = JSON.parse(
+      response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join(""),
+    ) as { diagnoses: { index: number; cause: EditCause; note: string }[]; edits: MdEdit[] };
+    const questionOf = (i: number) => failures[i - 1]?.question ?? `第 ${i} 題`;
+    const applied = applyMdEdits(markdown, parsed.edits);
+    return {
+      failures,
+      markdown: applied.markdown,
+      proposed: parsed.edits.length,
+      diagnoses: parsed.diagnoses
+        .filter((d) => d.index >= 1 && d.index <= failures.length)
+        .map((d) => ({ question: failures[d.index - 1].question, cause: d.cause, note: d.note })),
+      edits: applied.edits.map((e) => ({
+        action: e.action,
+        anchor: e.anchor,
+        text: e.text,
+        reason: e.reason,
+        questions: e.questions.map(questionOf),
+        applied: e.applied,
+      })),
+    };
   }
 
-  const parsed = JSON.parse(
-    response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join(""),
-  ) as { diagnoses: { index: number; cause: EditCause; note: string }[]; edits: MdEdit[] };
-  const diagnoses = parsed.diagnoses
-    .filter((d) => d.index >= 1 && d.index <= failures.length)
-    .map((d) => ({ question: failures[d.index - 1].question, cause: d.cause, note: d.note }));
-  const questionOf = (i: number) => failures[i - 1]?.question ?? `第 ${i} 題`;
+  let markdown = base.markdown;
+  const failures: EditFailure[] = [];
+  const diagnoses: RevisionLog["diagnoses"] = [];
+  const edits: RevisionLog["edits"] = [];
+  let proposed = 0;
+  for (const [i, group] of groups.entries()) {
+    const out = await reviseBatch(markdown, group, i);
+    if (!out) {
+      if (i === 0) throw new Error("AI 的修改清單太長，減少題數後輸出仍被截斷，這一輪沒有保存（原始文件可能太長）。");
+      break; // 第二批失敗：保留第一批的修改，剩下的留到下一輪
+    }
+    markdown = out.markdown;
+    failures.push(...out.failures);
+    diagnoses.push(...out.diagnoses);
+    edits.push(...out.edits);
+    proposed += out.proposed;
+  }
 
   // 沒有任何可以修的：剩下的都是原文沒有、或機器人本身的問題
-  if (parsed.edits.length === 0) {
+  if (proposed === 0) {
     const counts = Object.entries(
       diagnoses.reduce<Record<string, number>>((acc, d) => ({ ...acc, [d.cause]: (acc[d.cause] ?? 0) + 1 }), {}),
     )
@@ -923,9 +1027,6 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
     return;
   }
 
-  const editResult = applyMdEdits(base.markdown, parsed.edits);
-  const edits = editResult.edits;
-  let markdown = editResult.markdown;
   let mode: RevisionLog["mode"] = "edits";
   // 修改清單一項都對不上 md（定位失敗）：退回整份重寫
   if (!edits.some((e) => e.applied)) {
@@ -940,7 +1041,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
     baseVersionId: base.id,
     baseVersionName: base.name,
     diagnoses,
-    edits: edits.map((e) => ({ action: e.action, anchor: e.anchor, text: e.text, reason: e.reason, questions: e.questions.map(questionOf), applied: e.applied })),
+    edits,
     growthPct,
   };
 
