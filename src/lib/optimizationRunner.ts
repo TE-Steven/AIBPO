@@ -127,7 +127,14 @@ async function runLoop(jobId: string): Promise<void> {
     const job = await prisma.optimizationJob.findUnique({ where: { id: jobId } });
     if (!job || job.status !== "RUNNING") return;
     if (job.stopRequested) {
-      await prisma.optimizationJob.update({ where: { id: jobId }, data: { status: "STOPPED", stopReason: "使用者停止", currentStep: "已停止" } });
+      await prisma.optimizationJob.update({
+        where: { id: jobId },
+        data: {
+          status: "STOPPED",
+          stopReason: job.stopReason ?? "使用者停止",
+          currentStep: `已停止：${job.stopReason ?? "使用者按了停止"}（可以貼 token 從中斷的那一步繼續）`,
+        },
+      });
       return;
     }
     let creds = state.tokens.get(jobId);

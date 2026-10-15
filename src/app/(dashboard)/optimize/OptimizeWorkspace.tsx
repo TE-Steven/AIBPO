@@ -404,7 +404,7 @@ function JobCard({
               下載診斷資料
             </a>
           )}
-          {(job.status === "PAUSED_TOKEN" || job.status === "FAILED") && (
+          {(job.status === "PAUSED_TOKEN" || job.status === "FAILED" || (job.status === "STOPPED" && !hasActive)) && (
             <button
               type="button"
               onClick={() => setModal({ kind: "resume" })}
@@ -417,7 +417,9 @@ function JobCard({
             <button
               type="button"
               disabled={pending}
-              onClick={() => run(() => stopOptimizationAction(job.id))}
+              onClick={() => {
+                if (confirm("確定要停止這個任務？停止後可以再貼 token 從中斷的那一步繼續。")) run(() => stopOptimizationAction(job.id));
+              }}
               className="rounded-lg px-3 py-1.5 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200 hover:bg-rose-50 disabled:opacity-50"
             >
               停止

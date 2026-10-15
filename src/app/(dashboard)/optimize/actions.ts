@@ -222,22 +222,25 @@ export async function stopOptimizationAction(jobId: string): Promise<OptimizeAct
   const job = await ownJob(jobId, session.roleId);
   if (!job) return { error: "找不到這個任務。" };
   if (["DONE", "STOPPED"].includes(job.status)) return { error: "這個任務已經結束了。" };
+  // 記下誰、什麼時候按的停止（之後才查得到任務為什麼停）
+  const at = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  const stopReason = `${session.displayName} 在 ${at} 按了停止`;
 
   if (job.status === "RUNNING" && isJobLoopRunning(jobId)) {
     // 正在跑：做完手上這一題／這一步就停（後台學習的等待也會中斷）
-    await prisma.optimizationJob.update({ where: { id: jobId }, data: { stopRequested: true, currentStep: "停止中…" } });
+    await prisma.optimizationJob.update({ where: { id: jobId }, data: { stopRequested: true, stopReason, currentStep: "停止中…" } });
     revalidatePath(PATH);
     return { success: "已送出停止，做完手上的步驟就會停下來。" };
   }
   await prisma.optimizationJob.update({
     where: { id: jobId },
-    data: { status: "STOPPED", stopRequested: true, stopReason: "使用者停止", currentStep: "已停止" },
+    data: { status: "STOPPED", stopRequested: true, stopReason, currentStep: `已停止：${stopReason}（可以貼 token 從中斷的那一步繼續）` },
   });
   revalidatePath(PATH);
   return { success: "已停止。" };
 }
 
-// 暫停（token 過期、伺服器重啟）或失敗後，貼新的 token 從中斷的那一步繼續
+// 暫停（token 過期、伺服器重啟）、失敗或被停止後，貼新的 token 從中斷的那一步繼續
 export async function resumeOptimizationAction(jobId: string, rawToken: string): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
   const job = await ownJob(jobId, session.roleId);
@@ -254,13 +257,16 @@ export async function resumeOptimizationAction(jobId: string, rawToken: string):
       launchOptimizationJob(jobId, tk.creds); // 只換 token
       return { success: "已更新 token。" };
     }
+  } else if (job.status === "STOPPED") {
+    // 停止的任務不算進行中：繼續前要確認公司沒有別的任務在跑（一次只能跑一個）
+    if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
   } else if (!["PAUSED_TOKEN", "FAILED"].includes(job.status)) {
-    return { error: "這個任務已經結束，不能繼續。" };
+    return { error: "這個任務已經跑完，不能繼續；可以從某一版「從這版繼續」。" };
   }
 
   await prisma.optimizationJob.update({
     where: { id: jobId },
-    data: { status: "RUNNING", stopRequested: false, errorMessage: null, currentStep: "繼續執行中" },
+    data: { status: "RUNNING", stopRequested: false, stopReason: null, errorMessage: null, currentStep: "繼續執行中" },
   });
   launchOptimizationJob(jobId, tk.creds);
   revalidatePath(PATH);
