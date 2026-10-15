@@ -378,7 +378,11 @@ export function RevisionLogModal({ versionId, title, onClose }: { versionId: str
                   <div key={i} className={`rounded-lg border p-3 ${e.applied ? "border-slate-200" : "border-dashed border-slate-300 opacity-60"}`}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded bg-teal-50 px-1.5 py-0.5 font-semibold text-teal-700">{ACTION_LABEL[e.action] ?? e.action}</span>
-                      {!e.applied && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">定位不到，沒有套用</span>}
+                      {!e.applied && (
+                        <span className={`rounded px-1.5 py-0.5 ${e.rejected ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`}>
+                          {e.rejected ? `違反分類結構，沒有套用：${e.rejected}` : "定位不到，沒有套用"}
+                        </span>
+                      )}
                       <span className="text-slate-600">{e.reason}</span>
                     </div>
                     {e.questions.length > 0 && <p className="mt-1 text-[11px] text-slate-400">對應題目：{e.questions.join("、")}</p>}

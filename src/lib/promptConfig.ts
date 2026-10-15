@@ -838,7 +838,8 @@ export const RULES: RuleDef[] = [
     section: "optimize",
     group: "診斷與局部修改",
     label: "找不到的補法",
-    defaultText: "HARD_TO_FIND 的題目：補上客戶可能的問法、同義詞，或把相關標題改得更像客戶的問題，不要重複貼上整段內容。",
+    defaultText:
+      "HARD_TO_FIND 的題目：在段落內文補上客戶可能的問法、同義詞，或把題目層級的標題改得更像客戶的問題（分類層級的標題不能改），不要重複貼上整段內容。",
     toggleable: true,
     editable: true,
   },
@@ -876,7 +877,17 @@ export const RULES: RuleDef[] = [
     group: "診斷與局部修改",
     label: "之前的嘗試",
     defaultText:
-      "題目附有 previous_attempts 時，代表之前幾輪已經照那樣診斷、修改過，但機器人仍然沒答對：請重新判斷原因並換一種做法（例如改標題或段落位置、補上客戶常用的問法、把答案寫得更直接完整），不要重複同樣的修改。",
+      "題目附有 previous_attempts 時，代表之前幾輪已經照那樣診斷、修改過，但機器人仍然沒答對：請重新判斷原因並換一種做法（例如搬到更合適的分類段落、補上客戶常用的問法、把答案寫得更直接完整），不要重複同樣的修改。",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "E9",
+    section: "optimize",
+    group: "診斷與局部修改",
+    label: "放對分類",
+    defaultText:
+      "<categories> 是分類管理的分類樹與說明，md 的標題結構就是依它產生（結構化文件：# 項目、## 項目｜維度、### 子維度）。新增或補充內容時，要依分類說明放進最符合的段落，例如保養方式放清潔保養、故障處理放維修排障；原本放錯分類的內容可以搬到正確的段落。不可以新增、改名或刪除分類層級的標題（違反的修改不會被套用）。",
     toggleable: true,
     editable: true,
   },

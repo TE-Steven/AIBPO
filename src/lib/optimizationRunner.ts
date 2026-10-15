@@ -15,7 +15,7 @@ import { buildKnowledgeMarkdown, tallyPathOf, type ExportEntry } from "@/lib/kmE
 import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
 import { getSourceFiles, getSourceUrls, sourceFileBlocks } from "@/lib/kmAnalysis";
 import { aiErrorText } from "@/lib/claudeFileErrors";
-import { tallyPathOptions } from "@/lib/tallyTree";
+import { tallyPathLines, tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
   buildEditSystemPrompt,
@@ -935,6 +935,10 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const { blocks, urls } = buildSourcesContent(sources);
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
   const splitByH1 = job.contentKind === "DOC";
+  // 分類管理的分類樹與說明：AI 依分類說明把內容放進對應的段落
+  const categories = tallyPathLines(tallyPathOptions(await prisma.tally.findMany({ where: { roleId: job.roleId }, orderBy: { order: "asc" } })));
+  // 分類層級的標題由程式保護：結構化文件是 # 項目／## 維度／### 子維度；FAQ 有分組時保護 # 與 ## 分組標題
+  const structureLevel = job.contentKind === "DOC" ? 3 : /^### /m.test(base.markdown) ? 2 : 1;
 
   // 支援自適應思考的模型用 adaptive（effort 中等，避免思考用掉太多輸出額度）；不支援的（例如 Haiku）給固定思考預算
   const reviseModel = findAiModel(job.reviseModel);
@@ -969,7 +973,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
           messages: [
             {
               role: "user",
-              content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown, failures, splitByH1 }) }],
+              content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown, failures, splitByH1, categories }) }],
             },
           ],
         })
@@ -986,7 +990,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
         .join(""),
     ) as { diagnoses: { index: number; cause: EditCause; note: string }[]; edits: MdEdit[] };
     const questionOf = (i: number) => failures[i - 1]?.question ?? `第 ${i} 題`;
-    const applied = applyMdEdits(markdown, parsed.edits);
+    const applied = applyMdEdits(markdown, parsed.edits, structureLevel);
     return {
       failures,
       markdown: applied.markdown,
@@ -1001,6 +1005,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
         reason: e.reason,
         questions: e.questions.map(questionOf),
         applied: e.applied,
+        ...(e.rejected ? { rejected: e.rejected } : {}),
       })),
     };
   }
@@ -1035,6 +1040,10 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   }
 
   let mode: RevisionLog["mode"] = "edits";
+  if (!edits.some((e) => e.applied) && edits.every((e) => e.rejected)) {
+    await finishJob(job.id, "AI 提出的修改都會改動分類層級的標題，依分類結構沒有套用；請檢查分類管理或修改規則");
+    return;
+  }
   // 修改清單一項都對不上 md（定位失敗）：退回整份重寫
   if (!edits.some((e) => e.applied)) {
     await setStep(job.id, `第 ${n} 輪：局部修改都定位不到，改成 AI 整份重寫`);

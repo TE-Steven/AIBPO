@@ -92,7 +92,7 @@ export function buildEditSystemPrompt(params: { guidelines?: string; config?: Pr
   return [
     `${guidelinesPrefix(params.guidelines)}${ruleText(config, "ed.intro")}`,
     ruleText(config, "opt.language"),
-    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"])}`,
+    `規則：\n${ruleLines(config, ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9"])}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -113,7 +113,7 @@ export type EditFailure = {
   previousAttempts?: string[];
 };
 
-export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean }): string {
+export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean; categories?: string[] }): string {
   const failures = params.failures
     .map((f, i) => {
       const lines = [
@@ -133,7 +133,8 @@ export function buildEditUserText(params: { markdown: string; failures: EditFail
     })
     .join("\n");
   const note = params.splitByH1 ? `\n\n${SPLIT_BY_H1_NOTE}` : "";
-  return `以上是原始文件。\n\n<current_markdown>\n${params.markdown}\n</current_markdown>\n\n以下是機器人答錯的 ${params.failures.length} 題：\n\n${failures}\n\n請依照系統指示，先為每一題寫出 diagnoses（index 對應題號），再列出要套用到 md 的 edits。${note}`;
+  const categories = params.categories?.length ? `<categories>\n${params.categories.join("\n")}\n</categories>\n\n` : "";
+  return `以上是原始文件。\n\n${categories}<current_markdown>\n${params.markdown}\n</current_markdown>\n\n以下是機器人答錯的 ${params.failures.length} 題：\n\n${failures}\n\n請依照系統指示，先為每一題寫出 diagnoses（index 對應題號），再列出要套用到 md 的 edits。${note}`;
 }
 
 export const EDIT_SCHEMA = {
@@ -178,6 +179,7 @@ export type RevisionLog = {
   baseVersionId: string;
   baseVersionName: string;
   diagnoses: { question: string; cause: EditCause; note: string }[];
-  edits: { action: string; anchor: string; text: string; reason: string; questions: string[]; applied: boolean }[];
+  // rejected：違反分類結構而沒有套用的原因
+  edits: { action: string; anchor: string; text: string; reason: string; questions: string[]; applied: boolean; rejected?: string }[];
   growthPct: number;
 };
