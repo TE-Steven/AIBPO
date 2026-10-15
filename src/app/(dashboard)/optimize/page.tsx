@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getBotTestSettings } from "@/lib/botTest";
 import { isJobLoopRunning, jobLabel } from "@/lib/optimizationRunner";
 import { findAiModel } from "@/lib/aiModels";
+import { LogicGuide } from "./LogicGuide";
 import { OptimizeWorkspace, type JobView, type SourceOption } from "./OptimizeWorkspace";
 import type { TokenAverage } from "./optimizeShared";
 
@@ -143,7 +144,10 @@ export default async function OptimizePage() {
   return (
     <div className="animate-fade-in space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">自動優化</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold text-slate-900">自動優化</h1>
+          <LogicGuide />
+        </div>
         <p className="mt-1 text-sm text-slate-500">
           系統自動把 md 上傳到後台知識庫、學習後用題目測機器人，AI 依答錯的題目修改整份 md 再重測，每一輪都留下版本與正確率，最後挑一份最好的部署到後台。
         </p>
