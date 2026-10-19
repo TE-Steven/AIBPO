@@ -11,7 +11,7 @@ import {
 } from "./actions";
 import { POINT_STATUS_LABELS, type JudgeDetail, type KeyPoint, type PointStatus } from "@/lib/keyPoints";
 import { IconAlertTriangle, IconCheckCircle, IconKey, IconX } from "@/components/icons";
-import { AI_MODELS, modelCostUsd } from "@/lib/aiModels";
+import { AI_MODELS, findAiModel, modelCostUsd } from "@/lib/aiModels";
 import type { BotOption } from "@/lib/botTest";
 
 // 自動優化頁面（任務／版本分頁）共用的元件
@@ -54,6 +54,8 @@ export const USD_TO_TWD = 32;
 
 export type PlanEstimate = {
   questionsPerRun: number;
+  // 每輪實際問機器人＋比對的次數（含沒答對再問一次）
+  askedPerRun: number;
   // 時間（分鐘）：刪除舊版＋上傳＋學習等待、問機器人（每題約 45 秒、同時 3 題）、AI 修改
   uploadMinutes: number;
   testMinutes: number;
@@ -68,6 +70,13 @@ export type PlanEstimate = {
   maxUsd: number;
   measured: { judge: boolean; revise: boolean };
 };
+
+// 估算用的假設（跟 src/lib/optimizationRunner.ts 的實際做法對應）
+const RETRY_SHARE = 0.35; // 第一次沒答對、要再問一次的比例
+const VERIFY_SHARE = 0.2; // 便宜的比對模型判出講錯／矛盾、要 Sonnet 複核的比例
+const VERIFY_MODEL = "claude-sonnet-5";
+const REVISE_BATCHES = 2;
+const REVISE_BATCH_SIZE = 10;
 
 export function estimatePlan(params: {
   originals: number;
@@ -86,25 +95,31 @@ export function estimatePlan(params: {
 }): PlanEstimate {
   const { originals, similarCount, maxRuns, contentCount, contentKind, stats } = params;
   const questionsPerRun = originals * (1 + similarCount);
+  // 第一次沒答對的題目會再問一次（假設約三成五）
+  const askedPerRun = questionsPerRun * (1 + RETRY_SHARE);
   // 刪除舊版約 2 分＋上傳約 1 分＋學習：呼叫學習後至少等設定的分鐘數（實測學習約 2.5 分，取較長者）
   const uploadMinutes = 3 + Math.max(3, params.learnWaitMinutes);
-  const testMinutes = Math.ceil((Math.ceil(questionsPerRun / 3) * 45) / 60);
-  const reviseMinutes = 3;
+  const testMinutes = Math.ceil((Math.ceil(askedPerRun / 3) * 45) / 60);
+  // AI 修改一輪分兩批，每批約 3 分
+  const reviseMinutes = 3 * REVISE_BATCHES;
   const runMinutes = uploadMinutes + testMinutes + reviseMinutes;
 
-  // AI 比對一題：比對規則＋題目＋標準答案＋機器人回答約 900 token，輸出判定與原因約 80 token
-  const judgeTokens = stats.judge ?? { input: 900, output: 80 };
-  const judgeUnitUsd = modelCostUsd(params.judgeModel, judgeTokens.input, judgeTokens.output);
-  // AI 修改一次：原始文件（約 15k）＋目前 md＋答錯清單（假設 4 成答錯、每題約 250 token）；輸出整份 md＋思考約 6k
+  // AI 比對一題：比對規則＋題目＋完整標準答案＋關鍵答案＋機器人回答約 1,300 token，輸出逐點判定約 300 token
+  const judgeTokens = stats.judge ?? { input: 1_300, output: 300 };
+  // 比對模型是 Haiku 這類便宜模型時，判出講錯／矛盾的題目（假設約兩成）會再由 Sonnet 複核
+  const verifyUsd = findAiModel(params.judgeModel).effort ? 0 : VERIFY_SHARE * modelCostUsd(VERIFY_MODEL, judgeTokens.input, judgeTokens.output);
+  const judgeUnitUsd = modelCostUsd(params.judgeModel, judgeTokens.input, judgeTokens.output) + verifyUsd;
+  // AI 修改一批：原始文件（約 15k）＋目前 md＋分類說明＋10 題答錯清單；輸出診斷、修改清單與思考約 8k
   const mdTokens = contentCount * (contentKind === "DOC" ? 800 : 200);
-  const reviseTokens = stats.revise ?? { input: 15_000 + mdTokens + questionsPerRun * 0.4 * 250, output: mdTokens + 6_000 };
-  const reviseUsd = modelCostUsd(params.reviseModel, reviseTokens.input, reviseTokens.output);
+  const reviseTokens = stats.revise ?? { input: 15_000 + mdTokens + 1_000 + REVISE_BATCH_SIZE * 400, output: 8_000 };
+  const reviseUsd = modelCostUsd(params.reviseModel, reviseTokens.input, reviseTokens.output) * REVISE_BATCHES;
   // 相似題只在開始時產生一次：輸入每題約 250 token，輸出每個相似問法約 40 token
   const similarUsd =
     similarCount > 0 && !params.skipSimilar ? modelCostUsd(params.similarModel, originals * 250, originals * similarCount * 40) : 0;
 
   return {
     questionsPerRun,
+    askedPerRun: Math.round(askedPerRun),
     uploadMinutes,
     testMinutes,
     reviseMinutes,
@@ -112,10 +127,10 @@ export function estimatePlan(params: {
     // 最後一輪測完就結束，不會再修改
     maxMinutes: runMinutes * maxRuns - reviseMinutes,
     judgeUnitUsd,
-    judgeRunUsd: questionsPerRun * judgeUnitUsd,
+    judgeRunUsd: askedPerRun * judgeUnitUsd,
     reviseUsd,
     similarUsd,
-    maxUsd: questionsPerRun * judgeUnitUsd * maxRuns + reviseUsd * (maxRuns - 1) + similarUsd,
+    maxUsd: askedPerRun * judgeUnitUsd * maxRuns + reviseUsd * (maxRuns - 1) + similarUsd,
     measured: { judge: stats.judge !== null, revise: stats.revise !== null },
   };
 }
@@ -151,6 +166,69 @@ export function BotSelect({ value, onChange }: { value: string; onChange: (id: s
         {current?.description || "（沒有說明）"}・channel {current?.channel}。md 一律上傳到同一個知識庫，這裡只決定問哪一隻機器人。
       </p>
     </div>
+  );
+}
+
+// 各數據的定義與算法（小 ⓘ 的內容），自動優化各畫面共用
+export const TIPS = {
+  scoreAll: "正確率（全部）＝（一致＋部分一致）的題數 ÷ 全部題數（原題＋相似題）。第一次沒答對的題目會再問一次，第二次答對就算對。長條上的紅線是目標正確率。",
+  scoreOriginal: "只算原題（範圍內的 FAQ 或測試題庫）的正確率，算法跟「全部」一樣。",
+  scoreSimilar: "只算 AI 產生的相似問法。相似題不給 AI 修改 md 時看，只用來驗收：原題高、相似題低，代表機器人可能只會背原題的問法。",
+  coverage: "涵蓋率＝每題講到的關鍵答案比例（必要與次要都算，講錯算沒講到），再取全部題目的平均；沒回答算 0%。正確率沒變時，看涵蓋率可以知道部分一致的題目有沒有在進步。",
+  best: "這個任務正確率（全部）最高的版本，同分時涵蓋率高的優先。AI 每一輪都從最佳版本開始修改，部署時也建議選它。",
+  verdicts: "一致：必要的關鍵答案都講到，沒講錯、沒矛盾。部分一致：沒講錯，但必要點沒講全（正確率算對，仍會拿去修改）。不一致：任何一點講錯、多講且跟標準答案矛盾，或完全沒講到。未回答：機器人逾時、出錯，或 AI 比對失敗。",
+  questionCoverage: "這一題講到的關鍵答案比例（必要與次要都算，講錯算沒講到）。",
+  keyPoints: "標準答案拆成的重點，每個標準答案只拆一次，原題和相似題共用。必要：一定要講到；次要：可以不講，但講了不能錯。可以按「編輯關鍵答案」調整，下一次比對生效。",
+  questionsPerRun: "原題數 ×（1＋每題相似題數）。每一輪都問同一套題目，分數才能比較。",
+  runTime: "刪除後台上一版＋上傳＋學習等待＋問機器人（每題約 45 秒、同時 3 題，含沒答對再問一次）＋AI 修改兩批。實際時間依機器人回答速度而定。",
+  maxTime: "一輪時間 × 最多輪數（最後一輪測完就結束、不再修改）。達到目標或連續沒進步會提早停。",
+  maxCost: "比對（含沒答對重問；選 Haiku 時含 Sonnet 複核）× 輪數 ＋ 修改兩批 ×（輪數－1）＋ 相似題。有過去的實際用量時，用平均 token 數估算。",
+  compareChange: "比較兩個版本同一題的結果：從不一致／未回答變成一致或部分一致＝變對；反過來＝變錯；兩版都沒答對＝仍錯。",
+  mdGrowth: "這一版 md 的字數比起點版本多（＋）或少（－）幾成。一直往上長要留意，太長可能讓機器人更難找到內容。",
+  editsApplied: "AI 提出的修改項目中，實際套用到 md 的數量。沒套用的會標原因：定位不到（引用的原文在 md 裡找不到），或違反分類結構（想新增、改名或刪除分類層級的標題）。",
+  diagnoses: "這一輪 AI 處理的題目（最多 20 題，分兩批各 10 題）與它判斷的答錯原因。",
+} as const;
+
+// 數據旁邊的小 ⓘ：滑鼠移上去或點一下顯示定義與算法。用 fixed 定位，放在可捲動的表格裡也不會被切掉
+export function InfoTip({ children, label = "這是什麼？" }: { children: React.ReactNode; label?: string }) {
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const width = Math.min(288, typeof window === "undefined" ? 288 : window.innerWidth - 16);
+  function show(el: HTMLElement) {
+    const r = el.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - width / 2), window.innerWidth - width - 8);
+    // 下方空間不夠就顯示在上方
+    setPos(r.bottom + 180 > window.innerHeight ? { left, bottom: window.innerHeight - r.top + 6 } : { left, top: r.bottom + 6 });
+  }
+  return (
+    <span className="inline-flex align-middle" onMouseLeave={() => setPos(null)}>
+      <button
+        type="button"
+        aria-label={label}
+        onMouseEnter={(e) => show(e.currentTarget)}
+        onFocus={(e) => show(e.currentTarget)}
+        onBlur={() => setPos(null)}
+        onClick={(e) => {
+          // 點擊一律顯示（滑鼠移開或點別的地方才關閉）；手機沒有 hover，靠點擊打開
+          e.stopPropagation();
+          show(e.currentTarget);
+        }}
+        className="ml-1 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-slate-400 hover:text-teal-600 focus:text-teal-600 focus:outline-none"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5M12 8h.01" />
+        </svg>
+      </button>
+      {pos && (
+        <span
+          role="tooltip"
+          style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, width }}
+          className="z-[60] whitespace-normal rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-white shadow-xl"
+        >
+          {children}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -601,6 +679,7 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
             { value: "all", label: "全部", hint: count(all) },
           ]}
         />
+        <InfoTip>{TIPS.verdicts}</InfoTip>
       </div>
       {results === null ? (
         <p className="text-xs text-slate-500">載入中…</p>
@@ -618,7 +697,11 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
                   </span>
                   {r.isSimilar && <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">相似題</span>}
                   <p className="flex-1 font-medium text-slate-800">{r.question}</p>
-                  {r.detail && <span className="shrink-0 text-slate-400">涵蓋 {r.detail.coverage}%</span>}
+                  {r.detail && (
+                    <span className="inline-flex shrink-0 items-center text-slate-400">
+                      涵蓋 {r.detail.coverage}%<InfoTip>{TIPS.questionCoverage}</InfoTip>
+                    </span>
+                  )}
                 </div>
                 <div className="mt-2 grid gap-2 md:grid-cols-2">
                   <div>
@@ -633,11 +716,29 @@ export function ResultsModal({ versionId, title, onClose }: { versionId: string;
                 {r.detail ? (
                   <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
                     <div className="mb-1.5 flex items-center justify-between">
-                      <p className="text-[11px] font-semibold text-slate-400">關鍵答案</p>
+                      <p className="flex items-center text-[11px] font-semibold text-slate-400">
+                        關鍵答案<InfoTip>{TIPS.keyPoints}</InfoTip>
+                      </p>
                       <button type="button" onClick={() => setEditing(r)} className="text-[11px] font-semibold text-teal-700 hover:underline">
                         編輯關鍵答案
                       </button>
                     </div>
+                    {(r.detail.retry || r.detail.verifiedBy) && (
+                      <div className="mb-1.5 flex flex-wrap gap-1.5 text-[11px]">
+                        {r.detail.retry && (
+                          <span className="inline-flex items-center rounded bg-sky-50 px-1.5 py-0.5 text-sky-700">
+                            第二次問才答對（第一次：{VERDICT_BADGE[r.detail.retry.firstVerdict ?? ""]?.label ?? "未回答"}）
+                            <InfoTip>第一次沒答對的題目會再問一次，第二次答對就算對。第一次的回答：{r.detail.retry.firstAnswer ?? "（沒有回答）"}</InfoTip>
+                          </span>
+                        )}
+                        {r.detail.verifiedBy && (
+                          <span className="inline-flex items-center rounded bg-violet-50 px-1.5 py-0.5 text-violet-700">
+                            Sonnet 複核
+                            <InfoTip>比對模型（例如 Haiku）判出講錯或矛盾時，改由 Sonnet 再判一次，這裡顯示的是複核後的結果。</InfoTip>
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <KeyPointList detail={r.detail} />
                   </div>
                 ) : (
@@ -820,10 +921,13 @@ export function ModelRow({
 }
 
 // 費用摘要的一格數字
-export function SummaryStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+export function SummaryStat({ label, value, sub, tip }: { label: string; value: string; sub?: string; tip?: string }) {
   return (
     <div className="rounded-xl bg-white/80 px-4 py-3 ring-1 ring-inset ring-slate-200">
-      <p className="text-[11px] font-medium text-slate-500">{label}</p>
+      <p className="flex items-center text-[11px] font-medium text-slate-500">
+        {label}
+        {tip && <InfoTip>{tip}</InfoTip>}
+      </p>
       <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{value}</p>
       {sub && <p className="mt-0.5 text-[11px] text-slate-400">{sub}</p>}
     </div>

@@ -13,6 +13,8 @@ import {
 import {
   Choice,
   estimatePlan,
+  InfoTip,
+  TIPS,
   Feedback,
   formatMinutes,
   formatTwd,
@@ -117,12 +119,12 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
       <div className="mb-4 divide-y divide-slate-100 rounded-xl border border-slate-200">
         <ModelRow
           title="比對答案"
-          desc={`每輪 ${plan.questionsPerRun} 次（每題約 ${formatTwd(plan.judgeUnitUsd)}）`}
+          desc={`每輪約 ${plan.askedPerRun} 次，含沒答對再問一次（每題約 ${formatTwd(plan.judgeUnitUsd)}）`}
           value={judgeModel}
           onChange={setJudgeModel}
           cost={`${formatTwd(plan.judgeRunUsd)}／輪`}
         />
-        <ModelRow title="修改 md" desc="每輪一次" value={reviseModel} onChange={setReviseModel} cost={`${formatTwd(plan.reviseUsd)}／次`} />
+        <ModelRow title="修改 md" desc="每輪兩批，各 10 題" value={reviseModel} onChange={setReviseModel} cost={`${formatTwd(plan.reviseUsd)}／次`} />
       </div>
       <p className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
         每輪 {plan.questionsPerRun} 題、一輪約 {formatMinutes(plan.runMinutes)}；跑滿 {maxRuns} 輪最多約 {formatMinutes(maxMinutes)}、Claude 費用約{" "}
@@ -210,9 +212,15 @@ export function CompareModal({ ids, onClose }: { ids: [string, string]; onClose:
             <thead>
               <tr className="text-left text-[11px] text-slate-400">
                 <th className="py-1 font-medium">版本</th>
-                <th className="w-20 py-1 text-right font-medium">全部</th>
-                <th className="w-20 py-1 text-right font-medium">原題</th>
-                <th className="w-20 py-1 text-right font-medium">相似題</th>
+                <th className="w-24 py-1 text-right font-medium">
+                  <span className="inline-flex items-center">全部<InfoTip>{TIPS.scoreAll}</InfoTip></span>
+                </th>
+                <th className="w-24 py-1 text-right font-medium">
+                  <span className="inline-flex items-center">原題<InfoTip>{TIPS.scoreOriginal}</InfoTip></span>
+                </th>
+                <th className="w-24 py-1 text-right font-medium">
+                  <span className="inline-flex items-center">相似題<InfoTip>{TIPS.scoreSimilar}</InfoTip></span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -239,14 +247,17 @@ export function CompareModal({ ids, onClose }: { ids: [string, string]; onClose:
             </tbody>
           </table>
 
-          <Choice
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: "questions", label: "題目變化", hint: `變對 ${improved.length}・變錯 ${regressed.length}` },
-              { value: "markdown", label: "md 差異", hint: diff ? `+${diffStats(diff).added} −${diffStats(diff).removed} 行` : "" },
-            ]}
-          />
+          <div className="flex items-center gap-1">
+            <Choice
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: "questions", label: "題目變化", hint: `變對 ${improved.length}・變錯 ${regressed.length}` },
+                { value: "markdown", label: "md 差異", hint: diff ? `+${diffStats(diff).added} −${diffStats(diff).removed} 行` : "" },
+              ]}
+            />
+            <InfoTip>{TIPS.compareChange}</InfoTip>
+          </div>
 
           {tab === "questions" ? (
             questionRows.length === 0 ? (
@@ -331,6 +342,80 @@ const CAUSE_STYLE: Record<EditCause, string> = {
 
 const ACTION_LABEL: Record<string, string> = { replace: "改寫", insert_after: "插入", delete: "刪除" };
 
+// 修改說明最上方的閱讀指南（可以收合，記住使用者的選擇）
+function RevisionGuide() {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem("aibpo.revisionGuide") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  function toggle() {
+    setOpen((v) => {
+      try {
+        localStorage.setItem("aibpo.revisionGuide", v ? "closed" : "open");
+      } catch {
+        // 無痕模式等存不了就算了
+      }
+      return !v;
+    });
+  }
+  const causes: [EditCause, string, string][] = [
+    ["MISSING_INFO", "原始檔案有，但 md 漏掉了 → 把內容補進對的段落", "不用處理"],
+    ["HARD_TO_FIND", "md 有寫，但機器人找不到 → 補上同義詞、客戶問法", "不用處理"],
+    ["AMBIGUOUS", "md 前後說法不一致或容易誤解 → 改寫成清楚一致的說法", "不用處理"],
+    ["NOT_IN_SOURCE", "原始檔案根本沒寫，AI 不能編 → 之後不再處理這題", "把內容補進來源檔案，再到來源頁「重新上傳檔案」"],
+    ["RETRIEVAL", "md 寫得清楚也好找，機器人還是答錯 → 不改 md", "屬於後台機器人的檢索或設定問題"],
+  ];
+  return (
+    <div className="rounded-xl border border-teal-100 bg-teal-50/40">
+      <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-3 py-2 text-left font-semibold text-teal-800" aria-expanded={open}>
+        怎麼看這份修改說明
+        <span className="text-[11px] font-normal text-teal-700">{open ? "收合" : "展開"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-teal-100 px-3 py-3 leading-relaxed text-slate-600">
+          <div>
+            <p className="font-semibold text-slate-700">1. 這一版的來歷</p>
+            <p>
+              起點是當時這個任務<b>分數最高的版本</b>（不一定是上一輪；上一輪退步就會跳回更早的高分版本）。正常是「局部修改」，只改跟答錯題目有關的段落；AI 提的修改全都對不上 md 時才會「整份重寫」。md 長度一輪通常是個位數百分比。
+            </p>
+          </div>
+          <div>
+            <p className="mb-1 font-semibold text-slate-700">2. 答錯原因（每題一個標籤）</p>
+            <div className="space-y-1">
+              {causes.map(([cause, desc, todo]) => (
+                <div key={cause} className="flex flex-wrap items-start gap-x-2 gap-y-0.5">
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${CAUSE_STYLE[cause]}`}>{EDIT_CAUSE_LABELS[cause]}</span>
+                  <span className="min-w-0 flex-1">
+                    {desc}
+                    <span className="ml-1 text-slate-400">｜你可以：{todo}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-1 text-slate-500">標籤大多是前三種，代表還有東西可以修；「原文就沒有」「機器人本身的問題」越來越多，代表快碰到天花板，需要你介入。</p>
+          </div>
+          <div>
+            <p className="font-semibold text-slate-700">3. 修改清單</p>
+            <p>
+              每一項有動作（改寫／插入／刪除）、理由、對應題目和前後對照：<span className="rounded bg-rose-50 px-1 text-rose-800 line-through">紅底刪除線</span>是被改掉的原文，
+              <span className="rounded bg-slate-100 px-1 text-slate-500">灰底「接在：」</span>是插入的位置，<span className="rounded bg-emerald-50 px-1 text-emerald-800">綠底</span>是新寫的內容。虛線框的項目沒有套用，旁邊會寫原因：定位不到（AI 引用的原文找不到），或違反分類結構（想新增、改名或刪除分類層級的標題）。
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-slate-700">4. 改得好不好，要看下一版的測試</p>
+            <p>
+              勾選起點版本和這一版按「比較」，看這裡列出的題目有沒有變對、別的題目有沒有被改壞；還答錯的題目可以打開「逐題結果」看機器人怎麼回答，寫備註告訴 AI 問題在哪。連續好幾輪都沒改好的題目，系統會把之前的改法附給 AI，要它換一種做法。
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 這一版怎麼來的：從哪一版改、每題答錯的原因、套用了哪些修改
 export function RevisionLogModal({ versionId, title, onClose }: { versionId: string; title: string; onClose: () => void }) {
   const [log, setLog] = useState<RevisionLog | null | undefined>(undefined);
@@ -346,14 +431,17 @@ export function RevisionLogModal({ versionId, title, onClose }: { versionId: str
         <p className="text-xs text-slate-500">這一版沒有修改紀錄（第一輪原始內容，或是舊版本）。</p>
       ) : (
         <div className="space-y-5 text-xs">
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-600">
-            從 <span className="font-semibold text-slate-800">{log.baseVersionName}</span>{" "}
+          <RevisionGuide />
+          <p className="flex flex-wrap items-center rounded-lg bg-slate-50 px-3 py-2 text-slate-600">
+            從 <span className="mx-1 font-semibold text-slate-800">{log.baseVersionName}</span>
             {log.mode === "edits" ? "局部修改" : "整份重寫（局部修改都定位不到）"}，md 長度 {log.growthPct >= 0 ? "+" : ""}
-            {log.growthPct}%。只看原題的錯誤，相似題只當驗收。
+            {log.growthPct}%<InfoTip>{TIPS.mdGrowth}</InfoTip>。只看原題的錯誤，相似題只當驗收。
           </p>
 
           <div>
-            <p className="mb-2 font-semibold text-slate-700">答錯原因（{log.diagnoses.length} 題）</p>
+            <p className="mb-2 flex items-center font-semibold text-slate-700">
+              答錯原因（{log.diagnoses.length} 題）<InfoTip>{TIPS.diagnoses}</InfoTip>
+            </p>
             <div className="space-y-1.5">
               {log.diagnoses.map((d, i) => (
                 <div key={i} className="flex items-start gap-2">
@@ -372,7 +460,9 @@ export function RevisionLogModal({ versionId, title, onClose }: { versionId: str
 
           {log.mode === "edits" && (
             <div>
-              <p className="mb-2 font-semibold text-slate-700">修改清單（套用 {log.edits.filter((e) => e.applied).length}／{log.edits.length} 項）</p>
+              <p className="mb-2 flex items-center font-semibold text-slate-700">
+                修改清單（套用 {log.edits.filter((e) => e.applied).length}／{log.edits.length} 項）<InfoTip>{TIPS.editsApplied}</InfoTip>
+              </p>
               <div className="space-y-2">
                 {log.edits.map((e, i) => (
                   <div key={i} className={`rounded-lg border p-3 ${e.applied ? "border-slate-200" : "border-dashed border-slate-300 opacity-60"}`}>

@@ -23,7 +23,9 @@ import {
   ModelRow,
   OptionCards,
   ResultsModal,
+  InfoTip,
   ScoreBar,
+  TIPS,
   Step,
   StepperField,
   SummaryStat,
@@ -249,14 +251,14 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
           <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
             <ModelRow
               title="比對答案"
-              desc={`機器人每回答一題比對一次，每輪 ${plan.questionsPerRun} 次（每題約 ${formatTwd(plan.judgeUnitUsd)}）`}
+              desc={`機器人每回答一題比對一次，每輪約 ${plan.askedPerRun} 次（含沒答對再問一次；每題約 ${formatTwd(plan.judgeUnitUsd)}，選 Haiku 時已含 Sonnet 複核）`}
               value={judgeModel}
               onChange={setJudgeModel}
               cost={`${formatTwd(plan.judgeRunUsd)}／輪`}
             />
             <ModelRow
               title="修改 md"
-              desc="依答錯的題目修改整份 md，每輪一次（最後一輪不改）"
+              desc="依答錯的題目局部修改 md，每輪兩批各 10 題（最後一輪不改）"
               value={reviseModel}
               onChange={setReviseModel}
               cost={`${formatTwd(plan.reviseUsd)}／次`}
@@ -282,10 +284,10 @@ function StartForm({ sources, testCaseCount, onDone }: { sources: SourceOption[]
           <span className="text-[11px] text-slate-400">{measuredNote}</span>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryStat label="每輪題數" value={`${plan.questionsPerRun} 題`} sub={`${questionCount} 題 ×（1＋${similarCount} 相似題）`} />
-          <SummaryStat label="一輪時間" value={formatMinutes(plan.runMinutes)} sub={`問機器人約 ${formatMinutes(plan.testMinutes)}`} />
-          <SummaryStat label={`跑滿 ${maxRuns} 輪最多`} value={formatMinutes(plan.maxMinutes)} sub="達標或沒進步會提早停" />
-          <SummaryStat label="Claude 費用最多" value={formatTwd(plan.maxUsd)} sub={`比對 ${maxRuns} 輪＋修改 ${Math.max(0, maxRuns - 1)} 次`} />
+          <SummaryStat tip={TIPS.questionsPerRun} label="每輪題數" value={`${plan.questionsPerRun} 題`} sub={`${questionCount} 題 ×（1＋${similarCount} 相似題）`} />
+          <SummaryStat tip={TIPS.runTime} label="一輪時間" value={formatMinutes(plan.runMinutes)} sub={`問機器人約 ${formatMinutes(plan.testMinutes)}`} />
+          <SummaryStat tip={TIPS.maxTime} label={`跑滿 ${maxRuns} 輪最多`} value={formatMinutes(plan.maxMinutes)} sub="達標或沒進步會提早停" />
+          <SummaryStat tip={TIPS.maxCost} label="Claude 費用最多" value={formatTwd(plan.maxUsd)} sub={`比對 ${maxRuns} 輪＋修改 ${Math.max(0, maxRuns - 1)} 次`} />
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
           一輪時間＝刪除舊版＋上傳＋學習等待約 {plan.uploadMinutes} 分＋問機器人＋AI 修改約 {plan.reviseMinutes} 分，時間幾乎都花在等機器人回答。每一輪上傳前會先刪除
@@ -467,10 +469,18 @@ function JobCard({
               <tr className="text-left text-[11px] text-slate-400">
                 <th className="w-10 py-2 pl-5" />
                 <th className="w-40 py-2 font-medium">版本</th>
-                <th className="py-2 font-medium">正確率（全部）</th>
-                <th className="w-16 py-2 text-right font-medium">原題</th>
-                <th className="w-16 py-2 text-right font-medium">相似題</th>
-                <th className="w-16 py-2 text-right font-medium" title="關鍵答案講到的平均比例">涵蓋率</th>
+                <th className="py-2 font-medium">
+                  <span className="inline-flex items-center">正確率（全部）<InfoTip>{TIPS.scoreAll}</InfoTip></span>
+                </th>
+                <th className="w-20 py-2 text-right font-medium">
+                  <span className="inline-flex items-center">原題<InfoTip>{TIPS.scoreOriginal}</InfoTip></span>
+                </th>
+                <th className="w-20 py-2 text-right font-medium">
+                  <span className="inline-flex items-center">相似題<InfoTip>{TIPS.scoreSimilar}</InfoTip></span>
+                </th>
+                <th className="w-20 py-2 text-right font-medium">
+                  <span className="inline-flex items-center">涵蓋率<InfoTip>{TIPS.coverage}</InfoTip></span>
+                </th>
                 <th className="w-[26rem] py-2 pr-5 text-right font-medium">操作</th>
               </tr>
             </thead>
@@ -487,7 +497,11 @@ function JobCard({
                   </td>
                   <td className="py-2.5 font-medium text-slate-700">
                     {r.name.split("・")[0]}
-                    {best?.versionId === r.versionId && <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10px] text-amber-700">最佳</span>}
+                    {best?.versionId === r.versionId && (
+                      <span className="ml-1.5 inline-flex items-center rounded bg-amber-50 px-1 text-[10px] text-amber-700">
+                        最佳<InfoTip>{TIPS.best}</InfoTip>
+                      </span>
+                    )}
                     {r.inBackend && <span className="ml-1.5 rounded bg-teal-50 px-1.5 text-[10px] font-semibold text-teal-700">在後台</span>}
                   </td>
                   <td className="py-2.5 pr-4">
