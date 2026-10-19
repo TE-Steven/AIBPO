@@ -39,6 +39,7 @@ import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
 import type { BotOption } from "@/lib/botTest";
 import { CompareModal, ContinueModal, RejudgeModal, RevisionLogModal, type ContinueBase } from "./versionModals";
 import { TodoModal } from "./TodoModal";
+import { MarkdownModal } from "./MarkdownModal";
 import { LocalTime } from "@/components/LocalTime";
 import { IconAlertTriangle, IconChevronDown, IconSparkles, IconTrash, IconX } from "@/components/icons";
 
@@ -338,6 +339,7 @@ function JobCard({
     | { kind: "revision"; run: RunView }
     | { kind: "rejudge"; run: RunView }
     | { kind: "todo" }
+    | { kind: "markdown"; run: RunView }
   >(null);
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -554,9 +556,9 @@ function JobCard({
                           修改說明
                         </button>
                       )}
-                      <a href={`/api/km/versions/${r.versionId}/download`} className="text-teal-700 hover:underline">
-                        下載 md
-                      </a>
+                      <button type="button" onClick={() => setModal({ kind: "markdown", run: r })} className="text-teal-700 hover:underline">
+                        預覽 md
+                      </button>
                       {!hasActive && (
                         <button type="button" onClick={() => setModal({ kind: "continue", run: r })} className="text-teal-700 hover:underline">
                           從這版繼續
@@ -613,6 +615,7 @@ function JobCard({
         <RevisionLogModal versionId={modal.run.versionId} title={`${modal.run.name} 修改說明`} onClose={() => setModal(null)} />
       )}
       {modal?.kind === "continue" && <ContinueModal base={continueBase(modal.run)} onClose={() => setModal(null)} />}
+      {modal?.kind === "markdown" && <MarkdownModal versionId={modal.run.versionId} onClose={() => setModal(null)} />}
       {modal?.kind === "todo" && <TodoModal jobId={job.id} title={`#${job.seq} 待處理清單`} onClose={() => setModal(null)} />}
       {modal?.kind === "rejudge" && (
         <RejudgeModal

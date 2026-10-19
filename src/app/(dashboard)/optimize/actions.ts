@@ -452,6 +452,89 @@ export async function rejudgeVersionAction(versionId: string, model: string): Pr
   return { success: `開始重新比對 ${started.count} 題，完成後分數會自動更新。` };
 }
 
+// ---- 預覽／修改某一版的 md ----
+
+export type VersionMarkdownView = {
+  id: string;
+  name: string;
+  markdown: string;
+  isDoc: boolean;
+  // 儲存時直接覆蓋（還沒測過、沒在後台的手動修改版本）；否則另存成新版本
+  saveInPlace: boolean;
+};
+
+type VersionSettingsJson = { manualFrom?: string } & Record<string, unknown>;
+
+function isManualVersion(settings: unknown): boolean {
+  return Boolean(settings && typeof settings === "object" && (settings as VersionSettingsJson).manualFrom);
+}
+
+async function versionForEdit(versionId: string, roleId: string) {
+  const version = await prisma.kbVersion.findUnique({
+    where: { id: versionId },
+    include: { job: { select: { status: true, contentKind: true } }, _count: { select: { testRuns: true } } },
+  });
+  return version && version.roleId === roleId ? version : null;
+}
+
+function canSaveInPlace(version: NonNullable<Awaited<ReturnType<typeof versionForEdit>>>): boolean {
+  const inBackend = Array.isArray(version.backendKnowledgeIds) && version.backendKnowledgeIds.length > 0;
+  return isManualVersion(version.settings) && version._count.testRuns === 0 && !inBackend;
+}
+
+export async function getVersionMarkdownAction(versionId: string): Promise<VersionMarkdownView | null> {
+  const session = await requireCompanyUser();
+  const version = await versionForEdit(versionId, session.roleId);
+  if (!version) return null;
+  return {
+    id: version.id,
+    name: version.name,
+    markdown: version.markdown,
+    isDoc: version.job?.contentKind === "DOC",
+    saveInPlace: canSaveInPlace(version),
+  };
+}
+
+// 儲存修改後的 md：測過或在後台的版本另存成「（手動修改）」新版本（原本的分數與結果保留）；還沒測過的手動修改版本直接覆蓋
+export async function saveVersionMarkdownAction(versionId: string, rawMarkdown: string): Promise<OptimizeActionResult & { versionId?: string }> {
+  const session = await requireCompanyUser();
+  const version = await versionForEdit(versionId, session.roleId);
+  if (!version) return { error: "找不到這個版本。" };
+  const markdown = rawMarkdown.replace(/\r\n/g, "\n").trim();
+  if (!markdown) return { error: "md 不能是空的。" };
+  if (markdown === version.markdown.trim()) return { error: "內容沒有變更。" };
+  // 結構化文件上傳時依 H1 切檔，一定要有 H1
+  if (version.job?.contentKind === "DOC" && !/^# \S/m.test(markdown)) return { error: "結構化文件的 md 至少要有一個「# 標題」（每個 H1 是一份文件）。" };
+
+  if (canSaveInPlace(version)) {
+    await prisma.kbVersion.update({ where: { id: version.id }, data: { markdown } });
+    revalidatePath(PATH);
+    return { success: "已儲存。", versionId: version.id };
+  }
+
+  // 另存新版本：同一個任務底下、不佔輪次（runIndex 空白），名稱「v6.3（手動修改）」，同一版改第二次起加編號
+  const [short, ...rest] = version.name.split("・");
+  const baseShort = short.replace(/（手動修改.*?）$/, "");
+  const siblings = await prisma.kbVersion.count({ where: { roleId: version.roleId, name: { startsWith: `${baseShort}（手動修改` } } });
+  const name = [`${baseShort}（手動修改${siblings > 0 ? ` ${siblings + 1}` : ""}）`, ...rest].join("・");
+  const settings = { ...((version.settings as VersionSettingsJson | null) ?? {}), manualFrom: version.id };
+  const created = await prisma.kbVersion.create({
+    data: {
+      roleId: version.roleId,
+      name,
+      note: `從 ${short} 手動修改（${session.displayName}）`,
+      createdById: session.id,
+      markdown,
+      entries: version.entries ?? [],
+      entryCount: version.entryCount,
+      settings,
+      jobId: version.jobId,
+    },
+  });
+  revalidatePath(PATH);
+  return { success: `已另存成新版本「${name.split("・")[0]}」，原本的版本與分數保留。`, versionId: created.id };
+}
+
 // 待處理清單：AI 改 md 解決不了、需要人處理的題目
 export async function getJobTodoAction(jobId: string): Promise<JobTodo | null> {
   const session = await requireCompanyUser();
