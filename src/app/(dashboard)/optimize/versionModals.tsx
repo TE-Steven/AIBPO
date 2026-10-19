@@ -12,6 +12,7 @@ import {
 } from "./actions";
 import {
   Choice,
+  OptionCards,
   estimatePlan,
   InfoTip,
   TIPS,
@@ -41,6 +42,10 @@ export type ContinueBase = {
   tested: boolean;
   scoreAll: number | null;
   questionsPerRun: number;
+  // 換題目時可選的題目數：範圍內目前的 FAQ、測試題庫
+  currentFaqCount: number;
+  testCaseCount: number;
+  similarModel: string;
   entryCount: number;
   contentKind: string;
   judgeModel: string;
@@ -69,37 +74,73 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
   const [botId, setBotId] = useState(base.botId && bots.some((b) => b.id === base.botId) ? base.botId : (bots[0]?.id ?? ""));
   const [judgeModel, setJudgeModel] = useState(base.judgeModel);
   const [reviseModel, setReviseModel] = useState(base.reviseModel);
+  const [questionMode, setQuestionMode] = useState<"REUSE" | "ENTRIES" | "TEST_BANK">("REUSE");
+  const [similarCount, setSimilarCount] = useState(1);
+  const [similarModel, setSimilarModel] = useState(base.similarModel);
   const [token, setToken] = useState("");
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
   const usable = useTokenUsable(token);
   const stats = useContext(UsageStatsContext);
-  // 題目沿用（相似題已包含在題數裡）；起點測過就從修改開始，所以第一輪不用先測
+  // 沿用題目：相似題已包含在題數裡、起點測過就從修改開始；換題目：起點版本一律先用新題目測一輪
+  const reuse = questionMode === "REUSE";
+  const newCount = questionMode === "TEST_BANK" ? base.testCaseCount : base.currentFaqCount;
+  const startsTested = reuse && base.tested;
   const plan = estimatePlan({
-    originals: base.questionsPerRun,
-    similarCount: 0,
+    originals: reuse ? base.questionsPerRun : newCount,
+    similarCount: reuse ? 0 : similarCount,
     maxRuns,
     contentCount: base.entryCount,
     contentKind: base.contentKind === "DOC" ? "DOC" : "FAQ",
     stats,
     judgeModel,
     reviseModel,
-    similarModel: judgeModel,
-    skipSimilar: true,
+    similarModel,
+    skipSimilar: reuse,
     learnWaitMinutes,
   });
-  const maxUsd = base.tested ? plan.judgeRunUsd * maxRuns + plan.reviseUsd * maxRuns : plan.maxUsd;
+  const maxUsd = startsTested ? plan.judgeRunUsd * maxRuns + plan.reviseUsd * maxRuns : plan.maxUsd;
   // 起點測過：每輪都是「修改→上傳→測試」，共修改 maxRuns 次
-  const maxMinutes = base.tested ? plan.runMinutes * maxRuns : plan.maxMinutes;
+  const maxMinutes = startsTested ? plan.runMinutes * maxRuns : plan.maxMinutes;
 
   return (
     <Modal title={`從 ${base.name} 繼續優化`} onClose={onClose} wide>
+      <div className="mb-4">
+        <p className="mb-1.5 flex items-center text-xs font-semibold text-slate-700">
+          題目來源
+          <InfoTip>
+            沿用原本的題目，分數可以直接跟之前的版本比較。換成其他題目時，起點版本的舊分數是別套題目測的，所以會先用新題目把這份 md 測一輪，新任務的分數只在新任務裡互相比較。最多跑 1 輪＝只用新題目測一次、不修改。
+          </InfoTip>
+        </p>
+        <OptionCards
+          value={questionMode}
+          onChange={setQuestionMode}
+          options={[
+            { value: "REUSE", label: "沿用原本的題目", desc: "含相似題與備註，分數能跟之前的版本比", badge: `${base.questionsPerRun} 題` },
+            { value: "TEST_BANK", label: "測試題庫", desc: "知識列表的固定測試題庫", badge: `${base.testCaseCount} 題`, disabled: base.testCaseCount === 0 },
+            {
+              value: "ENTRIES",
+              label: "範圍內目前的 FAQ",
+              desc: "照知識列表／來源目前的內容重新取題（含新增、修改過的）",
+              badge: `${base.currentFaqCount} 題`,
+              disabled: base.currentFaqCount === 0,
+            },
+          ]}
+        />
+      </div>
       <p className="mb-4 text-xs leading-relaxed text-slate-600">
-        以這一版的 md 當起點，題目（含相似題）沿用原本那一套，分數可以直接跟之前的版本比較。
-        {base.tested ? `這一版已經測過（${pctText(base.scoreAll)}），會直接從它答錯的題目開始修改。` : "這一版還沒測過，會先把它上傳測試一次。"}
+        以這一版的 md 當起點。
+        {reuse
+          ? base.tested
+            ? `題目沿用原本那一套；這一版已經測過（${pctText(base.scoreAll)}），會直接從它答錯的題目開始修改。`
+            : "題目沿用原本那一套；這一版還沒測過，會先把它上傳測試一次。"
+          : `會先用${questionMode === "TEST_BANK" ? "測試題庫" : "範圍內目前的 FAQ"}（${newCount} 題${similarCount > 0 ? `＋每題 ${similarCount} 個相似題` : ""}）把這份 md 測一輪，再依答錯的題目繼續修改。${maxRuns === 1 ? "最多 1 輪：只測不改。" : ""}`}
       </p>
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
-        <StepperField label="最多跑幾輪" hint="1–10 輪" value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
+        <StepperField label="最多跑幾輪" hint={reuse ? "1–10 輪" : "1 輪＝只用新題目測一次、不修改"} value={maxRuns} onChange={setMaxRuns} min={1} max={10} suffix="輪" />
+        {!reuse && (
+          <StepperField label="每題相似問法" hint="0–5 個，只用來驗收、不給 AI 修改時看" value={similarCount} onChange={setSimilarCount} min={0} max={5} suffix="個" />
+        )}
         <StepperField label="目標正確率" hint="任何一輪達到就停" value={targetScore} onChange={setTargetScore} min={1} max={100} suffix="%" />
         <StepperField label="連續沒進步就停" hint="含起點版本的分數" value={stallRuns} onChange={setStallRuns} min={1} max={10} suffix="輪" />
         <StepperField
@@ -125,6 +166,15 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
           cost={`${formatTwd(plan.judgeRunUsd)}／輪`}
         />
         <ModelRow title="修改 md" desc="每輪兩批，各 10 題" value={reviseModel} onChange={setReviseModel} cost={`${formatTwd(plan.reviseUsd)}／次`} />
+        {!reuse && similarCount > 0 && (
+          <ModelRow
+            title="產生相似題"
+            desc={`開始時產生一次，共 ${newCount * similarCount} 題`}
+            value={similarModel}
+            onChange={setSimilarModel}
+            cost={formatTwd(plan.similarUsd)}
+          />
+        )}
       </div>
       <p className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
         每輪 {plan.questionsPerRun} 題、一輪約 {formatMinutes(plan.runMinutes)}；跑滿 {maxRuns} 輪最多約 {formatMinutes(maxMinutes)}、Claude 費用約{" "}
@@ -154,6 +204,9 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
                   reviseModel,
                   botId,
                   token,
+                  questionMode,
+                  similarCount,
+                  similarModel,
                 });
                 setResult(r);
                 if (r.success) {

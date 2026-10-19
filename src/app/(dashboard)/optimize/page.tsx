@@ -104,7 +104,13 @@ export default async function OptimizePage() {
     judgeModel: j.judgeModel,
     learnWaitMinutes: j.learnWaitMinutes,
     reviseModel: j.reviseModel,
-    models: `比對 ${findAiModel(j.judgeModel).label}・修改 ${findAiModel(j.reviseModel).label}${j.similarCount > 0 && !j.baseVersionId ? `・相似題 ${findAiModel(j.similarModel).label}` : ""}`,
+    models: `比對 ${findAiModel(j.judgeModel).label}・修改 ${findAiModel(j.reviseModel).label}${j.similarCount > 0 && (!j.baseVersionId || !j.reuseQuestions) ? `・相似題 ${findAiModel(j.similarModel).label}` : ""}`,
+    reuseQuestions: j.reuseQuestions,
+    similarModel: j.similarModel,
+    // 範圍內目前的 FAQ 數（從這版繼續、換成目前的 FAQ 當題目時用）
+    currentFaqCount: entryCounts
+      .filter((c) => c.kind === "FAQ" && (j.scope !== "KNOWLEDGE" || c.confirmed) && (!j.sourceId || c.sourceId === j.sourceId))
+      .reduce((n, c) => n + c._count._all, 0),
     baseVersionName: j.baseVersionId ? (versionNames.get(j.baseVersionId) ?? "（版本已刪除）") : null,
     scope: j.scope,
     contentKind: j.contentKind,

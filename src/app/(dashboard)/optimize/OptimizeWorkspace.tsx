@@ -79,6 +79,9 @@ export type JobView = {
   maxRuns: number;
   targetScore: number;
   similarCount: number;
+  similarModel: string;
+  reuseQuestions: boolean;
+  currentFaqCount: number;
   stallRuns: number;
   status: string;
   currentRun: number;
@@ -321,8 +324,10 @@ function JobCard({
   selected,
   onToggleSelect,
   defaultOpen,
+  testCaseCount,
 }: {
   job: JobView;
+  testCaseCount: number;
   hasActive: boolean;
   selected: string[];
   onToggleSelect: (versionId: string) => void;
@@ -366,6 +371,9 @@ function JobCard({
       tested: r.tested,
       scoreAll: r.scoreAll,
       questionsPerRun: job.originalCount + job.similarTotal,
+      currentFaqCount: job.currentFaqCount,
+      testCaseCount,
+      similarModel: job.similarModel,
       entryCount: r.entryCount,
       contentKind: job.contentKind,
       judgeModel: job.judgeModel,
@@ -386,7 +394,11 @@ function JobCard({
               {job.label}
             </h3>
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${status.className}`}>{status.label}</span>
-            {job.baseVersionName && <span className="text-[11px] text-slate-500">從 {job.baseVersionName} 繼續</span>}
+            {job.baseVersionName && (
+              <span className="text-[11px] text-slate-500">
+                從 {job.baseVersionName} 繼續{job.reuseQuestions ? "" : `・換題目（${job.questionSource === "TEST_BANK" ? "測試題庫" : "目前的 FAQ"}）`}
+              </span>
+            )}
             {best && (
               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
                 最佳 {best.name.split("・")[0]}・{best.scoreAll}%
@@ -758,6 +770,7 @@ function Workspace({
             <JobCard
               key={job.id}
               job={job}
+              testCaseCount={testCaseCount}
               hasActive={hasActive}
               selected={selected}
               onToggleSelect={toggleSelect}

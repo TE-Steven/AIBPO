@@ -169,6 +169,10 @@ export async function continueOptimizationAction(input: {
   reviseModel: string;
   botId: string;
   token: string;
+  // 題目來源：REUSE＝沿用原任務的題目；ENTRIES＝範圍內目前的 FAQ；TEST_BANK＝測試題庫（換題目時可以重新產生相似題）
+  questionMode?: "REUSE" | "ENTRIES" | "TEST_BANK";
+  similarCount?: number;
+  similarModel?: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
   const base = await prisma.kbVersion.findUnique({ where: { id: input.baseVersionId }, include: { job: true } });
@@ -184,6 +188,21 @@ export async function continueOptimizationAction(input: {
   const bot = await getBotTestTargetStrict(session.companyId, input.botId || base.job.botId || null);
   if (!bot) return { error: "找不到選的機器人，請重新整理頁面再試。" };
   const from = base.job;
+
+  // 換題目：範圍內目前的 FAQ 要重新撈（可能新增或修改過）；測試題庫照原範圍（來源原始檔案仍從原範圍找）
+  const mode = input.questionMode === "ENTRIES" || input.questionMode === "TEST_BANK" ? input.questionMode : "REUSE";
+  let entryIds = from.entryIds ?? [];
+  if (mode === "ENTRIES") {
+    const entries = await prisma.kmEntry.findMany({
+      where: { roleId: session.roleId, ...(from.scope === "KNOWLEDGE" ? { confirmed: true } : {}), ...(from.sourceId ? { sourceId: from.sourceId } : {}) },
+      select: { id: true, kind: true },
+    });
+    if (!entries.some((e) => e.kind === "FAQ")) return { error: "這個範圍目前沒有 FAQ 可以當題目，請改用測試題庫。" };
+    entryIds = entries.map((e) => e.id);
+  }
+  if (mode === "TEST_BANK" && (await prisma.testCase.count({ where: { roleId: session.roleId, archived: false } })) === 0) {
+    return { error: "測試題庫是空的，請先到知識列表的「測試題庫」新增題目。" };
+  }
   const job = await prisma.optimizationJob.create({
     data: {
       roleId: session.roleId,
@@ -191,27 +210,33 @@ export async function continueOptimizationAction(input: {
       baseVersionId: base.id,
       scope: from.scope,
       sourceId: from.sourceId,
-      entryIds: from.entryIds ?? [],
+      entryIds,
       createdById: session.id,
       contentKind: from.contentKind,
-      questionSource: from.questionSource,
+      questionSource: mode === "REUSE" ? from.questionSource : mode,
+      reuseQuestions: mode === "REUSE",
       maxRuns: clamp(input.maxRuns, 1, 10, 3),
       targetScore: clamp(input.targetScore, 1, 100, from.targetScore),
-      similarCount: from.similarCount,
+      similarCount: mode === "REUSE" ? from.similarCount : clamp(input.similarCount ?? 0, 0, 5, 0),
       stallRuns: clamp(input.stallRuns, 1, 10, from.stallRuns),
       learnWaitMinutes: clamp(input.learnWaitMinutes, 0, 30, from.learnWaitMinutes),
       judgeModel: cleanAiModel(input.judgeModel),
       reviseModel: cleanAiModel(input.reviseModel),
       botId: bot.botId,
       botName: bot.botName,
-      // 題目沿用起點版本，不會再產生相似題
-      similarModel: from.similarModel,
+      // 沿用題目時不會再產生相似題；換題目時用選的模型產生
+      similarModel: mode === "REUSE" ? from.similarModel : cleanAiModel(input.similarModel ?? from.similarModel),
       currentStep: "排隊中",
     },
   });
   launchOptimizationJob(job.id, tk.creds);
   revalidatePath(PATH);
-  return { success: `已從「${base.name}」開始繼續優化。` };
+  return {
+    success:
+      mode === "REUSE"
+        ? `已從「${base.name}」開始繼續優化。`
+        : `已從「${base.name}」開始：先用${mode === "TEST_BANK" ? "測試題庫" : "範圍內目前的 FAQ"}測一輪，再繼續優化。`,
+  };
 }
 
 async function ownJob(jobId: string, roleId: string) {

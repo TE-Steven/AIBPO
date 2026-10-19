@@ -382,8 +382,11 @@ model OptimizationJob {
   roleId           String
   // 同一個角色底下的流水號：第幾次自動優化，版本名稱用 v{seq}.{輪次}
   seq              Int      @default(0)
-  // 從哪一個版本繼續優化（沿用那一版的 md 與題目；空的＝從 KM 內容重新開始）
+  // 從哪一個版本繼續優化（沿用那一版的 md；空的＝從 KM 內容重新開始）
   baseVersionId    String?
+  // 從某版繼續時：true＝沿用起點版本所屬任務的題目（含相似題、備註），分數可以跟之前比；
+  // false＝依 questionSource 重新組一套題目（測試題庫或範圍內目前的 FAQ），起點版本先用新題目測一輪
+  reuseQuestions   Boolean  @default(true)
   // 範圍：SOURCE＝某個 KM 來源產出的題目；KNOWLEDGE＝知識列表裡已確認的題目（可只取某個來源）
   scope            String   @default("SOURCE")
   sourceId         String?

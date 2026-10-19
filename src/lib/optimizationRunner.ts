@@ -256,6 +256,42 @@ async function versionSettings(job: OptimizationJob, ctx: JobContext, runIndex: 
 
 // ---------------- 第 1 輪前：初始 md、題目、相似題 ----------------
 
+// 組一套新題目：範圍內的 FAQ（job.entryIds）或公司的固定測試題庫，再依設定產生相似問法
+async function buildQuestionRows(job: OptimizationJob, ctx: JobContext): Promise<Prisma.OptimizationQuestionCreateManyInput[]> {
+  const originals =
+    job.questionSource === "TEST_BANK"
+      ? (
+          await prisma.testCase.findMany({ where: { roleId: job.roleId, archived: false }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] })
+        ).map((t) => ({ question: t.question, expectedAnswer: t.expectedAnswer }))
+      : (
+          await prisma.kmEntry.findMany({
+            where: { id: { in: asIds(job.entryIds) }, roleId: job.roleId, kind: "FAQ" },
+            orderBy: { createdAt: "asc" },
+            select: { question: true, answer: true },
+          })
+        ).map((e) => ({ question: e.question, expectedAnswer: e.answer }));
+  if (originals.length === 0) {
+    throw new Error(job.questionSource === "TEST_BANK" ? "測試題庫是空的。" : "選擇的範圍沒有 FAQ 可以當測試題目。");
+  }
+
+  let similar: string[][] = [];
+  if (job.similarCount > 0) {
+    await setStep(job.id, `準備中：AI 為 ${originals.length} 題各產生 ${job.similarCount} 個相似問法`);
+    similar = await generateSimilarQuestions(originals, job.similarCount, ctx.config, job.roleId, job.similarModel);
+  }
+
+  const rows: Prisma.OptimizationQuestionCreateManyInput[] = [];
+  let order = 0;
+  for (const [i, q] of originals.entries()) {
+    const id = randomUUID();
+    rows.push({ id, jobId: job.id, order: ++order, question: q.question, expectedAnswer: q.expectedAnswer });
+    for (const sq of similar[i] ?? []) {
+      rows.push({ jobId: job.id, order: ++order, question: sq, expectedAnswer: q.expectedAnswer, isSimilar: true, parentId: id });
+    }
+  }
+  return rows;
+}
+
 async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
   if (job.baseVersionId) return prepareFromBase(job, ctx, job.baseVersionId);
   await setStep(job.id, "準備中：組初始 md、整理題目");
@@ -288,32 +324,7 @@ async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
     markdown = buildKnowledgeMarkdown({ entries: snapshot, options, format: "md", exportedAt: new Date(), title: label });
   }
 
-  // 題目：範圍內的 FAQ，或公司的固定測試題庫
-  const originals =
-    job.questionSource === "TEST_BANK"
-      ? (
-          await prisma.testCase.findMany({ where: { roleId: job.roleId, archived: false }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] })
-        ).map((t) => ({ question: t.question, expectedAnswer: t.expectedAnswer }))
-      : entries.filter((e) => e.kind === "FAQ").map((e) => ({ question: e.question, expectedAnswer: e.answer }));
-  if (originals.length === 0) {
-    throw new Error(job.questionSource === "TEST_BANK" ? "測試題庫是空的。" : "選擇的範圍沒有 FAQ 可以當測試題目。");
-  }
-
-  let similar: string[][] = [];
-  if (job.similarCount > 0) {
-    await setStep(job.id, `準備中：AI 為 ${originals.length} 題各產生 ${job.similarCount} 個相似問法`);
-    similar = await generateSimilarQuestions(originals, job.similarCount, ctx.config, job.roleId, job.similarModel);
-  }
-
-  const questionRows: Prisma.OptimizationQuestionCreateManyInput[] = [];
-  let order = 0;
-  for (const [i, q] of originals.entries()) {
-    const id = randomUUID();
-    questionRows.push({ id, jobId: job.id, order: ++order, question: q.question, expectedAnswer: q.expectedAnswer });
-    for (const s of similar[i] ?? []) {
-      questionRows.push({ jobId: job.id, order: ++order, question: s, expectedAnswer: q.expectedAnswer, isSimilar: true, parentId: id });
-    }
-  }
+  const questionRows = await buildQuestionRows(job, ctx);
 
   const settings = await versionSettings(job, ctx, 1);
   await prisma.$transaction([
@@ -339,39 +350,45 @@ async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
   ]);
 }
 
-// 從某個版本繼續優化：沿用那一版的 md 與原任務的同一套題目（含相似題），分數才能跟之前的版本比較。
-// 起點版本已經測過，就直接從它的答錯清單開始修改（起點版本當第 0 輪）；沒測過就先把它當第 1 輪上傳測試。
+// 從某個版本繼續優化，以那一版的 md 當起點：
+// - 沿用題目（reuseQuestions）：原任務的同一套題目（含相似題、備註），分數可以跟之前的版本比較；
+//   起點版本已經測過，就直接從它的答錯清單開始修改（起點版本當第 0 輪）；沒測過就先把它當第 1 輪上傳測試
+// - 換題目：依 questionSource 重新組一套題目；起點版本的舊分數是別套題目測的，所以一律先用新題目測一輪
 async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersionId: string) {
-  await setStep(job.id, "準備中：沿用起點版本的 md 與題目");
+  await setStep(job.id, job.reuseQuestions ? "準備中：沿用起點版本的 md 與題目" : "準備中：沿用起點版本的 md，重新整理題目");
   const base = await prisma.kbVersion.findUnique({
     where: { id: baseVersionId },
     include: { testRuns: { where: { status: "DONE" }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
   });
   if (!base || base.roleId !== job.roleId) throw new Error("找不到起點版本，可能已被刪除。");
-  const baseQuestions = base.jobId
-    ? await prisma.optimizationQuestion.findMany({ where: { jobId: base.jobId }, orderBy: { order: "asc" } })
-    : [];
-  if (baseQuestions.length === 0) throw new Error("起點版本的題目已經不在了（原任務可能被刪除），請改從 KM 內容重新開始。");
-
-  const idMap = new Map(baseQuestions.map((q) => [q.id, randomUUID()]));
-  const questionRows: Prisma.OptimizationQuestionCreateManyInput[] = baseQuestions.map((q) => ({
-    id: idMap.get(q.id),
-    jobId: job.id,
-    order: q.order,
-    question: q.question,
-    expectedAnswer: q.expectedAnswer,
-    isSimilar: q.isSimilar,
-    parentId: q.parentId ? (idMap.get(q.parentId) ?? null) : null,
-    userNote: q.userNote,
-    userNoteUpdatedAt: q.userNoteUpdatedAt,
-  }));
+  let questionRows: Prisma.OptimizationQuestionCreateManyInput[];
+  if (job.reuseQuestions) {
+    const baseQuestions = base.jobId
+      ? await prisma.optimizationQuestion.findMany({ where: { jobId: base.jobId }, orderBy: { order: "asc" } })
+      : [];
+    if (baseQuestions.length === 0) throw new Error("起點版本的題目已經不在了（原任務可能被刪除），請改用其他題目來源。");
+    const idMap = new Map(baseQuestions.map((q) => [q.id, randomUUID()]));
+    questionRows = baseQuestions.map((q) => ({
+      id: idMap.get(q.id),
+      jobId: job.id,
+      order: q.order,
+      question: q.question,
+      expectedAnswer: q.expectedAnswer,
+      isSimilar: q.isSimilar,
+      parentId: q.parentId ? (idMap.get(q.parentId) ?? null) : null,
+      userNote: q.userNote,
+      userNoteUpdatedAt: q.userNoteUpdatedAt,
+    }));
+  } else {
+    questionRows = await buildQuestionRows(job, ctx);
+  }
   const reset = [
     prisma.optimizationQuestion.deleteMany({ where: { jobId: job.id } }),
     prisma.kbVersion.deleteMany({ where: { jobId: job.id } }),
     prisma.optimizationQuestion.createMany({ data: questionRows }),
   ];
 
-  if (base.testRuns.length > 0) {
+  if (job.reuseQuestions && base.testRuns.length > 0) {
     await prisma.$transaction([
       ...reset,
       prisma.optimizationJob.update({
@@ -390,7 +407,7 @@ async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersio
       data: {
         roleId: job.roleId,
         name: versionName(job, jobLabel(job, source), 1),
-        note: `自動優化第 1 輪：沿用 ${base.name}`,
+        note: job.reuseQuestions ? `自動優化第 1 輪：沿用 ${base.name}` : `自動優化第 1 輪：用新題目測 ${base.name}`,
         createdById: job.createdById,
         markdown: base.markdown,
         entries: base.entries ?? [],
@@ -806,7 +823,8 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
     orderBy: { runIndex: "asc" },
   });
   // 從某個版本繼續時，起點版本的分數當第 0 輪一起比（沒超過它就算沒進步）
-  const baseline = job.baseVersionId
+  // 起點版本的分數當第 0 輪一起比（換了題目的任務不比：那是別套題目測的）
+  const baseline = job.baseVersionId && job.reuseQuestions
     ? await prisma.kbVersion.findUnique({ where: { id: job.baseVersionId }, select: { scoreAll: true } })
     : null;
   const candidates = [...(baseline?.scoreAll != null && job.currentRun > 0 ? [{ runIndex: 0, scoreAll: baseline.scoreAll }] : []), ...scored];
@@ -850,7 +868,8 @@ function stripCodeFence(text: string): string {
 async function pickBaseVersion(job: OptimizationJob) {
   const ids = [
     ...(await prisma.kbVersion.findMany({ where: { jobId: job.id, scoreAll: { not: null } }, select: { id: true } })).map((v) => v.id),
-    ...(job.baseVersionId ? [job.baseVersionId] : []),
+    // 換了題目的任務，起點版本的分數是別套題目測的，不參加比較
+    ...(job.baseVersionId && job.reuseQuestions ? [job.baseVersionId] : []),
   ];
   const candidates = await prisma.kbVersion.findMany({ where: { id: { in: ids }, scoreAll: { not: null } } });
   if (candidates.length === 0) {
