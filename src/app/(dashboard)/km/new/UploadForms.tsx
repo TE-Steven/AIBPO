@@ -104,6 +104,9 @@ export function UploadWizard() {
             支援 PDF（單檔 32MB 內）、Word（.docx）、Excel（.xlsx）（單檔 50MB 內）、文字檔（.txt／.csv），可以分次加入多個檔案。Word／Excel 會轉成文字給 AI
             讀（保留標題、清單、表格），裡面的圖片也會一起附上；舊版 .doc／.xls 請先另存新格式。
           </p>
+          <p className="mt-1 text-xs text-slate-400">
+            除了檔案大小，每個檔案的文字也有上限（約 150 萬字）：這裡的檔案是 FAQ 答案的根據，每次分析 AI 都要整份讀完。客服對話紀錄這類很長、只用來找出客戶會問什麼的檔案，請到來源頁「開始分析」勾選「自行上傳檔案當作 FAQ 題目來源」再上傳（上限約 1000 萬字）。
+          </p>
 
           {rows.length > 0 && (
             <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">

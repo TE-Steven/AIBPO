@@ -105,7 +105,7 @@ async function xlsxStreamToContent(buffer: Buffer, maxChars: number, textOnly: b
       if (!cells.some(Boolean)) continue;
       rows.push(cells);
       total += cells.reduce((n, c) => n + c.length + 3, 0);
-      if (total > maxChars) throw new Error(`Excel 內容太大（超過 ${Math.round(maxChars / 10000)} 萬字），請拆成幾個較小的檔案。`);
+      if (total > maxChars) throw new Error(`Excel 內容太大（超過 ${Math.round(maxChars / 10000)} 萬字），請拆成幾個較小的檔案。如果是客服對話紀錄這類只用來找客戶問題的檔案，請改到來源頁「開始分析」的「自行上傳檔案當作 FAQ 題目來源」上傳。`);
     }
     if (rows.length === 0) continue;
     const width = Math.max(...rows.map((r) => r.length));
@@ -221,7 +221,7 @@ export async function officeToContent(
         : await docxToContent(buffer, imageBudget)
       : await xlsxToContent(buffer, imageBudget, options);
   if (!text.trim() && images.length === 0) throw new Error(`「${fileName}」裡沒有讀到任何內容。`);
-  if (text.length > maxChars) throw new Error(`「${fileName}」內容太大（約 ${Math.round(text.length / 10000)} 萬字），請拆成幾個較小的檔案。`);
+  if (text.length > maxChars) throw new Error(`「${fileName}」內容太大（約 ${Math.round(text.length / 10000)} 萬字），請拆成幾個較小的檔案。如果是客服對話紀錄這類只用來找客戶問題的檔案，請改到來源頁「開始分析」的「自行上傳檔案當作 FAQ 題目來源」上傳。`);
   if (options.textOnly) return { text, images: [] };
   const label =
     kind === "docx"
