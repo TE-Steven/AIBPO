@@ -293,6 +293,7 @@ function GuideContent() {
             ["token", "只放在伺服器記憶體、不存資料庫；有 refresh token 會自動換新，沒有或伺服器重啟就暫停，貼新的 token 從中斷那一步繼續。"],
             ["停止與繼續", "只有按「停止」（會先確認）才會停止，卡片會記下誰在什麼時候按的。暫停、失敗或停止的任務都可以「貼 token 繼續」，從中斷的那一步接著跑（公司沒有別的任務在跑時）。"],
             ["下載診斷資料", "匯出各版本分數、逐題結果、修改紀錄與 md，用來分析分數變化。"],
+            ["LINE 通知", "任務完成、失敗、暫停等 token 或被停止時，通知公司綁定的 LINE 群組；在「參數管理 → LINE 通知」設定。"],
           ].map(([t, d]) => (
             <div key={t} className="rounded-xl bg-teal-50/40 p-3 ring-1 ring-inset ring-teal-100">
               <p className="text-xs font-semibold text-teal-800">{t}</p>

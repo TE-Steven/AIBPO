@@ -15,6 +15,7 @@ import { buildKnowledgeMarkdown, tallyPathOf, type ExportEntry } from "@/lib/kmE
 import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
 import { getSourceFiles, getSourceUrls, sourceFileBlocks } from "@/lib/kmAnalysis";
 import { aiErrorText } from "@/lib/claudeFileErrors";
+import { appBaseUrl, notifyCompany } from "@/lib/lineNotify";
 import { tallyPathLines, tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
@@ -79,6 +80,7 @@ export function launchOptimizationJob(jobId: string, creds: TokenCredentials): v
       await prisma.optimizationJob
         .update({ where: { id: jobId }, data: { status: "FAILED", errorMessage: errorText(err), currentStep: "發生錯誤，已停止" } })
         .catch(() => {});
+      void notifyJob(jobId, `❌ 發生錯誤，已停止：${errorText(err)}`);
     })
     .finally(() => {
       state.running.delete(jobId);
@@ -111,6 +113,31 @@ async function isStopRequested(jobId: string): Promise<boolean> {
 
 async function pause(jobId: string, message: string) {
   await prisma.optimizationJob.update({ where: { id: jobId }, data: { status: "PAUSED_TOKEN", currentStep: message } });
+  void notifyJob(jobId, `⏸ 暫停，需要貼新的 token 才能繼續：${message}`);
+}
+
+// 任務狀態改變時推播到公司綁定的 LINE 群組（沒設定 LINE 就什麼都不做；失敗只記 log）
+export async function notifyJob(jobId: string, headline: string, withBest = false): Promise<void> {
+  try {
+    const job = await prisma.optimizationJob.findUnique({ where: { id: jobId }, include: { source: { select: { title: true } } } });
+    if (!job) return;
+    let best = "";
+    if (withBest) {
+      const top = await prisma.kbVersion.findFirst({
+        where: { jobId, scoreAll: { not: null } },
+        orderBy: [{ scoreAll: "desc" }, { createdAt: "desc" }],
+        select: { name: true, scoreAll: true },
+      });
+      if (top) best = `\n最佳版本：${top.name.split("・")[0]}・${top.scoreAll}%`;
+    }
+    const url = appBaseUrl();
+    await notifyCompany(
+      await companyIdForRole(job.roleId),
+      `【AIBPO 自動優化】#${job.seq} ${jobLabel(job, job.source)}\n${headline}${best}${url ? `\n${url}/optimize` : ""}`,
+    );
+  } catch (err) {
+    console.error("notifyJob failed", err);
+  }
 }
 
 // 有 refresh token 就換一支新的 access token（refresh token 也會換新，要存回去）
@@ -135,6 +162,7 @@ async function runLoop(jobId: string): Promise<void> {
           currentStep: `已停止：${job.stopReason ?? "使用者按了停止"}（可以貼 token 從中斷的那一步繼續）`,
         },
       });
+      void notifyJob(jobId, `⏹ 已停止：${job.stopReason ?? "使用者按了停止"}`, true);
       return;
     }
     let creds = state.tokens.get(jobId);
@@ -182,6 +210,7 @@ async function runLoop(jobId: string): Promise<void> {
         where: { id: jobId },
         data: { status: "FAILED", errorMessage: errorText(err), currentStep: "發生錯誤，已暫停（可以貼 token 從這一步重試）" },
       });
+      void notifyJob(jobId, `❌ 發生錯誤，已暫停（可以貼 token 從這一步重試）：${errorText(err)}`);
       return;
     }
   }
@@ -790,6 +819,7 @@ async function stepTest(job: OptimizationJob, ctx: JobContext, token: string) {
       where: { id: job.id },
       data: { status: "DONE", stopReason, currentStep: `完成：${stopReason}，${bestText}` },
     });
+    void notifyJob(job.id, `✅ 完成：${stopReason}，${bestText}`, true);
     return;
   }
   await prisma.optimizationJob.update({
@@ -1090,6 +1120,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
 
 async function finishJob(jobId: string, stopReason: string) {
   await prisma.optimizationJob.update({ where: { id: jobId }, data: { status: "DONE", stopReason, currentStep: `完成：${stopReason}` } });
+  void notifyJob(jobId, `✅ 完成：${stopReason}`, true);
 }
 
 // 退回方案：AI 依答錯清單整份重寫（舊做法），只在局部修改都定位不到時使用

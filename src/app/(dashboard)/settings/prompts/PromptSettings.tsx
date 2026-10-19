@@ -27,7 +27,12 @@ import { savePromptConfigAction } from "./actions";
 import { PromptForm } from "./PromptForm";
 import { IconAlertTriangle, IconCheckCircle, IconChevronDown, IconLock } from "@/components/icons";
 
-type Tab = "guidelines" | PromptSection | "options";
+type Tab = "guidelines" | PromptSection | "options" | "line";
+
+// 規則分頁（有提示詞規則可以開關、修改的分頁）
+function isRuleTab(tab: Tab): tab is PromptSection {
+  return tab !== "guidelines" && tab !== "options" && tab !== "line";
+}
 
 const TABS: { id: Tab; label: string; desc: string }[] = [
   { id: "guidelines", label: "最高準則", desc: "放在每一份提示詞的最前面，優先於其他所有規則。" },
@@ -37,6 +42,7 @@ const TABS: { id: Tab; label: string; desc: string }[] = [
   { id: "judge", label: SECTION_LABELS.judge, desc: "機器人測試時，AI 先把標準答案拆成關鍵答案，再逐點檢查機器人回答；是否算一致的門檻在「數值與匯出」分頁的比對規則。" },
   { id: "optimize", label: SECTION_LABELS.optimize, desc: "自動優化時，AI 先診斷答錯原因、再局部修改 md 的規則（局部修改失敗才整份重寫），以及產生相似題的規則。" },
   { id: "options", label: "數值與匯出", desc: "FAQ 題數預設、結構化文件顯示方式、知識列表匯出格式、機器人測試的比對規則。" },
+  { id: "line", label: "LINE 通知", desc: "自動優化完成、失敗、暫停或停止時，通知公司的 LINE 群組。" },
 ];
 
 // 預覽用的示意資料
@@ -213,7 +219,16 @@ function OptionRow({ label, hint, children }: { label: string; hint?: string; ch
 const selectClass =
   "rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100";
 
-export function PromptSettings({ guidelines, initialConfig }: { guidelines: string; initialConfig: PromptConfigData }) {
+export function PromptSettings({
+  guidelines,
+  initialConfig,
+  lineTab,
+}: {
+  guidelines: string;
+  initialConfig: PromptConfigData;
+  // LINE 通知分頁的內容（伺服器端帶入設定）
+  lineTab: React.ReactNode;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("faq");
   const [saved, setSaved] = useState<PromptConfigData>(initialConfig);
@@ -264,7 +279,7 @@ export function PromptSettings({ guidelines, initialConfig }: { guidelines: stri
   const modifiedCount = (section: PromptSection) => RULES.filter((r) => r.section === section && draft.rules?.[r.id]).length;
   const sectionRules = (section: PromptSection) => RULES.filter((r) => r.section === section);
   const preview = useMemo(
-    () => (tab !== "guidelines" && tab !== "options" ? buildPreview(tab, draft, guidelines) : ""),
+    () => (isRuleTab(tab) ? buildPreview(tab, draft, guidelines) : ""),
     [tab, draft, guidelines],
   );
 
@@ -274,7 +289,7 @@ export function PromptSettings({ guidelines, initialConfig }: { guidelines: stri
     <div className="space-y-4 pb-20">
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200" role="tablist">
         {TABS.map((t) => {
-          const count = t.id !== "guidelines" && t.id !== "options" ? modifiedCount(t.id) : 0;
+          const count = isRuleTab(t.id) ? modifiedCount(t.id) : 0;
           return (
             <button
               key={t.id}
@@ -305,7 +320,9 @@ export function PromptSettings({ guidelines, initialConfig }: { guidelines: stri
         </div>
       )}
 
-      {tab !== "guidelines" && tab !== "options" && (
+      {tab === "line" && lineTab}
+
+      {isRuleTab(tab) && (
         <>
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
             <span>
@@ -468,7 +485,7 @@ export function PromptSettings({ guidelines, initialConfig }: { guidelines: stri
         </div>
       )}
 
-      {tab !== "guidelines" && (dirty || message.success || message.error) && (
+      {tab !== "guidelines" && tab !== "line" && (dirty || message.success || message.error) && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
             {message.error ? (

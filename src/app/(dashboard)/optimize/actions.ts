@@ -17,6 +17,7 @@ import {
   launchOptimizationJob,
   isDocVersion,
   isRejudging,
+  notifyJob,
   startRejudge,
   uploadVersionToBackend,
 } from "@/lib/optimizationRunner";
@@ -236,6 +237,7 @@ export async function stopOptimizationAction(jobId: string): Promise<OptimizeAct
     where: { id: jobId },
     data: { status: "STOPPED", stopRequested: true, stopReason, currentStep: `已停止：${stopReason}（可以貼 token 從中斷的那一步繼續）` },
   });
+  void notifyJob(jobId, `⏹ 已停止：${stopReason}`, true);
   revalidatePath(PATH);
   return { success: "已停止。" };
 }
