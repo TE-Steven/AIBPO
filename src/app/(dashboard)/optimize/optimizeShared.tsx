@@ -111,8 +111,13 @@ export function estimatePlan(params: {
   const judgeUnitUsd = modelCostUsd(params.judgeModel, judgeTokens.input, judgeTokens.output) + verifyUsd;
   // AI 修改一批：原始文件（約 15k）＋目前 md＋分類說明＋10 題答錯清單；輸出診斷、修改清單與思考約 8k
   const mdTokens = contentCount * (contentKind === "DOC" ? 800 : 200);
-  const reviseTokens = stats.revise ?? { input: 15_000 + mdTokens + 1_000 + REVISE_BATCH_SIZE * 400, output: 8_000 };
-  const reviseUsd = modelCostUsd(params.reviseModel, reviseTokens.input, reviseTokens.output) * REVISE_BATCHES;
+  // 原始文件有提示快取：第一批寫入快取（1.25 倍），之後的批次讀快取（0.1 倍）；有實際用量時直接用平均（已含快取效果）
+  const sourceTokens = 15_000;
+  const restTokens = mdTokens + 1_000 + REVISE_BATCH_SIZE * 400;
+  const reviseUsd = stats.revise
+    ? modelCostUsd(params.reviseModel, stats.revise.input, stats.revise.output) * REVISE_BATCHES
+    : modelCostUsd(params.reviseModel, sourceTokens * 1.25 + restTokens, 8_000) +
+      (REVISE_BATCHES - 1) * modelCostUsd(params.reviseModel, sourceTokens * 0.1 + restTokens, 8_000);
   // 相似題只在開始時產生一次：輸入每題約 250 token，輸出每個相似問法約 40 token
   const similarUsd =
     similarCount > 0 && !params.skipSimilar ? modelCostUsd(params.similarModel, originals * 250, originals * similarCount * 40) : 0;

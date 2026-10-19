@@ -41,8 +41,10 @@ export async function recordApiUsage(params: {
   });
 }
 
-export function estimateUsdCost(model: string, inputTokens: number, outputTokens: number): number {
+// 提示快取：寫入快取按輸入價 1.25 倍計，讀取快取按 0.1 倍計（inputTokens 不含快取的部分）
+export function estimateUsdCost(model: string, inputTokens: number, outputTokens: number, cacheCreationTokens = 0, cacheReadTokens = 0): number {
   const price = PRICE_PER_MILLION_USD[model];
   if (!price) return 0;
-  return (inputTokens / 1_000_000) * price.input + (outputTokens / 1_000_000) * price.output;
+  const input = inputTokens + cacheCreationTokens * 1.25 + cacheReadTokens * 0.1;
+  return (input / 1_000_000) * price.input + (outputTokens / 1_000_000) * price.output;
 }

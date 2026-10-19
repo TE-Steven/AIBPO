@@ -17,14 +17,14 @@ export default async function DashboardHomePage() {
   // 超級管理員是平台維運視角，維持看全平台加總，不是漏洞。
   const usageByModel = await prisma.apiUsageLog.groupBy({
     by: ["model"],
-    _sum: { inputTokens: true, outputTokens: true },
+    _sum: { inputTokens: true, outputTokens: true, cacheCreationTokens: true, cacheReadTokens: true },
     where: session.kind === "user" ? { companyId: session.companyId } : undefined,
   });
 
   const totalInputTokens = usageByModel.reduce((sum, row) => sum + (row._sum.inputTokens ?? 0), 0);
   const totalOutputTokens = usageByModel.reduce((sum, row) => sum + (row._sum.outputTokens ?? 0), 0);
   const totalUsdCost = usageByModel.reduce(
-    (sum, row) => sum + estimateUsdCost(row.model, row._sum.inputTokens ?? 0, row._sum.outputTokens ?? 0),
+    (sum, row) => sum + estimateUsdCost(row.model, row._sum.inputTokens ?? 0, row._sum.outputTokens ?? 0, row._sum.cacheCreationTokens ?? 0, row._sum.cacheReadTokens ?? 0),
     0,
   );
   const totalTwdCost = totalUsdCost * USD_TO_TWD_RATE;

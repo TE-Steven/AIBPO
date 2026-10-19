@@ -38,6 +38,7 @@ import {
 import { DEFAULT_AI_MODEL } from "@/lib/aiModels";
 import type { BotOption } from "@/lib/botTest";
 import { CompareModal, ContinueModal, RejudgeModal, RevisionLogModal, type ContinueBase } from "./versionModals";
+import { TodoModal } from "./TodoModal";
 import { LocalTime } from "@/components/LocalTime";
 import { IconAlertTriangle, IconChevronDown, IconSparkles, IconTrash, IconX } from "@/components/icons";
 
@@ -336,6 +337,7 @@ function JobCard({
     | { kind: "continue"; run: RunView }
     | { kind: "revision"; run: RunView }
     | { kind: "rejudge"; run: RunView }
+    | { kind: "todo" }
   >(null);
   const [result, setResult] = useState<OptimizeActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -397,6 +399,16 @@ function JobCard({
           </p>
         </button>
         <div className="flex shrink-0 items-center gap-2">
+          {scored.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setModal({ kind: "todo" })}
+              title="AI 改 md 解決不了、需要人處理的題目：原文沒有、機器人問題、關鍵答案可能太嚴"
+              className="rounded-lg px-3 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 hover:bg-amber-50"
+            >
+              待處理清單
+            </button>
+          )}
           {job.runs.length > 0 && (
             <a
               href={`/api/optimize/jobs/${job.id}/diagnostics`}
@@ -601,6 +613,7 @@ function JobCard({
         <RevisionLogModal versionId={modal.run.versionId} title={`${modal.run.name} 修改說明`} onClose={() => setModal(null)} />
       )}
       {modal?.kind === "continue" && <ContinueModal base={continueBase(modal.run)} onClose={() => setModal(null)} />}
+      {modal?.kind === "todo" && <TodoModal jobId={job.id} title={`#${job.seq} 待處理清單`} onClose={() => setModal(null)} />}
       {modal?.kind === "rejudge" && (
         <RejudgeModal
           versionId={modal.run.versionId}

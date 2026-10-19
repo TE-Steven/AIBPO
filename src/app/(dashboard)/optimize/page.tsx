@@ -73,7 +73,7 @@ export default async function OptimizePage() {
     if (logs.length === 0) return null;
     return {
       // 快取讀取只算一成價錢，換算成等值的輸入 token
-      input: logs.reduce((sum, l) => sum + l.inputTokens + l.cacheCreationTokens + l.cacheReadTokens * 0.1, 0) / logs.length,
+      input: logs.reduce((sum, l) => sum + l.inputTokens + l.cacheCreationTokens * 1.25 + l.cacheReadTokens * 0.1, 0) / logs.length,
       output: logs.reduce((sum, l) => sum + l.outputTokens, 0) / logs.length,
     };
   };

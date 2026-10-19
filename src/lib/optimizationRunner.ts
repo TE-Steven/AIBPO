@@ -16,6 +16,7 @@ import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
 import { getSourceFiles, getSourceUrls, sourceFileBlocks } from "@/lib/kmAnalysis";
 import { aiErrorText } from "@/lib/claudeFileErrors";
 import { appBaseUrl, notifyCompany } from "@/lib/lineNotify";
+import { computeJobTodo, todoSummary } from "@/lib/optimizationTodo";
 import { tallyPathLines, tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
 import {
@@ -129,6 +130,9 @@ export async function notifyJob(jobId: string, headline: string, withBest = fals
         select: { name: true, scoreAll: true },
       });
       if (top) best = `\n最佳版本：${top.name.split("・")[0]}・${top.scoreAll}%`;
+      const todo = await computeJobTodo(jobId).catch(() => null);
+      const summary = todo ? todoSummary(todo) : "";
+      if (summary) best += `\n${summary}`;
     }
     const url = appBaseUrl();
     await notifyCompany(
@@ -963,6 +967,11 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
   const entries = await prisma.kmEntry.findMany({ where: { id: { in: asIds(job.entryIds) } }, select: { sourceId: true } });
   const sources = await prisma.kmSource.findMany({ where: { id: { in: [...new Set(entries.map((e) => e.sourceId))] } } });
   const { blocks, urls } = buildSourcesContent(sources);
+  // 提示快取：來源原始檔案（連同前面的系統指示）在同一輪的兩批修改都一樣，第二批起只算一成的輸入費用
+  const cachedBlocks: Anthropic.ContentBlockParam[] =
+    blocks.length > 0
+      ? [...blocks.slice(0, -1), { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } } as Anthropic.ContentBlockParam]
+      : [];
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
   const splitByH1 = job.contentKind === "DOC";
   // 分類管理的分類樹與說明：AI 依分類說明把內容放進對應的段落
@@ -1003,7 +1012,7 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
           messages: [
             {
               role: "user",
-              content: [...blocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown, failures, splitByH1, categories }) }],
+              content: [...cachedBlocks, { type: "text" as const, text: urlText + buildEditUserText({ markdown, failures, splitByH1, categories }) }],
             },
           ],
         })

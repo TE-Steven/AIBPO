@@ -9,6 +9,7 @@ import { cleanAiModel } from "@/lib/aiModels";
 import { cleanKeyPoints, type JudgeDetail, type KeyPoint } from "@/lib/keyPoints";
 import { answerHash } from "@/lib/botJudge";
 import type { RevisionLog } from "@/lib/optimizationPrompts";
+import { computeJobTodo, type JobTodo } from "@/lib/optimizationTodo";
 import { KnowledgeApiError, learnKnowledge } from "@/lib/telligentKb";
 import {
   ACTIVE_JOB_STATUSES,
@@ -449,6 +450,30 @@ export async function rejudgeVersionAction(versionId: string, model: string): Pr
   if (started.error) return { error: started.error };
   revalidatePath(PATH);
   return { success: `開始重新比對 ${started.count} 題，完成後分數會自動更新。` };
+}
+
+// 待處理清單：AI 改 md 解決不了、需要人處理的題目
+export async function getJobTodoAction(jobId: string): Promise<JobTodo | null> {
+  const session = await requireCompanyUser();
+  const job = await ownJob(jobId, session.roleId);
+  if (!job) return null;
+  return computeJobTodo(jobId);
+}
+
+// 把某個標準答案的一個關鍵答案改成次要（待處理清單裡「關鍵答案可能太嚴」用）；已經比對過的結果要重新比對才會更新
+export async function makeKeyPointOptionalAction(expectedAnswer: string, pointText: string): Promise<OptimizeActionResult> {
+  const session = await requireCompanyUser();
+  const hash = answerHash(expectedAnswer);
+  const row = await prisma.answerKeyPoints.findUnique({ where: { roleId_answerHash: { roleId: session.roleId, answerHash: hash } } });
+  if (!row) return { error: "找不到這題的關鍵答案。" };
+  const points = cleanKeyPoints(row.points);
+  const target = points.find((p) => p.text === pointText);
+  if (!target) return { error: "找不到這個關鍵答案，可能已經被修改過。" };
+  if (!target.required) return { success: "這一點已經是次要了。" };
+  const next = points.map((p) => (p.text === pointText ? { ...p, required: false } : p));
+  if (!next.some((p) => p.required)) return { error: "至少要留一個必要的關鍵答案；可以到逐題結果編輯關鍵答案。" };
+  await prisma.answerKeyPoints.update({ where: { id: row.id }, data: { points: next, editedByUser: true } });
+  return { success: "已改成次要。要看新的分數，請對最佳版本按「重新比對」。" };
 }
 
 // 某一版是怎麼改出來的（自動優化修改紀錄）

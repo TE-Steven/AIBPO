@@ -21,7 +21,7 @@ export default async function PlatformCompaniesPage() {
   const [sourceCounts, agentCounts, usageByCompanyModel] = await Promise.all([
     prisma.kmSource.groupBy({ by: ["roleId"], _count: { _all: true } }),
     prisma.agent.groupBy({ by: ["roleId"], _count: { _all: true } }),
-    prisma.apiUsageLog.groupBy({ by: ["companyId", "model"], _sum: { inputTokens: true, outputTokens: true } }),
+    prisma.apiUsageLog.groupBy({ by: ["companyId", "model"], _sum: { inputTokens: true, outputTokens: true, cacheCreationTokens: true, cacheReadTokens: true } }),
   ]);
 
   const rolesByCompany = await prisma.role.findMany({ select: { id: true, companyId: true } });
@@ -43,7 +43,7 @@ export default async function PlatformCompaniesPage() {
   const usdCostByCompany = new Map<string, number>();
   for (const row of usageByCompanyModel) {
     if (!row.companyId) continue;
-    const cost = estimateUsdCost(row.model, row._sum.inputTokens ?? 0, row._sum.outputTokens ?? 0);
+    const cost = estimateUsdCost(row.model, row._sum.inputTokens ?? 0, row._sum.outputTokens ?? 0, row._sum.cacheCreationTokens ?? 0, row._sum.cacheReadTokens ?? 0);
     usdCostByCompany.set(row.companyId, (usdCostByCompany.get(row.companyId) ?? 0) + cost);
   }
 
