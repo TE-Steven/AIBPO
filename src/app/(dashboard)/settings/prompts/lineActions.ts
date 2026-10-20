@@ -39,7 +39,7 @@ export async function sendLineTestAction(): Promise<LineActionResult> {
   const url = appBaseUrl();
   const r = await notifyCompany(
     session.companyId,
-    `【AIBPO 自動優化】這是一則測試通知（${session.displayName} 傳送）。之後任務完成、失敗、暫停或停止時會通知這個群組。${url ? `\n${url}/optimize` : ""}`,
+    `【AIBPO 自動優化】這是一則測試通知（${session.displayName} 傳送）。之後任務完成、失敗、暫停或停止時會通知這個群組。${url ? `\n${url}/optimize/rag` : ""}`,
   );
   if (r.errors.length > 0) return { error: `有群組沒有發送成功：${r.errors.join("；")}` };
   return { success: `已發送到 ${r.sent} 個群組。` };

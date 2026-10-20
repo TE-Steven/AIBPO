@@ -33,8 +33,13 @@ const AGENT_CHILDREN = [
   { key: "agent-drafts", label: "Workflow 草稿", path: "/agents/drafts", icon: "sparkles", order: 3 },
 ];
 
-// 自動優化是獨立的第一層選單，排在 AI Agent 下面。
-const OPTIMIZE_MENU = { key: "optimize", label: "自動優化", path: "/optimize", icon: "sparkles", order: 6 };
+// 自動優化排在 AI Agent 下面，也是兩層選單：RAG優化（原本的自動優化功能）、FAQ優化。
+// 沿用原本的 key「optimize」當群組標題（path 留空），已經授權「自動優化」的角色第一次會自動拿到兩個子選單。
+const OPTIMIZE_PARENT = { key: "optimize", label: "自動優化", path: "", icon: "sparkles", order: 6 };
+const OPTIMIZE_CHILDREN = [
+  { key: "optimize-rag", label: "RAG優化", path: "/optimize/rag", icon: "sparkles", order: 1 },
+  { key: "optimize-faq", label: "FAQ優化", path: "/optimize/faq", icon: "sparkles", order: 2 },
+];
 
 // 多租戶化之後，公司／角色／使用者都是自助註冊或超級管理員代開時才建立（見 src/lib/companyProvisioning.ts），
 // 這份 seed 只負責準備全站共用的選單目錄本身——新公司建立時會把當下所有 Menu 整包授權給它的第一個角色。
@@ -77,19 +82,33 @@ async function main() {
     });
   }
 
-  // 第一次建立時，把它授權給已經看得到「來源管理」的角色（之後角色權限由公司管理員自己調整，不再自動加）
-  const optimizeExisted = await prisma.menu.findUnique({ where: { key: OPTIMIZE_MENU.key }, select: { id: true } });
-  const optimizeMenu = await prisma.menu.upsert({
-    where: { key: OPTIMIZE_MENU.key },
-    update: { label: OPTIMIZE_MENU.label, path: OPTIMIZE_MENU.path, icon: OPTIMIZE_MENU.icon, order: OPTIMIZE_MENU.order },
-    create: OPTIMIZE_MENU,
+  // 自動優化群組：第一次建立時授權給已經看得到「來源管理」的角色（之後角色權限由公司管理員自己調整，不再自動加）
+  const optimizeExisted = await prisma.menu.findUnique({ where: { key: OPTIMIZE_PARENT.key }, select: { id: true } });
+  const optimizeParent = await prisma.menu.upsert({
+    where: { key: OPTIMIZE_PARENT.key },
+    update: { label: OPTIMIZE_PARENT.label, path: OPTIMIZE_PARENT.path, icon: OPTIMIZE_PARENT.icon, order: OPTIMIZE_PARENT.order },
+    create: OPTIMIZE_PARENT,
   });
   if (!optimizeExisted) {
     const kmRoles = await prisma.roleMenu.findMany({ where: { menu: { key: "km-new" } }, select: { roleId: true } });
     await prisma.roleMenu.createMany({
-      data: kmRoles.map((r) => ({ roleId: r.roleId, menuId: optimizeMenu.id })),
+      data: kmRoles.map((r) => ({ roleId: r.roleId, menuId: optimizeParent.id })),
       skipDuplicates: true,
     });
+  }
+
+  // 子選單第一次建立時，授權給原本看得到「自動優化」的角色（原本的自動優化功能都搬到 RAG優化）
+  for (const m of OPTIMIZE_CHILDREN) {
+    const existed = await prisma.menu.findUnique({ where: { key: m.key }, select: { id: true } });
+    const child = await prisma.menu.upsert({
+      where: { key: m.key },
+      update: { label: m.label, path: m.path, icon: m.icon, order: m.order, parentId: optimizeParent.id },
+      create: { ...m, parentId: optimizeParent.id },
+    });
+    if (!existed) {
+      const roles = await prisma.roleMenu.findMany({ where: { menuId: optimizeParent.id }, select: { roleId: true } });
+      await prisma.roleMenu.createMany({ data: roles.map((r) => ({ roleId: r.roleId, menuId: child.id })), skipDuplicates: true });
+    }
   }
 
   console.log("AIBPO 種子資料建立完成：選單目錄已就緒。");

@@ -25,7 +25,7 @@ import {
 
 export type OptimizeActionResult = { success?: string; error?: string };
 
-const PATH = "/optimize";
+const PATH = "/optimize/rag";
 
 // 使用者貼的 token：access token 直接用；refresh token 先換一支 access token（同時驗證能不能用）
 async function credentialsFor(target: BotTestTarget, raw: string): Promise<{ creds: TokenCredentials } | { error: string }> {

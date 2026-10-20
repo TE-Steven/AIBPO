@@ -16,9 +16,14 @@ const TENANT_ONLY_PREFIXES = ["/", "/team", "/km", "/agents", "/skills", "/optim
 const ALWAYS_ALLOWED_PATHS = ["/settings/profile"];
 
 function isUnderPath(pathname: string, target: string) {
+  // 群組標題選單（例如「KM管理」「自動優化」）的 path 是空字串，本身不是頁面：不能當成「底下所有路徑都允許」
+  if (!target) return false;
   if (target === "/") return pathname === "/";
   return pathname === target || pathname.startsWith(`${target}/`);
 }
+
+// 舊網址轉到新位置（自動優化拆成 RAG優化／FAQ優化 子選單之後，/optimize 不再是選單路徑）
+const LEGACY_REDIRECTS: Record<string, string> = { "/optimize": "/optimize/rag" };
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -52,6 +57,9 @@ export async function proxy(request: NextRequest) {
   }
   if (ALWAYS_ALLOWED_PATHS.some((p) => isUnderPath(pathname, p))) {
     return NextResponse.next();
+  }
+  if (LEGACY_REDIRECTS[pathname]) {
+    return NextResponse.redirect(new URL(LEGACY_REDIRECTS[pathname], request.url));
   }
 
   const activeCompanyId = request.cookies.get(ACTIVE_COMPANY_COOKIE_NAME)?.value ?? null;

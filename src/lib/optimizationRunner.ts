@@ -137,7 +137,7 @@ export async function notifyJob(jobId: string, headline: string, withBest = fals
     const url = appBaseUrl();
     await notifyCompany(
       await companyIdForRole(job.roleId),
-      `【AIBPO 自動優化】#${job.seq} ${jobLabel(job, job.source)}\n${headline}${best}${url ? `\n${url}/optimize` : ""}`,
+      `【AIBPO 自動優化】#${job.seq} ${jobLabel(job, job.source)}\n${headline}${best}${url ? `\n${url}/optimize/rag` : ""}`,
     );
   } catch (err) {
     console.error("notifyJob failed", err);
