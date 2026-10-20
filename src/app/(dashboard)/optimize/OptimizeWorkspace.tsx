@@ -738,8 +738,6 @@ export function OptimizeWorkspace(props: WorkspaceProps) {
 
 type WorkspaceProps = {
   optimizeType: "RAG" | "FAQ";
-  // 另一種優化（RAG／FAQ）有任務在跑或暫停中：這裡也不能開始（共用同一隻機器人，同時測會互相影響）
-  otherTypeActive: string | null;
   targetReady: boolean;
   canRefresh: boolean;
   usageStats: UsageStats;
@@ -752,7 +750,6 @@ type WorkspaceProps = {
 
 function Workspace({
   optimizeType,
-  otherTypeActive,
   targetReady,
   sources,
   testCaseCount,
@@ -761,7 +758,8 @@ function Workspace({
 }: WorkspaceProps) {
   const router = useRouter();
   const isFaq = optimizeType === "FAQ";
-  const hasActive = jobs.some((j) => j.status === "RUNNING" || j.status === "PAUSED_TOKEN") || otherTypeActive !== null;
+  // 同一種優化一次只能跑一個（RAG優化與 FAQ優化各自算，可以同時跑）
+  const hasActive = jobs.some((j) => j.status === "RUNNING" || j.status === "PAUSED_TOKEN");
   // 任務在跑，或有版本在重新比對：定時更新進度
   const hasRunning = jobs.some((j) => j.status === "RUNNING" || j.runs.some((r) => r.testStatus === "RUNNING"));
   const [showForm, setShowForm] = useState(!hasActive && jobs.length === 0);
@@ -816,7 +814,7 @@ function Workspace({
             type="button"
             onClick={() => setShowForm(true)}
             disabled={hasActive}
-            title={hasActive ? "同一間公司一次只能跑一個自動優化（RAG優化與 FAQ優化共用）" : undefined}
+            title={hasActive ? `同一間公司一次只能跑一個${isFaq ? "FAQ優化" : "RAG優化"}` : undefined}
             className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
           >
             <IconSparkles className="h-4 w-4" />
@@ -837,7 +835,7 @@ function Workspace({
           </div>
           {hasActive ? (
             <p className="rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800">
-              已經有進行中（或暫停中）的{otherTypeActive ?? "自動優化"}，請先等它跑完或停止（RAG優化與 FAQ優化共用同一隻機器人，一次只能跑一個）。
+              已經有進行中（或暫停中）的{isFaq ? "FAQ優化" : "RAG優化"}，請先等它跑完或停止（同一種優化一次只能跑一個；RAG優化與 FAQ優化可以同時跑）。
             </p>
           ) : (
             <StartForm

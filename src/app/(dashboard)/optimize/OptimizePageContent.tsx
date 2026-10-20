@@ -56,11 +56,7 @@ export async function OptimizePageContent({ type }: { type: "RAG" | "FAQ" }) {
       select: { id: true, name: true },
     }),
   ]);
-  // 一次只能跑一個自動優化（RAG／FAQ 共用同一隻機器人，同時測會互相影響）：另一種類型有任務在跑也不能開始
-  const otherActive = await prisma.optimizationJob.findFirst({
-    where: { roleId: { in: roleIds }, optimizeType: { not: type }, status: { in: ["RUNNING", "PAUSED_TOKEN"] } },
-    select: { optimizeType: true },
-  });
+
   // 「從某版繼續」的任務：起點版本的名稱
   const baseIds = jobs.flatMap((j) => (j.baseVersionId ? [j.baseVersionId] : []));
   const botOptions = (target?.bots ?? []).map((b) => ({ id: b.id, name: b.name, description: b.description, channel: b.platformId }));
@@ -172,7 +168,6 @@ export async function OptimizePageContent({ type }: { type: "RAG" | "FAQ" }) {
       </div>
       <OptimizeWorkspace
         optimizeType={type}
-        otherTypeActive={otherActive ? (otherActive.optimizeType === "FAQ" ? "FAQ優化" : "RAG優化") : null}
         targetReady={Boolean((isFaq ? target?.faqPlatformId : target?.knowledgePlatformId) && target && target.bots.length > 0)}
         bots={botOptions}
         canRefresh={Boolean(target?.clientId && target?.clientSecret && target?.tokenCompanyId && target?.tokenCompanyCode)}

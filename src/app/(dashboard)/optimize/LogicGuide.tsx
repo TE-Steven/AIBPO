@@ -107,7 +107,7 @@ function GuideContent({ type }: { type: "RAG" | "FAQ" }) {
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          每一輪都存成一個版本（v第幾次任務.第幾輪），留下{isFaq ? " FAQ 清單（可下載匯入用的 Excel）" : " md"}、分數、逐題結果與修改紀錄。任務在伺服器上跑，關掉電腦也不影響；全公司一次只能跑一個任務（RAG優化與 FAQ優化共用同一隻機器人）。
+          每一輪都存成一個版本（v第幾次任務.第幾輪），留下{isFaq ? " FAQ 清單（可下載匯入用的 Excel）" : " md"}、分數、逐題結果與修改紀錄。任務在伺服器上跑，關掉電腦也不影響；同一種優化全公司一次只能跑一個任務，RAG優化與 FAQ優化可以同時跑（請用不同的機器人與知識庫 platformId，避免互相影響）。
         </p>
       </section>
 

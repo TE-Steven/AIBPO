@@ -51,9 +51,10 @@ async function companyRoleIds(companyId: string): Promise<string[]> {
 }
 
 // 同一間公司同時只能有一個進行中的任務（大家共用同一個後台知識庫，同時跑會互相干擾）
-async function activeJobInCompany(companyId: string) {
+// 同一種優化（RAG／FAQ）全公司一次只能跑一個；兩種可以同時跑（各自用不同的機器人與知識庫）
+async function activeJobInCompany(companyId: string, type: string) {
   return prisma.optimizationJob.findFirst({
-    where: { roleId: { in: await companyRoleIds(companyId) }, status: { in: ACTIVE_JOB_STATUSES } },
+    where: { roleId: { in: await companyRoleIds(companyId) }, optimizeType: type, status: { in: ACTIVE_JOB_STATUSES } },
     select: { id: true },
   });
 }
@@ -112,7 +113,9 @@ export async function startOptimizationAction(input: {
   // 要問的機器人（md 一律上傳到同一個知識庫，只有問的機器人可以選）
   const bot = await getBotTestTargetStrict(session.companyId, input.botId || null);
   if (!bot) return { error: "找不到選的機器人，請重新整理頁面再試。" };
-  if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
+  if (await activeJobInCompany(session.companyId, optimizeType)) {
+    return { error: `這間公司已經有進行中（或暫停中）的${optimizeType === "FAQ" ? "FAQ優化" : "RAG優化"}，請先等它跑完或停止。` };
+  }
   const tk = await credentialsFor(t.target, input.token);
   if ("error" in tk) return { error: tk.error };
 
@@ -199,7 +202,9 @@ export async function continueOptimizationAction(input: {
   if (isRejudging(base.id)) return { error: "這一版正在重新比對，請等比對完成再繼續。" };
   const t = await knowledgeTarget(session.companyId, base.job.optimizeType);
   if ("error" in t) return { error: t.error };
-  if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
+  if (await activeJobInCompany(session.companyId, base.job.optimizeType)) {
+    return { error: `這間公司已經有進行中（或暫停中）的${base.job.optimizeType === "FAQ" ? "FAQ優化" : "RAG優化"}，請先等它跑完或停止。` };
+  }
   const tk = await credentialsFor(t.target, input.token);
   if ("error" in tk) return { error: tk.error };
 
@@ -307,7 +312,9 @@ export async function resumeOptimizationAction(jobId: string, rawToken: string):
     }
   } else if (job.status === "STOPPED") {
     // 停止的任務不算進行中：繼續前要確認公司沒有別的任務在跑（一次只能跑一個）
-    if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
+    if (await activeJobInCompany(session.companyId, job.optimizeType)) {
+      return { error: `這間公司已經有進行中（或暫停中）的${job.optimizeType === "FAQ" ? "FAQ優化" : "RAG優化"}，請先等它跑完或停止。` };
+    }
   } else if (!["PAUSED_TOKEN", "FAILED"].includes(job.status)) {
     return { error: "這個任務已經跑完，不能繼續；可以從某一版「從這版繼續」。" };
   }
@@ -340,7 +347,7 @@ export async function deployVersionAction(versionId: string, rawToken: string): 
   const isFaq = version.faqItems !== null;
   const t = await knowledgeTarget(session.companyId, isFaq ? "FAQ" : "RAG");
   if ("error" in t) return { error: t.error };
-  if (await activeJobInCompany(session.companyId)) return { error: "有進行中（或暫停中）的自動優化，請先停止再部署。" };
+  if (await activeJobInCompany(session.companyId, isFaq ? "FAQ" : "RAG")) return { error: `有進行中（或暫停中）的${isFaq ? "FAQ優化" : "RAG優化"}，請先停止再部署。` };
   const tk = await credentialsFor(t.target, rawToken);
   if ("error" in tk) return { error: tk.error };
   const token = tk.creds.accessToken;
@@ -378,7 +385,7 @@ export async function clearBackendAction(rawToken: string): Promise<OptimizeActi
   const session = await requireCompanyUser();
   const t = await knowledgeTarget(session.companyId);
   if ("error" in t) return { error: t.error };
-  if (await activeJobInCompany(session.companyId)) return { error: "有進行中（或暫停中）的自動優化，請先停止。" };
+  if (await activeJobInCompany(session.companyId, "RAG")) return { error: "有進行中（或暫停中）的 RAG優化，請先停止。" };
   const tk = await credentialsFor(t.target, rawToken);
   if ("error" in tk) return { error: tk.error };
   const token = tk.creds.accessToken;
