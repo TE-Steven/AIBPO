@@ -124,13 +124,13 @@ export function BotTestTargetForm({
 
       <div className="grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <p className="text-sm font-semibold text-slate-800">共用設定</p>
-          <p className="mt-0.5 text-xs text-slate-400">以下設定所有機器人共用；自動優化的 md 一律上傳到同一個知識庫。</p>
+          <p className="text-sm font-semibold text-slate-800">共用設定・RAG優化</p>
+          <p className="mt-0.5 text-xs text-slate-400">以下設定所有機器人共用；RAG優化的 md 一律上傳到同一個生成式知識庫。</p>
         </div>
         <div className="sm:col-span-2">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">知識庫 platformId（自動優化用）</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">知識庫 platformId（RAG優化用）</label>
           <input name="knowledgePlatformId" type="text" defaultValue={settings.knowledgePlatformId} className={inputClass} />
-          <p className="mt-1 text-xs text-slate-400">自動優化把 md 上傳到這個知識庫（生成式知識）；沒填就不能使用自動優化。</p>
+          <p className="mt-1 text-xs text-slate-400">RAG優化把 md 上傳到這個知識庫（生成式知識）；沒填就不能使用 RAG優化。</p>
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">上傳檔案路徑</label>
@@ -141,6 +141,31 @@ export function BotTestTargetForm({
           <label className="mb-1.5 block text-sm font-medium text-slate-700">知識庫 API 路徑</label>
           <input name="knowledgePath" type="text" defaultValue={settings.knowledgePath} className={inputClass} />
           <p className="mt-1 text-xs text-slate-400">新增／列表（/list）／學習（/learn）／刪除（/delete）都接在這個路徑後面。</p>
+        </div>
+        <div className="sm:col-span-2 border-t border-slate-100 pt-4">
+          <p className="text-sm font-semibold text-slate-800">共用設定・FAQ優化</p>
+          <p className="mt-0.5 text-xs text-slate-400">FAQ優化把 FAQ 清單產生成 Excel 匯入 FAQ 知識庫（覆蓋全部），再呼叫開始學習；沒填 platformId 就不能使用 FAQ優化。</p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">FAQ 知識庫 platformId</label>
+          <input name="faqPlatformId" type="text" defaultValue={settings.faqPlatformId} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">匯入 FAQ 路徑</label>
+          <input name="faqImportPath" type="text" defaultValue={settings.faqImportPath} className={inputClass} />
+          <p className="mt-1 text-xs text-slate-400">接在取答案網址（Gateway）後面；{"{code}"} 會換成 token 的公司代碼。</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">開始學習路徑</label>
+          <input name="faqLearnPath" type="text" defaultValue={settings.faqLearnPath} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">platformType</label>
+          <input name="faqPlatformType" type="text" defaultValue={settings.faqPlatformType} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">語言代碼（LanguageCode）</label>
+          <input name="faqLanguageCode" type="text" defaultValue={settings.faqLanguageCode} className={inputClass} />
         </div>
         <div className="sm:col-span-2 border-t border-slate-100 pt-4">
           <p className="text-sm font-semibold text-slate-800">自動換 token（選填）</p>

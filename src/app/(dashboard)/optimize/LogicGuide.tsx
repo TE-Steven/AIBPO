@@ -76,16 +76,17 @@ function Pill({ tone, children }: { tone: "green" | "lime" | "rose" | "slate"; c
   return <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${cls}`}>{children}</span>;
 }
 
-function GuideContent() {
+function GuideContent({ type }: { type: "RAG" | "FAQ" }) {
+  const isFaq = type === "FAQ";
   return (
     <div className="space-y-5">
       {/* 總覽流程圖 */}
       <section className="rounded-2xl bg-gradient-to-br from-slate-50 to-teal-50/60 p-4 ring-1 ring-inset ring-slate-200">
         <p className="mb-3 text-xs font-semibold tracking-wide text-slate-500">整體流程</p>
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-          <FlowBox no="①" title="準備" sub="第一版 md＋題目" color="slate" />
+          <FlowBox no="①" title="準備" sub={isFaq ? "FAQ 清單＋相似句＋題目" : "第一版 md＋題目"} color="slate" />
           <Arrow vertical />
-          <FlowBox no="②" title="上傳＋學習" sub="換掉後台上一版" color="sky" />
+          <FlowBox no="②" title={isFaq ? "匯入＋學習" : "上傳＋學習"} sub={isFaq ? "Excel 覆蓋全部 FAQ" : "換掉後台上一版"} color="sky" />
           <Arrow vertical />
           <FlowBox no="③" title="測試＋比對" sub="問機器人、錯題重問、算分" color="amber" />
           <Arrow vertical />
@@ -101,15 +102,38 @@ function GuideContent() {
             <path d="M38 20H14a6 6 0 0 1-6-6V3M3 8l5-5 5 5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <div className="flex-1 rounded-xl px-3 py-2 text-center ring-1 ring-inset ring-violet-200 bg-violet-50 text-violet-700">
-            <p className="text-sm font-semibold">④ AI 修改 md</p>
+            <p className="text-sm font-semibold">{isFaq ? "④ AI 修改 FAQ" : "④ AI 修改 md"}</p>
             <p className="mt-0.5 text-[11px] opacity-80">沒有要停 → 從最高分版本修改，產生新版本，回到 ②</p>
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          每一輪都存成一個版本（v第幾次任務.第幾輪），留下 md、分數、逐題結果與修改紀錄。任務在伺服器上跑，關掉電腦也不影響；全公司一次只能跑一個任務。
+          每一輪都存成一個版本（v第幾次任務.第幾輪），留下{isFaq ? " FAQ 清單（可下載匯入用的 Excel）" : " md"}、分數、逐題結果與修改紀錄。任務在伺服器上跑，關掉電腦也不影響；全公司一次只能跑一個任務（RAG優化與 FAQ優化共用同一隻機器人）。
         </p>
       </section>
 
+      {isFaq ? (
+        <Section no="①" title="準備（只在第一輪前做一次）" color="slate">
+          <Bullets
+            items={[
+              <>
+                <b>FAQ 清單：</b>範圍內的 FAQ 組成第一版，分類取分類管理的路徑（大分類、子分類）。
+              </>,
+              <>
+                <b>擴充相似句：</b>AI 替每題 FAQ 寫 N 個客戶的其他問法，放在 Excel 的相似句欄一起匯入，讓機器人認得更多說法。
+              </>,
+              <>
+                <b>題目：</b>範圍內的 FAQ，或公司的固定測試題庫；另外產生測試用的相似題。
+              </>,
+              <>
+                <b>測試用相似題不能跟匯入的相似句一樣</b>：相似句會讓機器人學，拿來考試等於洩題，程式會把一樣或幾乎一樣的擋掉。
+              </>,
+              <>
+                題目定下來後<b>每一輪都用同一套</b>，分數才能互相比較。
+              </>,
+            ]}
+          />
+        </Section>
+      ) : (
       <Section no="①" title="準備（只在第一輪前做一次）" color="slate">
         <Bullets
           items={[
@@ -128,7 +152,28 @@ function GuideContent() {
           ]}
         />
       </Section>
+      )}
 
+      {isFaq ? (
+        <Section no="②" title="匯入＋學習" color="sky">
+          <ol className="grid gap-2 sm:grid-cols-5">
+            {[
+              ["產生 Excel", "照官方範本：一個相似句一列，答案超過 500 字拆到答案框 2、3"],
+              ["匯入（覆蓋全部）", "後台 FAQ 知識庫原有的 FAQ 會被這一版取代"],
+              ["等匯入處理", "匯入是非同步，約等 1 分鐘再開始學習"],
+              ["開始學習＋等滿 N 分鐘", "從呼叫學習 API 那一刻起算"],
+              ["試問第一題", "有回答才開始測；沒回答再等 N 分鐘重試"],
+            ].map(([t, d], i) => (
+              <li key={t} className="rounded-xl bg-sky-50/60 p-2.5 ring-1 ring-inset ring-sky-100">
+                <p className="text-xs font-semibold text-sky-800">
+                  {i + 1}. {t}
+                </p>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">{d}</p>
+              </li>
+            ))}
+          </ol>
+        </Section>
+      ) : (
       <Section no="②" title="上傳＋學習" color="sky">
         <ol className="grid gap-2 sm:grid-cols-5">
           {[
@@ -147,6 +192,7 @@ function GuideContent() {
           ))}
         </ol>
       </Section>
+      )}
 
       <Section no="③" title="測試＋比對＋算分" color="amber">
         <p>每題用全新的對話問機器人（原題＋相似題），再由 AI 比對。<b>第一次沒答對的題目會再問一次，第二次答對就算對</b>：機器人每次回答都不太一樣，這樣可以降低偶爾答壞造成的起伏，AI 也不會去修只是剛好答壞的題目。比對分三步：</p>
@@ -225,6 +271,54 @@ function GuideContent() {
         </div>
       </Section>
 
+      {isFaq ? (
+        <Section no="④" title="AI 修改 FAQ" color="violet">
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+            {[
+              ["最高分版本", "退步的版本不疊加修改"],
+              ["挑要修的題目", "一輪最多 20 題"],
+              ["AI 診斷原因", "讀來源檔案與 FAQ 清單"],
+              ["改答案、補相似句", "分兩批，各 10 題"],
+              ["新版本", "附修改紀錄，回到 ②"],
+            ].map(([t, d], i, all) => (
+              <div key={t} className="flex flex-1 items-center gap-2">
+                <div className="flex-1 rounded-xl bg-violet-50/70 px-2.5 py-2 text-center ring-1 ring-inset ring-violet-100">
+                  <p className="text-xs font-semibold text-violet-800">{t}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{d}</p>
+                </div>
+                {i < all.length - 1 && <Arrow vertical />}
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 pt-1 sm:grid-cols-2">
+            <div>
+              <p className="mb-1.5 font-medium text-slate-700">AI 可以怎麼改</p>
+              <Bullets
+                items={[
+                  "修改某一題 FAQ 的答案（內容沒寫到、寫錯或模糊）",
+                  "替某一題 FAQ 新增或刪除相似句（客戶的問法對不到這一題）",
+                  "不會新增、刪除 FAQ，也不會改主問題與分類",
+                  "要修的題目、優先順序、備註與前幾輪的嘗試，都跟 RAG優化一樣",
+                ]}
+              />
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-700">程式把關</p>
+              <Bullets
+                items={[
+                  "新增的相似句跟測試題目一樣或幾乎一樣：不套用（不能拿考題訓練機器人）",
+                  "跟現有的主問題或相似句重複：不套用",
+                  "答案超過 1500 字（三個答案框）：不套用",
+                  "沒套用的項目在修改說明會標示原因",
+                ]}
+              />
+            </div>
+          </div>
+          <div className="rounded-xl bg-violet-50/60 px-3 py-2 text-xs text-violet-900 ring-1 ring-inset ring-violet-100">
+            答案只能用來源原始檔案的資訊；你的備註只當方向，原文沒有的內容不會被寫進 FAQ（會標成「原文沒有」）。
+          </div>
+        </Section>
+      ) : (
       <Section no="④" title="AI 修改 md" color="violet">
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           {[
@@ -282,19 +376,22 @@ function GuideContent() {
           第二批接著第一批改好的 md 修改；某一批輸出太長會減半重試，第二批失敗時保留第一批的修改。修改內容一定要有來源原始檔案當根據；你的備註只當方向，原文沒有的內容不會被寫進 md（會標成「原文沒有」）。局部修改一項都套不上時，才退回整份重寫。
         </div>
       </Section>
+      )}
 
       <Section no="★" title="其他功能" color="teal">
         <div className="grid gap-2 sm:grid-cols-2">
           {[
-            ["從某版繼續", "開新任務，以那一版的 md 當起點，可以選題目來源：沿用原本的題目（含相似題和備註，已測過就直接從修改開始，分數能跟之前比；請從分數最高的版本繼續），或換成測試題庫／範圍內目前的 FAQ（先用新題目測一輪，分數只在新任務裡比較；最多 1 輪＝只測不改）。"],
-            ["預覽與手動修改 md", "按「預覽 md」可以看整份 md、修改與下載。測過或已部署的版本修改後會另存成「（手動修改）」新版本，原本的分數保留；在新版本按「從這版繼續」，會先上傳測試一輪再讓 AI 接著修改。"],
+            ["從某版繼續", `開新任務，以那一版的${isFaq ? " FAQ 清單" : " md"}當起點，可以選題目來源：沿用原本的題目（含相似題和備註，已測過就直接從修改開始，分數能跟之前比；請從分數最高的版本繼續），或換成測試題庫／範圍內目前的 FAQ（先用新題目測一輪，分數只在新任務裡比較；最多 1 輪＝只測不改）。`],
+            isFaq
+              ? ["預覽 FAQ 與下載 Excel", "按「預覽 FAQ」可以看每題的分類、標題、相似句與答案；「下載 Excel」是匯入後台用的那份檔案（照官方範本，一個相似句一列）。"]
+              : ["預覽與手動修改 md", "按「預覽 md」可以看整份 md、修改與下載。測過或已部署的版本修改後會另存成「（手動修改）」新版本，原本的分數保留；在新版本按「從這版繼續」，會先上傳測試一輪再讓 AI 接著修改。"],
             ["重新比對", "用存好的機器人回答，依目前的比對規則重判並重算分數；不重問機器人、不需要 token。"],
-            ["部署到後台", "把選定的版本正式放上後台知識庫。"],
+            ["部署到後台", isFaq ? "把選定的版本匯入 FAQ 知識庫（覆蓋全部）並送出學習。" : "把選定的版本正式放上後台知識庫。"],
             ["寫備註", "在逐題結果寫給 AI 的修改方向，下一次修改優先處理。"],
             ["token", "只放在伺服器記憶體、不存資料庫；有 refresh token 會自動換新，沒有或伺服器重啟就暫停，貼新的 token 從中斷那一步繼續。"],
             ["停止與繼續", "只有按「停止」（會先確認）才會停止，卡片會記下誰在什麼時候按的。暫停、失敗或停止的任務都可以「貼 token 繼續」，從中斷的那一步接著跑（公司沒有別的任務在跑時）。"],
             ["下載診斷資料", "匯出各版本分數、逐題結果、修改紀錄與 md，用來分析分數變化。"],
-            ["待處理清單", "以最佳版本為準，整理 AI 改 md 解決不了的題目：原文沒有（要補來源檔案）、機器人本身的問題（請後台檢查）、關鍵答案可能太嚴（好幾版都漏同一個必要點，可一鍵改成次要），可以下載 Excel。"],
+            ["待處理清單", "以最佳版本為準，整理 AI 修改解決不了的題目：原文沒有（要補來源檔案）、機器人本身的問題（請後台檢查）、關鍵答案可能太嚴（好幾版都漏同一個必要點，可一鍵改成次要），可以下載 Excel。"],
             ["LINE 通知","任務完成、失敗、暫停等 token 或被停止時，通知公司綁定的 LINE 群組；在「參數管理 → LINE 通知」設定。"],
           ].map(([t, d]) => (
             <div key={t} className="rounded-xl bg-teal-50/40 p-3 ring-1 ring-inset ring-teal-100">
@@ -309,7 +406,7 @@ function GuideContent() {
         <p className="mb-1 font-semibold">看分數的小提醒</p>
         <Bullets
           items={[
-            "機器人每次回答都不太一樣，同一份 md 測兩次也可能差幾個百分點（錯題重問已經降低這個影響）；小幅起伏不一定是改壞了。",
+            `機器人每次回答都不太一樣，同一份${isFaq ? " FAQ" : " md"}測兩次也可能差幾個百分點（錯題重問已經降低這個影響）；小幅起伏不一定是改壞了。`,
             "比對規則改過之後，舊版本可以按「重新比對」用新規則重判，分數才能跟新版本比較。",
             "想知道某一版到底改了什麼、改好或改壞哪些題，可以勾兩個版本「比較」，或看「修改說明」。",
           ]}
@@ -319,7 +416,7 @@ function GuideContent() {
   );
 }
 
-export function LogicGuide() {
+export function LogicGuide({ type = "RAG" }: { type?: "RAG" | "FAQ" }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -332,8 +429,8 @@ export function LogicGuide() {
         邏輯說明
       </button>
       {open && (
-        <Modal title="自動優化的邏輯說明" onClose={() => setOpen(false)} wide>
-          <GuideContent />
+        <Modal title={type === "FAQ" ? "FAQ優化的邏輯說明" : "RAG優化的邏輯說明"} onClose={() => setOpen(false)} wide>
+          <GuideContent type={type} />
         </Modal>
       )}
     </>

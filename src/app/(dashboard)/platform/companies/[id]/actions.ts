@@ -4,7 +4,16 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { setSystemSetting, BOT_TEST_TARGET_KEY } from "@/lib/systemSettings";
-import { DEFAULT_UPLOAD_PATH, DEFAULT_KNOWLEDGE_PATH, getBotTestSettings, type BotProfile } from "@/lib/botTest";
+import {
+  DEFAULT_FAQ_IMPORT_PATH,
+  DEFAULT_FAQ_LANGUAGE_CODE,
+  DEFAULT_FAQ_LEARN_PATH,
+  DEFAULT_FAQ_PLATFORM_TYPE,
+  DEFAULT_KNOWLEDGE_PATH,
+  DEFAULT_UPLOAD_PATH,
+  getBotTestSettings,
+  type BotProfile,
+} from "@/lib/botTest";
 import { randomUUID } from "node:crypto";
 import {
   createOrAttachMember,
@@ -123,6 +132,11 @@ export async function saveBotTestTargetAction(
   const knowledgePlatformId = String(formData.get("knowledgePlatformId") ?? "").trim();
   const uploadPath = cleanPath(formData.get("uploadPath"), DEFAULT_UPLOAD_PATH);
   const knowledgePath = cleanPath(formData.get("knowledgePath"), DEFAULT_KNOWLEDGE_PATH);
+  const faqPlatformId = String(formData.get("faqPlatformId") ?? "").trim();
+  const faqImportPath = cleanPath(formData.get("faqImportPath"), DEFAULT_FAQ_IMPORT_PATH);
+  const faqLearnPath = cleanPath(formData.get("faqLearnPath"), DEFAULT_FAQ_LEARN_PATH);
+  const faqPlatformType = String(formData.get("faqPlatformType") ?? "").trim() || DEFAULT_FAQ_PLATFORM_TYPE;
+  const faqLanguageCode = String(formData.get("faqLanguageCode") ?? "").trim() || DEFAULT_FAQ_LANGUAGE_CODE;
 
   const tokenUrlRaw = String(formData.get("tokenUrl") ?? "").trim();
   const tokenUrl = tokenUrlRaw ? normalizeHttpsUrl(tokenUrlRaw) : "";
@@ -138,7 +152,22 @@ export async function saveBotTestTargetAction(
   await setSystemSetting(
     companyId,
     BOT_TEST_TARGET_KEY,
-    JSON.stringify({ bots, knowledgePlatformId, uploadPath, knowledgePath, tokenUrl, clientId, clientSecret, tokenCompanyId, tokenCompanyCode }),
+    JSON.stringify({
+      bots,
+      knowledgePlatformId,
+      uploadPath,
+      knowledgePath,
+      tokenUrl,
+      clientId,
+      clientSecret,
+      tokenCompanyId,
+      tokenCompanyCode,
+      faqPlatformId,
+      faqImportPath,
+      faqLearnPath,
+      faqPlatformType,
+      faqLanguageCode,
+    }),
   );
   revalidatePath(`/platform/companies/${companyId}`);
   return { success: `已儲存 ${bots.length} 隻機器人的設定。` };

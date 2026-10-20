@@ -113,8 +113,9 @@ export type EditFailure = {
   previousAttempts?: string[];
 };
 
-export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean; categories?: string[] }): string {
-  const failures = params.failures
+// 答錯清單（RAG／FAQ 修改共用）
+function formatFailures(list: EditFailure[]): string {
+  return list
     .map((f, i) => {
       const lines = [
         `<failure index="${i + 1}">`,
@@ -132,10 +133,76 @@ export function buildEditUserText(params: { markdown: string; failures: EditFail
       return lines.filter(Boolean).join("\n");
     })
     .join("\n");
+}
+
+export function buildEditUserText(params: { markdown: string; failures: EditFailure[]; splitByH1?: boolean; categories?: string[] }): string {
+  const failures = formatFailures(params.failures);
   const note = params.splitByH1 ? `\n\n${SPLIT_BY_H1_NOTE}` : "";
   const categories = params.categories?.length ? `<categories>\n${params.categories.join("\n")}\n</categories>\n\n` : "";
   return `以上是原始文件。\n\n${categories}<current_markdown>\n${params.markdown}\n</current_markdown>\n\n以下是機器人答錯的 ${params.failures.length} 題：\n\n${failures}\n\n請依照系統指示，先為每一題寫出 diagnoses（index 對應題號），再列出要套用到 md 的 edits。${note}`;
 }
+
+// ---- FAQ優化：修改 FAQ（答案、相似句）----
+
+export function buildFaqEditSystemPrompt(params: { guidelines?: string; config?: PromptConfigData }): string {
+  const { config } = params;
+  return [
+    `${guidelinesPrefix(params.guidelines)}${ruleText(config, "fe.intro")}`,
+    ruleText(config, "opt.language"),
+    `規則：\n${ruleLines(config, ["FE1", "FE2", "FE3", "FE4", "FE5", "E7", "E8"])}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export type FaqListItem = { category: string; subCategory: string; question: string; similar: string[]; answer: string };
+
+export function buildFaqEditUserText(params: { items: FaqListItem[]; failures: EditFailure[] }): string {
+  const faqs = params.items
+    .map(
+      (f, i) =>
+        `<faq index="${i + 1}">\n<category>${f.category}｜${f.subCategory}</category>\n<question>${f.question}</question>\n<similar>${f.similar.join("｜") || "（沒有）"}</similar>\n<answer>${f.answer}</answer>\n</faq>`,
+    )
+    .join("\n");
+  return `以上是原始文件。\n\n<faq_list>\n${faqs}\n</faq_list>\n\n以下是機器人答錯的 ${params.failures.length} 題：\n\n${formatFailures(params.failures)}\n\n請依照系統指示，先為每一題寫出 diagnoses（index 對應答錯的題號），再列出 FAQ 的 edits（faq 對應 FAQ 題號）。`;
+}
+
+export const FAQ_EDIT_SCHEMA = {
+  type: "object",
+  properties: {
+    diagnoses: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          index: { type: "integer" },
+          cause: { type: "string", enum: ["MISSING_INFO", "HARD_TO_FIND", "AMBIGUOUS", "NOT_IN_SOURCE", "RETRIEVAL"] },
+          note: { type: "string" },
+        },
+        required: ["index", "cause", "note"],
+        additionalProperties: false,
+      },
+    },
+    edits: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          faq: { type: "integer" },
+          answer: { type: "string" },
+          addSimilar: { type: "array", items: { type: "string" } },
+          removeSimilar: { type: "array", items: { type: "string" } },
+          reason: { type: "string" },
+          questions: { type: "array", items: { type: "integer" } },
+        },
+        required: ["faq", "answer", "addSimilar", "removeSimilar", "reason", "questions"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["diagnoses", "edits"],
+  additionalProperties: false,
+};
 
 export const EDIT_SCHEMA = {
   type: "object",

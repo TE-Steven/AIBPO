@@ -28,6 +28,12 @@ export type BotSharedSettings = {
   // 換 token 時要一起帶的公司資訊（telligent 的 token 服務沒帶會回 HTTP 500）
   tokenCompanyId: string;
   tokenCompanyCode: string;
+  // FAQ優化：FAQ 知識庫的 platformId（沒填就不能用 FAQ優化）、匯入 Excel 與開始學習的路徑（{code} 換成公司代碼）
+  faqPlatformId: string;
+  faqImportPath: string;
+  faqLearnPath: string;
+  faqPlatformType: string;
+  faqLanguageCode: string;
 };
 
 export type BotTestSettings = BotSharedSettings & { bots: BotProfile[] };
@@ -40,6 +46,10 @@ export type BotOption = { id: string; name: string; description: string; channel
 
 export const DEFAULT_UPLOAD_PATH = "/{code}/file/api/file/upload";
 export const DEFAULT_KNOWLEDGE_PATH = "/{code}/knowledge/api/GenerativeKnowledge";
+export const DEFAULT_FAQ_IMPORT_PATH = "/{code}/knowledge/api/QuestionAnswerMapping/import-async";
+export const DEFAULT_FAQ_LEARN_PATH = "/{code}/knowledge/api/trigger/faq/start";
+export const DEFAULT_FAQ_PLATFORM_TYPE = "6";
+export const DEFAULT_FAQ_LANGUAGE_CODE = "zh-tw";
 
 export const DEFAULT_SHARED_SETTINGS: BotSharedSettings = {
   knowledgePlatformId: "",
@@ -50,6 +60,11 @@ export const DEFAULT_SHARED_SETTINGS: BotSharedSettings = {
   clientSecret: "",
   tokenCompanyId: "",
   tokenCompanyCode: "",
+  faqPlatformId: "",
+  faqImportPath: DEFAULT_FAQ_IMPORT_PATH,
+  faqLearnPath: DEFAULT_FAQ_LEARN_PATH,
+  faqPlatformType: DEFAULT_FAQ_PLATFORM_TYPE,
+  faqLanguageCode: DEFAULT_FAQ_LANGUAGE_CODE,
 };
 
 export const DEFAULT_BOT_PROFILE: Omit<BotProfile, "id"> = {
@@ -103,6 +118,11 @@ export function parseBotTestSettings(raw: string): BotTestSettings | null {
       clientSecret: str(parsed.clientSecret),
       tokenCompanyId: str(parsed.tokenCompanyId),
       tokenCompanyCode: str(parsed.tokenCompanyCode),
+      faqPlatformId: str(parsed.faqPlatformId),
+      faqImportPath: str(parsed.faqImportPath) || DEFAULT_FAQ_IMPORT_PATH,
+      faqLearnPath: str(parsed.faqLearnPath) || DEFAULT_FAQ_LEARN_PATH,
+      faqPlatformType: str(parsed.faqPlatformType) || DEFAULT_FAQ_PLATFORM_TYPE,
+      faqLanguageCode: str(parsed.faqLanguageCode) || DEFAULT_FAQ_LANGUAGE_CODE,
     };
   } catch {
     return null;

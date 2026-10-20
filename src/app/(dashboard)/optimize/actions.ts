@@ -10,6 +10,7 @@ import { cleanKeyPoints, type JudgeDetail, type KeyPoint } from "@/lib/keyPoints
 import { answerHash } from "@/lib/botJudge";
 import type { RevisionLog } from "@/lib/optimizationPrompts";
 import { computeJobTodo, type JobTodo } from "@/lib/optimizationTodo";
+import { startFaqLearning } from "@/lib/telligentKb";
 import { KnowledgeApiError, learnKnowledge } from "@/lib/telligentKb";
 import {
   ACTIVE_JOB_STATUSES,
@@ -19,13 +20,13 @@ import {
   isDocVersion,
   isRejudging,
   notifyJob,
+  uploadFaqVersionToBackend,
   startRejudge,
   uploadVersionToBackend,
 } from "@/lib/optimizationRunner";
 
 export type OptimizeActionResult = { success?: string; error?: string };
 
-const PATH = "/optimize/rag";
 
 // 使用者貼的 token：access token 直接用；refresh token 先換一支 access token（同時驗證能不能用）
 async function credentialsFor(target: BotTestTarget, raw: string): Promise<{ creds: TokenCredentials } | { error: string }> {
@@ -68,14 +69,27 @@ async function nextJobSeq(roleId: string): Promise<number> {
   return Math.max(agg._max.seq ?? 0, usedInNames) + 1;
 }
 
-async function knowledgeTarget(companyId: string) {
+// type：RAG 要生成式知識庫的 platformId；FAQ 要 FAQ 知識庫的 platformId
+async function knowledgeTarget(companyId: string, type: string = "RAG") {
   const target = await getBotTestTarget(companyId);
   if (!target) return { error: "這間公司還沒設定機器人測試 API，請聯絡平台管理員。" } as const;
-  if (!target.knowledgePlatformId) return { error: "這間公司還沒設定知識庫 platformId，請聯絡平台管理員到公司設定補上。" } as const;
+  if (type === "FAQ") {
+    if (!target.faqPlatformId) return { error: "這間公司還沒設定 FAQ 知識庫 platformId，請聯絡平台管理員到公司設定補上。" } as const;
+  } else if (!target.knowledgePlatformId) {
+    return { error: "這間公司還沒設定知識庫 platformId，請聯絡平台管理員到公司設定補上。" } as const;
+  }
   return { target } as const;
 }
 
+function revalidateOptimize() {
+  revalidatePath("/optimize/rag");
+  revalidatePath("/optimize/faq");
+}
+
 export async function startOptimizationAction(input: {
+  // RAG＝上傳 md；FAQ＝匯入 FAQ（Excel）
+  optimizeType?: "RAG" | "FAQ";
+  faqSimilarCount?: number;
   scope: "SOURCE" | "KNOWLEDGE";
   sourceId: string;
   contentKind: "FAQ" | "DOC";
@@ -92,7 +106,8 @@ export async function startOptimizationAction(input: {
   token: string;
 }): Promise<OptimizeActionResult> {
   const session = await requireCompanyUser();
-  const t = await knowledgeTarget(session.companyId);
+  const optimizeType = input.optimizeType === "FAQ" ? "FAQ" : "RAG";
+  const t = await knowledgeTarget(session.companyId, optimizeType);
   if ("error" in t) return { error: t.error };
   // 要問的機器人（md 一律上傳到同一個知識庫，只有問的機器人可以選）
   const bot = await getBotTestTargetStrict(session.companyId, input.botId || null);
@@ -102,7 +117,8 @@ export async function startOptimizationAction(input: {
   if ("error" in tk) return { error: tk.error };
 
   const scope = input.scope === "KNOWLEDGE" ? "KNOWLEDGE" : "SOURCE";
-  const contentKind = input.contentKind === "DOC" ? "DOC" : "FAQ";
+  // FAQ優化的內容一定是 FAQ
+  const contentKind = optimizeType === "FAQ" ? "FAQ" : input.contentKind === "DOC" ? "DOC" : "FAQ";
   const questionSource = input.questionSource === "TEST_BANK" ? "TEST_BANK" : "ENTRIES";
   const sourceId = input.sourceId || null;
 
@@ -139,6 +155,8 @@ export async function startOptimizationAction(input: {
       createdById: session.id,
       contentKind,
       questionSource,
+      optimizeType,
+      faqSimilarCount: optimizeType === "FAQ" ? clamp(input.faqSimilarCount ?? 3, 0, 10, 3) : 0,
       maxRuns: clamp(input.maxRuns, 1, 10, 5),
       targetScore: clamp(input.targetScore, 1, 100, 90),
       similarCount: clamp(input.similarCount, 0, 5, 1),
@@ -154,7 +172,7 @@ export async function startOptimizationAction(input: {
   });
   launchOptimizationJob(job.id, tk.creds);
 
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: "已開始自動優化，可以關掉頁面，晚點回來看結果。" };
 }
 
@@ -179,7 +197,7 @@ export async function continueOptimizationAction(input: {
   if (!base || base.roleId !== session.roleId) return { error: "找不到這個版本。" };
   if (!base.job) return { error: "這個版本的原任務已被刪除，沒有可以沿用的題目，請改從 KM 內容開始新的自動優化。" };
   if (isRejudging(base.id)) return { error: "這一版正在重新比對，請等比對完成再繼續。" };
-  const t = await knowledgeTarget(session.companyId);
+  const t = await knowledgeTarget(session.companyId, base.job.optimizeType);
   if ("error" in t) return { error: t.error };
   if (await activeJobInCompany(session.companyId)) return { error: "這間公司已經有進行中（或暫停中）的自動優化，請先等它跑完或停止。" };
   const tk = await credentialsFor(t.target, input.token);
@@ -215,6 +233,8 @@ export async function continueOptimizationAction(input: {
       contentKind: from.contentKind,
       questionSource: mode === "REUSE" ? from.questionSource : mode,
       reuseQuestions: mode === "REUSE",
+      optimizeType: from.optimizeType,
+      faqSimilarCount: from.faqSimilarCount,
       maxRuns: clamp(input.maxRuns, 1, 10, 3),
       targetScore: clamp(input.targetScore, 1, 100, from.targetScore),
       similarCount: mode === "REUSE" ? from.similarCount : clamp(input.similarCount ?? 0, 0, 5, 0),
@@ -230,7 +250,7 @@ export async function continueOptimizationAction(input: {
     },
   });
   launchOptimizationJob(job.id, tk.creds);
-  revalidatePath(PATH);
+  revalidateOptimize();
   return {
     success:
       mode === "REUSE"
@@ -256,7 +276,7 @@ export async function stopOptimizationAction(jobId: string): Promise<OptimizeAct
   if (job.status === "RUNNING" && isJobLoopRunning(jobId)) {
     // 正在跑：做完手上這一題／這一步就停（後台學習的等待也會中斷）
     await prisma.optimizationJob.update({ where: { id: jobId }, data: { stopRequested: true, stopReason, currentStep: "停止中…" } });
-    revalidatePath(PATH);
+    revalidateOptimize();
     return { success: "已送出停止，做完手上的步驟就會停下來。" };
   }
   await prisma.optimizationJob.update({
@@ -264,7 +284,7 @@ export async function stopOptimizationAction(jobId: string): Promise<OptimizeAct
     data: { status: "STOPPED", stopRequested: true, stopReason, currentStep: `已停止：${stopReason}（可以貼 token 從中斷的那一步繼續）` },
   });
   void notifyJob(jobId, `⏹ 已停止：${stopReason}`, true);
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: "已停止。" };
 }
 
@@ -275,7 +295,7 @@ export async function resumeOptimizationAction(jobId: string, rawToken: string):
   if (!job) return { error: "找不到這個任務。" };
   const versionIds = (await prisma.kbVersion.findMany({ where: { jobId }, select: { id: true } })).map((v) => v.id);
   if (versionIds.some(isRejudging)) return { error: "這個任務有版本正在重新比對，請等比對完成再繼續。" };
-  const t = await knowledgeTarget(session.companyId);
+  const t = await knowledgeTarget(session.companyId, job.optimizeType);
   if ("error" in t) return { error: t.error };
   const tk = await credentialsFor(t.target, rawToken);
   if ("error" in tk) return { error: tk.error };
@@ -297,7 +317,7 @@ export async function resumeOptimizationAction(jobId: string, rawToken: string):
     data: { status: "RUNNING", stopRequested: false, stopReason: null, errorMessage: null, currentStep: "繼續執行中" },
   });
   launchOptimizationJob(jobId, tk.creds);
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: "已繼續執行。" };
 }
 
@@ -308,7 +328,7 @@ export async function deleteOptimizationJobAction(jobId: string): Promise<Optimi
   if (ACTIVE_JOB_STATUSES.includes(job.status)) return { error: "請先停止這個任務再刪除。" };
   // 只刪任務紀錄與題目；每一輪的版本保留在知識列表的「版本」分頁
   await prisma.optimizationJob.delete({ where: { id: jobId } });
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: "已刪除任務紀錄（各輪版本仍保留在知識列表的「版本」分頁）。" };
 }
 
@@ -317,12 +337,26 @@ export async function deployVersionAction(versionId: string, rawToken: string): 
   const session = await requireCompanyUser();
   const version = await prisma.kbVersion.findUnique({ where: { id: versionId } });
   if (!version || version.roleId !== session.roleId) return { error: "找不到這個版本。" };
-  const t = await knowledgeTarget(session.companyId);
+  const isFaq = version.faqItems !== null;
+  const t = await knowledgeTarget(session.companyId, isFaq ? "FAQ" : "RAG");
   if ("error" in t) return { error: t.error };
   if (await activeJobInCompany(session.companyId)) return { error: "有進行中（或暫停中）的自動優化，請先停止再部署。" };
   const tk = await credentialsFor(t.target, rawToken);
   if ("error" in tk) return { error: tk.error };
   const token = tk.creds.accessToken;
+
+  if (isFaq) {
+    try {
+      await uploadFaqVersionToBackend({ companyId: session.companyId, target: t.target, token, version });
+      // 匯入是非同步處理：稍等一下再開始學習
+      await new Promise((r) => setTimeout(r, 30_000));
+      await startFaqLearning(t.target, token);
+    } catch (err) {
+      return { error: `部署失敗：${errorMessage(err)}` };
+    }
+    revalidateOptimize();
+    return { success: `已把「${version.name}」匯入 FAQ 知識庫（覆蓋全部）並送出學習，學習完成後機器人就會用這一版回答。` };
+  }
 
   try {
     await clearRecordedBackendKnowledge({ companyId: session.companyId, target: t.target, token, exceptVersionId: version.id });
@@ -335,7 +369,7 @@ export async function deployVersionAction(versionId: string, rawToken: string): 
   } catch (err) {
     return { error: `部署失敗：${errorMessage(err)}` };
   }
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: `已把「${version.name}」上傳到後台並送出學習，學習完成後機器人就會用這一版回答。` };
 }
 
@@ -350,7 +384,7 @@ export async function clearBackendAction(rawToken: string): Promise<OptimizeActi
   const token = tk.creds.accessToken;
   try {
     const count = await clearRecordedBackendKnowledge({ companyId: session.companyId, target: t.target, token });
-    revalidatePath(PATH);
+    revalidateOptimize();
     return { success: count > 0 ? `已從後台移除 AIBPO 上傳的 ${count} 筆知識。` : "後台沒有 AIBPO 上傳的知識。" };
   } catch (err) {
     return { error: `移除失敗：${errorMessage(err)}` };
@@ -473,7 +507,7 @@ export async function rejudgeVersionAction(versionId: string, model: string): Pr
   if (!version || version.roleId !== session.roleId) return { error: "找不到這個版本。" };
   const started = await startRejudge(versionId, cleanAiModel(model));
   if (started.error) return { error: started.error };
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: `開始重新比對 ${started.count} 題，完成後分數會自動更新。` };
 }
 
@@ -486,6 +520,8 @@ export type VersionMarkdownView = {
   isDoc: boolean;
   // 儲存時直接覆蓋（還沒測過、沒在後台的手動修改版本）；否則另存成新版本
   saveInPlace: boolean;
+  // FAQ優化的版本：md 只是 FAQ 清單的顯示，不能在這裡改；可以下載匯入用的 Excel
+  isFaq: boolean;
 };
 
 type VersionSettingsJson = { manualFrom?: string } & Record<string, unknown>;
@@ -517,6 +553,7 @@ export async function getVersionMarkdownAction(versionId: string): Promise<Versi
     markdown: version.markdown,
     isDoc: version.job?.contentKind === "DOC",
     saveInPlace: canSaveInPlace(version),
+    isFaq: version.faqItems !== null,
   };
 }
 
@@ -525,6 +562,7 @@ export async function saveVersionMarkdownAction(versionId: string, rawMarkdown: 
   const session = await requireCompanyUser();
   const version = await versionForEdit(versionId, session.roleId);
   if (!version) return { error: "找不到這個版本。" };
+  if (version.faqItems !== null) return { error: "FAQ優化的版本不能直接改 md。" };
   const markdown = rawMarkdown.replace(/\r\n/g, "\n").trim();
   if (!markdown) return { error: "md 不能是空的。" };
   if (markdown === version.markdown.trim()) return { error: "內容沒有變更。" };
@@ -533,7 +571,7 @@ export async function saveVersionMarkdownAction(versionId: string, rawMarkdown: 
 
   if (canSaveInPlace(version)) {
     await prisma.kbVersion.update({ where: { id: version.id }, data: { markdown } });
-    revalidatePath(PATH);
+    revalidateOptimize();
     return { success: "已儲存。", versionId: version.id };
   }
 
@@ -556,7 +594,7 @@ export async function saveVersionMarkdownAction(versionId: string, rawMarkdown: 
       jobId: version.jobId,
     },
   });
-  revalidatePath(PATH);
+  revalidateOptimize();
   return { success: `已另存成新版本「${name.split("・")[0]}」，原本的版本與分數保留。`, versionId: created.id };
 }
 

@@ -184,3 +184,34 @@ export async function waitUntilAllLearned(
     await new Promise((r) => setTimeout(r, options.intervalMs ?? 15_000));
   }
 }
+
+// ---- FAQ 知識庫（FAQ優化用）----
+
+// 匯入 FAQ Excel（importActionType 1＝覆蓋全部），回傳匯入工作的 id（非同步處理）
+export async function importFaqExcel(target: BotTestTarget, token: string, file: Buffer, fileName: string): Promise<string> {
+  if (!target.faqPlatformId) throw new KnowledgeApiError("這間公司還沒設定 FAQ 知識庫 platformId，請聯絡平台管理員到公司設定補上。");
+  const form = new FormData();
+  form.append("PlatformId", target.faqPlatformId);
+  form.append("platformType", target.faqPlatformType);
+  form.append("importActionType", "1");
+  form.append("LanguageCode", target.faqLanguageCode);
+  form.append(
+    "File",
+    new Blob([new Uint8Array(file)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    fileName,
+  );
+  const json = await request(resolvePath(target, token, target.faqImportPath), token, { method: "POST", body: form }, "匯入 FAQ");
+  if (typeof json === "string") return json;
+  const raw = (json as { raw?: string; id?: string; data?: string }).raw ?? (json as { id?: string }).id ?? (json as { data?: string }).data;
+  return typeof raw === "string" ? raw.replace(/^"|"$/g, "") : "";
+}
+
+// 開始學習 FAQ
+export async function startFaqLearning(target: BotTestTarget, token: string): Promise<void> {
+  await request(
+    resolvePath(target, token, target.faqLearnPath),
+    token,
+    { method: "POST", body: JSON.stringify([{ platformId: target.faqPlatformId, languageCode: target.faqLanguageCode }]) },
+    "FAQ 開始學習",
+  );
+}

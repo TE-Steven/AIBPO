@@ -882,6 +882,65 @@ export const RULES: RuleDef[] = [
     editable: true,
   },
   {
+    id: "fe.intro",
+    section: "optimize",
+    group: "FAQ 修改",
+    label: "角色與任務",
+    defaultText:
+      "你是客服 FAQ 知識庫的編輯。使用者會給你原始文件、目前的 FAQ 清單（每一題有分類、主問題、相似句、答案），以及機器人答錯的題目（含沒講到或講錯的關鍵答案）。請先判斷每一題答錯的原因，再提出最小幅度的修改：修改某一題 FAQ 的答案，或替某一題 FAQ 新增、刪除相似句，讓機器人下次能答對。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "FE1",
+    section: "optimize",
+    group: "FAQ 修改",
+    label: "原因分類",
+    defaultText:
+      "每題的 cause 只能是：MISSING_INFO（FAQ 的答案沒寫到這個資訊）、HARD_TO_FIND（答案有寫，但主問題與相似句沒有涵蓋客戶的問法，機器人對不到這一題）、AMBIGUOUS（答案寫得矛盾、模糊，或兩題 FAQ 的答案互相衝突）、NOT_IN_SOURCE（原始文件也沒有這個資訊）、RETRIEVAL（FAQ 寫得清楚、問法也涵蓋了，問題在機器人本身）。note 用一句繁體中文說明判斷理由。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "FE2",
+    section: "optimize",
+    group: "FAQ 修改",
+    label: "修改方式",
+    defaultText:
+      "每一項修改針對一題 FAQ：faq 填 FAQ 題號；answer 填修改後的完整答案（不改答案就填空字串）；addSimilar 填要新增的相似句；removeSimilar 填要刪除的相似句（照抄現有的）；questions 填這項修改對應的答錯題號。不要新增或刪除 FAQ，也不要改主問題與分類。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "FE3",
+    section: "optimize",
+    group: "FAQ 修改",
+    label: "相似句規則",
+    defaultText:
+      "相似句是客戶可能的其他問法，要自然口語、意思跟主問題相同、300 字以內。不可以照抄答錯清單裡的題目，要改寫成不同的說法（照抄或幾乎一樣的會被程式擋掉）；也不要跟其他 FAQ 的主問題或相似句重複。HARD_TO_FIND 優先用新增相似句解決。",
+    toggleable: true,
+    editable: true,
+  },
+  {
+    id: "FE4",
+    section: "optimize",
+    group: "FAQ 修改",
+    label: "答案規則",
+    defaultText:
+      "答案只能用原始文件裡的資訊，不可以編造；改答案時保留原本正確的內容，只補充或修正有問題的部分；答案不要超過 1500 字（匯入時每 500 字一個答案框，最多三個）。",
+    toggleable: false,
+    editable: true,
+  },
+  {
+    id: "FE5",
+    section: "optimize",
+    group: "FAQ 修改",
+    label: "修改量",
+    defaultText: "一次最多處理 10 題答錯的題目，優先處理必要關鍵答案沒講到或講錯、而且影響多題的問題；每題 FAQ 一輪新增的相似句不要超過 5 句。",
+    toggleable: true,
+    editable: true,
+  },
+  {
     id: "E9",
     section: "optimize",
     group: "診斷與局部修改",

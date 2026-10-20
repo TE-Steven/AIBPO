@@ -12,6 +12,7 @@ import {
 } from "./actions";
 import {
   Choice,
+  OptimizeTypeContext,
   OptionCards,
   estimatePlan,
   InfoTip,
@@ -74,6 +75,7 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
   const [botId, setBotId] = useState(base.botId && bots.some((b) => b.id === base.botId) ? base.botId : (bots[0]?.id ?? ""));
   const [judgeModel, setJudgeModel] = useState(base.judgeModel);
   const [reviseModel, setReviseModel] = useState(base.reviseModel);
+  const optimizeType = useContext(OptimizeTypeContext);
   const [questionMode, setQuestionMode] = useState<"REUSE" | "ENTRIES" | "TEST_BANK">("REUSE");
   const [similarCount, setSimilarCount] = useState(1);
   const [similarModel, setSimilarModel] = useState(base.similarModel);
@@ -165,7 +167,13 @@ export function ContinueModal({ base, onClose }: { base: ContinueBase; onClose: 
           onChange={setJudgeModel}
           cost={`${formatTwd(plan.judgeRunUsd)}／輪`}
         />
-        <ModelRow title="修改 md" desc="每輪兩批，各 10 題" value={reviseModel} onChange={setReviseModel} cost={`${formatTwd(plan.reviseUsd)}／次`} />
+        <ModelRow
+          title={optimizeType === "FAQ" ? "修改 FAQ" : "修改 md"}
+          desc="每輪兩批，各 10 題"
+          value={reviseModel}
+          onChange={setReviseModel}
+          cost={`${formatTwd(plan.reviseUsd)}／次`}
+        />
         {!reuse && similarCount > 0 && (
           <ModelRow
             title="產生相似題"

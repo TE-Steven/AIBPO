@@ -72,7 +72,7 @@ export function MarkdownModal({ versionId, onClose }: { versionId: string; onClo
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3">
           <h3 className="mr-2 text-sm font-semibold text-slate-900">{view ? view.name : "md"}</h3>
           <div className="flex rounded-lg bg-slate-100 p-0.5 text-xs" role="tablist">
-            {(["preview", "edit"] as const).map((t) => (
+            {(view?.isFaq ? (["preview"] as const) : (["preview", "edit"] as const)).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -103,6 +103,14 @@ export function MarkdownModal({ versionId, onClose }: { versionId: string; onClo
             </select>
           )}
           <div className="ml-auto flex items-center gap-2">
+            {view?.isFaq && (
+              <a
+                href={`/api/km/versions/${versionId}/download?format=xlsx`}
+                className="rounded-lg px-3 py-1.5 text-xs font-semibold text-teal-700 ring-1 ring-inset ring-teal-200 hover:bg-teal-50"
+              >
+                下載 Excel
+              </a>
+            )}
             <a href={`/api/km/versions/${versionId}/download`} className="rounded-lg px-3 py-1.5 text-xs font-medium text-teal-700 ring-1 ring-inset ring-teal-200 hover:bg-teal-50">
               下載 md
             </a>
@@ -122,6 +130,11 @@ export function MarkdownModal({ versionId, onClose }: { versionId: string; onClo
         ) : tab === "preview" ? (
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {dirty && <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">目前顯示的是還沒儲存的修改內容。</p>}
+            {view.isFaq && (
+              <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                這是 FAQ 清單的預覽：每題列出分類、標題、相似句與答案。匯入後台用的是「下載 Excel」那份檔案（一個相似句一列）；FAQ優化的版本由 AI 依答錯的題目修改，這裡不能直接編輯。
+              </p>
+            )}
             {sections.map((s) => (
               <section key={s.id} id={s.id} className="scroll-mt-2 border-b border-dashed border-slate-200 pb-4 last:border-0">
                 <div className={PROSE} dangerouslySetInnerHTML={{ __html: s.html }} />

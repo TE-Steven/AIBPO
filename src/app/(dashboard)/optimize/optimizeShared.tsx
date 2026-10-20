@@ -152,11 +152,15 @@ export function formatTwd(usdValue: number): string {
 
 export const UsageStatsContext = createContext<UsageStats>({ judge: null, revise: null });
 
+// 目前頁面是 RAG優化還是 FAQ優化（建立任務、版本操作、說明文字依類型切換）
+export const OptimizeTypeContext = createContext<"RAG" | "FAQ">("RAG");
+
 // 公司設定的機器人（自動優化問題目用；md 一律上傳到同一個知識庫）
 export const BotsContext = createContext<BotOption[]>([]);
 
 export function BotSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const bots = useContext(BotsContext);
+  const isFaq = useContext(OptimizeTypeContext) === "FAQ";
   const current = bots.find((b) => b.id === value);
   return (
     <div>
@@ -168,7 +172,7 @@ export function BotSelect({ value, onChange }: { value: string; onChange: (id: s
         ))}
       </select>
       <p className="mt-1 text-[11px] text-slate-400">
-        {current?.description || "（沒有說明）"}・channel {current?.channel}。md 一律上傳到同一個知識庫，這裡只決定問哪一隻機器人。
+        {current?.description || "（沒有說明）"}・channel {current?.channel}。{isFaq ? "FAQ 一律匯入同一個 FAQ 知識庫" : "md 一律上傳到同一個知識庫"}，這裡只決定問哪一隻機器人。
       </p>
     </div>
   );
@@ -192,6 +196,8 @@ export const TIPS = {
   mdGrowth: "這一版 md 的字數比起點版本多（＋）或少（－）幾成。一直往上長要留意，太長可能讓機器人更難找到內容。",
   editsApplied: "AI 提出的修改項目中，實際套用到 md 的數量。沒套用的會標原因：定位不到（引用的原文在 md 裡找不到），或違反分類結構（想新增、改名或刪除分類層級的標題）。",
   diagnoses: "這一輪 AI 處理的題目（最多 20 題，分兩批各 10 題）與它判斷的答錯原因。",
+  runTimeFaq: "匯入 FAQ（覆蓋全部）＋等後台處理匯入約 1 分鐘＋呼叫學習後的等待＋問機器人（每題約 45 秒、同時 3 題，含沒答對再問一次）＋AI 修改兩批。實際時間依機器人回答速度而定。",
+  maxCostFaq: "比對（含沒答對重問；選 Haiku 時含 Sonnet 複核）× 輪數 ＋ 修改 FAQ 兩批 ×（輪數－1）＋ 開始時擴充 FAQ 相似句與產生測試用相似題。有過去的實際用量時，用平均 token 數估算。",
 } as const;
 
 // 數據旁邊的小 ⓘ：滑鼠移上去或點一下顯示定義與算法。用 fixed 定位，放在可捲動的表格裡也不會被切掉

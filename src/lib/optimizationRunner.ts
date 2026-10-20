@@ -16,6 +16,7 @@ import { buildTallyDocumentsMarkdown } from "@/lib/tallyDocumentsExport";
 import { getSourceFiles, getSourceUrls, sourceFileBlocks } from "@/lib/kmAnalysis";
 import { aiErrorText } from "@/lib/claudeFileErrors";
 import { appBaseUrl, notifyCompany } from "@/lib/lineNotify";
+import { buildFaqWorkbook, categoryFromTallyPath, cleanFaqItems, faqItemsToMarkdown, looseQuestion, nearlySameQuestion, FAQ_ANSWER_MAX, FAQ_LIMITS, type FaqItem } from "@/lib/faqKnowledge";
 import { computeJobTodo, todoSummary } from "@/lib/optimizationTodo";
 import { tallyPathLines, tallyPathOptions } from "@/lib/tallyTree";
 import { splitMarkdownByH1 } from "@/lib/markdownSplit";
@@ -27,6 +28,9 @@ import {
   buildSimilarQuestionsSystemPrompt,
   EDIT_CAUSE_LABELS,
   EDIT_SCHEMA,
+  FAQ_EDIT_SCHEMA,
+  buildFaqEditSystemPrompt,
+  buildFaqEditUserText,
   SIMILAR_QUESTIONS_SCHEMA,
   type EditCause,
   type EditFailure,
@@ -39,6 +43,8 @@ import {
   AIBPO_KNOWLEDGE_PREFIX,
   DELETING_STATUS,
   findKnowledgeByName,
+  importFaqExcel,
+  startFaqLearning,
   isLearned,
   listKnowledge,
   KnowledgeApiError,
@@ -137,7 +143,7 @@ export async function notifyJob(jobId: string, headline: string, withBest = fals
     const url = appBaseUrl();
     await notifyCompany(
       await companyIdForRole(job.roleId),
-      `【AIBPO 自動優化】#${job.seq} ${jobLabel(job, job.source)}\n${headline}${best}${url ? `\n${url}/optimize/rag` : ""}`,
+      `【AIBPO ${job.optimizeType === "FAQ" ? "FAQ優化" : "RAG優化"}】#${job.seq} ${jobLabel(job, job.source)}\n${headline}${best}${url ? `\n${url}/optimize/${job.optimizeType === "FAQ" ? "faq" : "rag"}` : ""}`,
     );
   } catch (err) {
     console.error("notifyJob failed", err);
@@ -236,7 +242,11 @@ async function loadContext(job: OptimizationJob): Promise<JobContext> {
     getSystemSetting(companyId, KM_OUTPUT_GUIDELINES_KEY),
   ]);
   if (!target) throw new Error(job.botId ? `這個任務問的機器人「${job.botName ?? ""}」已經從公司設定刪除。` : "這間公司還沒設定機器人測試 API，請聯絡平台管理員。");
-  if (!target.knowledgePlatformId) throw new Error("這間公司還沒設定知識庫 platformId，請聯絡平台管理員到公司設定補上。");
+  if (job.optimizeType === "FAQ") {
+    if (!target.faqPlatformId) throw new Error("這間公司還沒設定 FAQ 知識庫 platformId，請聯絡平台管理員到公司設定補上。");
+  } else if (!target.knowledgePlatformId) {
+    throw new Error("這間公司還沒設定知識庫 platformId，請聯絡平台管理員到公司設定補上。");
+  }
   return { companyId, target, config, guidelines: guidelines ?? "" };
 }
 
@@ -257,7 +267,12 @@ async function versionSettings(job: OptimizationJob, ctx: JobContext, runIndex: 
 // ---------------- 第 1 輪前：初始 md、題目、相似題 ----------------
 
 // 組一套新題目：範圍內的 FAQ（job.entryIds）或公司的固定測試題庫，再依設定產生相似問法
-async function buildQuestionRows(job: OptimizationJob, ctx: JobContext): Promise<Prisma.OptimizationQuestionCreateManyInput[]> {
+// faqItems：FAQ優化的 FAQ 清單；測試用的相似問法不能跟它的相似句一樣（相似句會上傳給機器人學，拿來考試等於洩題）
+async function buildQuestionRows(
+  job: OptimizationJob,
+  ctx: JobContext,
+  faqItems?: FaqItem[],
+): Promise<Prisma.OptimizationQuestionCreateManyInput[]> {
   const originals =
     job.questionSource === "TEST_BANK"
       ? (
@@ -276,8 +291,15 @@ async function buildQuestionRows(job: OptimizationJob, ctx: JobContext): Promise
 
   let similar: string[][] = [];
   if (job.similarCount > 0) {
-    await setStep(job.id, `準備中：AI 為 ${originals.length} 題各產生 ${job.similarCount} 個相似問法`);
-    similar = await generateSimilarQuestions(originals, job.similarCount, ctx.config, job.roleId, job.similarModel);
+    await setStep(job.id, `準備中：AI 為 ${originals.length} 題各產生 ${job.similarCount} 個測試用的相似問法`);
+    const faqByQuestion = new Map((faqItems ?? []).map((f) => [looseQuestion(f.question), f]));
+    const avoid = faqItems
+      ? {
+          perItem: originals.map((o) => faqByQuestion.get(looseQuestion(o.question))?.similar ?? []),
+          all: faqItems.flatMap((f) => f.similar),
+        }
+      : undefined;
+    similar = await generateSimilarQuestions(originals, job.similarCount, ctx.config, job.roleId, job.similarModel, avoid);
   }
 
   const rows: Prisma.OptimizationQuestionCreateManyInput[] = [];
@@ -317,14 +339,36 @@ async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
   }));
   const options = resolveOptions(ctx.config);
   let markdown: string;
-  if (job.contentKind === "DOC") {
+  let faqItems: FaqItem[] | null = null;
+  if (job.optimizeType === "FAQ") {
+    // FAQ優化：範圍內的 FAQ 組成 FAQ 清單（分類取分類管理的路徑），再由 AI 擴充相似句
+    faqItems = contentEntries.map((e) => ({
+      ...categoryFromTallyPath(tallyPathOf(e.tally)),
+      question: e.question,
+      similar: [],
+      title: "",
+      answer: e.answer,
+    }));
+    if (job.faqSimilarCount > 0) {
+      await setStep(job.id, `準備中：AI 為 ${faqItems.length} 題 FAQ 各擴充 ${job.faqSimilarCount} 個相似句`);
+      const similar = await generateSimilarQuestions(
+        faqItems.map((f) => ({ question: f.question, expectedAnswer: f.answer })),
+        job.faqSimilarCount,
+        ctx.config,
+        job.roleId,
+        job.similarModel,
+      );
+      faqItems = faqItems.map((f, i) => ({ ...f, similar: (similar[i] ?? []).map((q) => q.slice(0, FAQ_LIMITS.similar)) }));
+    }
+    markdown = faqItemsToMarkdown(faqItems, label);
+  } else if (job.contentKind === "DOC") {
     const templates = await prisma.tally.findMany({ where: { roleId: job.roleId, parentId: null }, select: { id: true, order: true, name: true } });
     markdown = buildTallyDocumentsMarkdown(contentEntries, templates, options.docSelfContainedHeadings);
   } else {
     markdown = buildKnowledgeMarkdown({ entries: snapshot, options, format: "md", exportedAt: new Date(), title: label });
   }
 
-  const questionRows = await buildQuestionRows(job, ctx);
+  const questionRows = await buildQuestionRows(job, ctx, faqItems ?? undefined);
 
   const settings = await versionSettings(job, ctx, 1);
   await prisma.$transaction([
@@ -339,6 +383,7 @@ async function stepPrepare(job: OptimizationJob, ctx: JobContext) {
         note: "自動優化第 1 輪：原始內容",
         createdById: job.createdById,
         markdown,
+        ...(faqItems ? { faqItems } : {}),
         entries: snapshot,
         entryCount: snapshot.length,
         settings,
@@ -380,7 +425,7 @@ async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersio
       userNoteUpdatedAt: q.userNoteUpdatedAt,
     }));
   } else {
-    questionRows = await buildQuestionRows(job, ctx);
+    questionRows = await buildQuestionRows(job, ctx, job.optimizeType === "FAQ" ? cleanFaqItems(base.faqItems) : undefined);
   }
   const reset = [
     prisma.optimizationQuestion.deleteMany({ where: { jobId: job.id } }),
@@ -410,6 +455,7 @@ async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersio
         note: job.reuseQuestions ? `自動優化第 1 輪：沿用 ${base.name}` : `自動優化第 1 輪：用新題目測 ${base.name}`,
         createdById: job.createdById,
         markdown: base.markdown,
+        ...(base.faqItems ? { faqItems: base.faqItems } : {}),
         entries: base.entries ?? [],
         entryCount: base.entryCount,
         settings,
@@ -421,16 +467,25 @@ async function prepareFromBase(job: OptimizationJob, ctx: JobContext, baseVersio
   ]);
 }
 
+// avoid：每一題不能用的句子（例如 FAQ 的相似句，測試題不能跟它一樣）；avoidAll：所有題目都不能用的句子（程式再過濾一次）
 async function generateSimilarQuestions(
   originals: { question: string; expectedAnswer: string }[],
   count: number,
   config: PromptConfigData,
   roleId: string,
   model: string,
+  avoid?: { perItem?: string[][]; all?: string[] },
 ): Promise<string[][]> {
   const list = originals
-    .map((q, i) => `<item index="${i + 1}">\n<question>${q.question}</question>\n<answer>${q.expectedAnswer}</answer>\n</item>`)
+    .map((q, i) => {
+      const own = avoid?.perItem?.[i] ?? [];
+      const avoidText = own.length > 0 ? `\n<avoid>${own.join("｜")}</avoid>` : "";
+      return `<item index="${i + 1}">\n<question>${q.question}</question>\n<answer>${q.expectedAnswer}</answer>${avoidText}\n</item>`;
+    })
     .join("\n");
+  const avoidNote = avoid?.perItem?.some((a) => a.length > 0)
+    ? "\n有 <avoid> 的題目：新寫的問法不可以跟 <avoid> 裡的任何一句相同或只差幾個字，要換一種說法。"
+    : "";
   const response = await anthropic.messages
     .stream({
       model,
@@ -440,7 +495,7 @@ async function generateSimilarQuestions(
         ...(findAiModel(model).effort ? { effort: "low" as const } : {}),
         format: { type: "json_schema", schema: SIMILAR_QUESTIONS_SCHEMA },
       },
-      messages: [{ role: "user", content: `${list}\n\n請為以上每一題各寫 ${count} 個相似問法，index 對應題號。` }],
+      messages: [{ role: "user", content: `${list}\n\n請為以上每一題各寫 ${count} 個相似問法，index 對應題號。${avoidNote}` }],
     })
     .finalMessage();
   await recordApiUsage({ model, purpose: "km_optimize_similar", usage: response.usage, roleId });
@@ -449,16 +504,19 @@ async function generateSimilarQuestions(
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text ?? "";
   const parsed = JSON.parse(text) as { items: { index: number; questions: string[] }[] };
   const result: string[][] = originals.map(() => []);
+  const blockedAll = [...(avoid?.all ?? []), ...originals.map((o) => o.question)];
   for (const item of parsed.items) {
     const i = item.index - 1;
     if (i < 0 || i >= originals.length) continue;
-    const seen = new Set([originals[i].question.trim()]);
+    const blocked = [...(avoid?.perItem?.[i] ?? []), ...blockedAll];
     for (const raw of item.questions) {
       const q = raw.trim();
-      if (!q || seen.has(q) || result[i].length >= count) continue;
-      seen.add(q);
+      if (!q || result[i].length >= count) continue;
+      // 跟題目本身、不能用的句子或已經寫過的問法「幾乎一樣」就丟掉
+      if (blocked.some((b) => nearlySameQuestion(b, q)) || result[i].some((r) => nearlySameQuestion(r, q))) continue;
       result[i].push(q);
     }
+    blockedAll.push(...result[i]);
   }
   return result;
 }
@@ -484,6 +542,7 @@ export async function clearRecordedBackendKnowledge(params: {
     where: {
       roleId: { in: roles.map((r) => r.id) },
       backendKnowledgeIds: { not: Prisma.DbNull },
+      faqItems: { equals: Prisma.DbNull },
       ...(params.exceptVersionId ? { id: { not: params.exceptVersionId } } : {}),
     },
     select: { id: true, backendKnowledgeIds: true },
@@ -557,7 +616,41 @@ export async function uploadVersionToBackend(params: {
   return ids;
 }
 
+// 呼叫學習後等滿設定的分鐘數，再試問第一題：機器人有回答才進入測試；沒回答就再等同樣的分鐘數重試，直到有回答或使用者按停止
+async function waitThenProbe(job: OptimizationJob, token: string, ctx: JobContext, n: number, learnCalledAt: number) {
+  // 後台顯示「已學習」不代表機器人已經能用新知識回答：呼叫學習 API 後至少等滿使用者設定的分鐘數才開始問
+  const until = learnCalledAt + job.learnWaitMinutes * 60_000;
+  while (Date.now() < until) {
+    const left = Math.ceil((until - Date.now()) / 60_000);
+    await setStep(job.id, `第 ${n} 輪：${job.optimizeType === "FAQ" ? "已送出學習" : "後台已學習完成"}，呼叫學習後要等滿 ${job.learnWaitMinutes} 分鐘才開始問（剩約 ${left} 分鐘）`);
+    if (await isStopRequested(job.id)) return; // 迴圈下一圈會把任務標成已停止
+    await new Promise((r) => setTimeout(r, Math.min(15_000, until - Date.now())));
+  }
+
+  // 先試問第一題：機器人有回答才開始正式測試；完全沒回（逾時、出錯）就再等同樣的分鐘數再試，直到有回答或使用者按停止。
+  // 回「尚未學習到相關知識」這類句子也算有回答，否則遇到本來就答不出來的題目會永遠等下去。
+  const probe = await prisma.optimizationQuestion.findFirst({ where: { jobId: job.id }, orderBy: { order: "asc" } });
+  if (probe) {
+    const retryMs = Math.max(1, job.learnWaitMinutes) * 60_000;
+    for (let attempt = 1; ; attempt++) {
+      await setStep(job.id, `第 ${n} 輪：試問第一題，確認機器人已經能回答${attempt > 1 ? `（第 ${attempt} 次）` : ""}`);
+      const result = await askBot(ctx.target, token, probe.question);
+      if (result.status === "ANSWERED") break;
+      const next = Date.now() + retryMs;
+      while (Date.now() < next) {
+        const left = Math.ceil((next - Date.now()) / 60_000);
+        await setStep(job.id, `第 ${n} 輪：試問第一題機器人沒有回答，約 ${left} 分鐘後再試（已試 ${attempt} 次）`);
+        if (await isStopRequested(job.id)) return;
+        await new Promise((r) => setTimeout(r, Math.min(15_000, next - Date.now())));
+      }
+    }
+  }
+
+  await prisma.optimizationJob.update({ where: { id: job.id }, data: { resumeStep: "TEST" } });
+}
+
 async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) {
+  if (job.optimizeType === "FAQ") return stepUploadFaq(job, ctx, token);
   const n = job.currentRun;
   const version = await currentVersion(job);
   const source = job.sourceId ? await prisma.kmSource.findUnique({ where: { id: job.sourceId } }) : null;
@@ -600,35 +693,54 @@ async function stepUpload(job: OptimizationJob, ctx: JobContext, token: string) 
     });
   }
 
-  // 後台顯示「已學習」不代表機器人已經能用新知識回答：呼叫學習 API 後至少等滿使用者設定的分鐘數才開始問
-  const until = learnCalledAt + job.learnWaitMinutes * 60_000;
+  await waitThenProbe(job, token, ctx, n, learnCalledAt);
+}
+
+// ---------------- FAQ優化：匯入 FAQ ----------------
+
+// 匯入是非同步處理，送出後先等一下再開始學習（沒有查匯入進度的 API）
+const FAQ_IMPORT_SETTLE_MS = 60_000;
+
+// 把一個 FAQ 版本匯入後台 FAQ 知識庫（覆蓋全部），記下匯入工作 id；同公司其他 FAQ 版本就不在後台了
+export async function uploadFaqVersionToBackend(params: {
+  companyId: string;
+  target: BotTestTarget;
+  token: string;
+  version: { id: string; name: string; faqItems: Prisma.JsonValue | null };
+}): Promise<string> {
+  const items = cleanFaqItems(params.version.faqItems);
+  if (items.length === 0) throw new Error("這一版沒有 FAQ 清單。");
+  const file = await buildFaqWorkbook(items);
+  const importId = (await importFaqExcel(params.target, params.token, file, `AIBPO-FAQ-${params.version.id.slice(-6)}.xlsx`)) || "imported";
+  const roles = await prisma.role.findMany({ where: { companyId: params.companyId }, select: { id: true } });
+  await prisma.$transaction([
+    prisma.kbVersion.updateMany({
+      where: { roleId: { in: roles.map((r) => r.id) }, id: { not: params.version.id }, faqItems: { not: Prisma.DbNull } },
+      data: { backendKnowledgeIds: Prisma.DbNull },
+    }),
+    prisma.kbVersion.update({ where: { id: params.version.id }, data: { backendKnowledgeIds: [importId] } }),
+  ]);
+  return importId;
+}
+
+async function stepUploadFaq(job: OptimizationJob, ctx: JobContext, token: string) {
+  const n = job.currentRun;
+  const version = await currentVersion(job);
+  const count = cleanFaqItems(version.faqItems).length;
+  if (asIds(version.backendKnowledgeIds).length === 0) {
+    await setStep(job.id, `第 ${n} 輪：匯入 FAQ（${count} 題，覆蓋後台全部 FAQ）`);
+    await uploadFaqVersionToBackend({ companyId: ctx.companyId, target: ctx.target, token, version });
+  }
+  const until = Date.now() + FAQ_IMPORT_SETTLE_MS;
   while (Date.now() < until) {
-    const left = Math.ceil((until - Date.now()) / 60_000);
-    await setStep(job.id, `第 ${n} 輪：後台已學習完成，呼叫學習後要等滿 ${job.learnWaitMinutes} 分鐘才開始問（剩約 ${left} 分鐘）`);
-    if (await isStopRequested(job.id)) return; // 迴圈下一圈會把任務標成已停止
-    await new Promise((r) => setTimeout(r, Math.min(15_000, until - Date.now())));
+    await setStep(job.id, `第 ${n} 輪：等後台處理 FAQ 匯入（約 ${Math.ceil((until - Date.now()) / 1000)} 秒）`);
+    if (await isStopRequested(job.id)) return;
+    await new Promise((r) => setTimeout(r, Math.min(10_000, until - Date.now())));
   }
-
-  // 先試問第一題：機器人有回答才開始正式測試；完全沒回（逾時、出錯）就再等同樣的分鐘數再試，直到有回答或使用者按停止。
-  // 回「尚未學習到相關知識」這類句子也算有回答，否則遇到本來就答不出來的題目會永遠等下去。
-  const probe = await prisma.optimizationQuestion.findFirst({ where: { jobId: job.id }, orderBy: { order: "asc" } });
-  if (probe) {
-    const retryMs = Math.max(1, job.learnWaitMinutes) * 60_000;
-    for (let attempt = 1; ; attempt++) {
-      await setStep(job.id, `第 ${n} 輪：試問第一題，確認機器人已經能回答${attempt > 1 ? `（第 ${attempt} 次）` : ""}`);
-      const result = await askBot(ctx.target, token, probe.question);
-      if (result.status === "ANSWERED") break;
-      const next = Date.now() + retryMs;
-      while (Date.now() < next) {
-        const left = Math.ceil((next - Date.now()) / 60_000);
-        await setStep(job.id, `第 ${n} 輪：試問第一題機器人沒有回答，約 ${left} 分鐘後再試（已試 ${attempt} 次）`);
-        if (await isStopRequested(job.id)) return;
-        await new Promise((r) => setTimeout(r, Math.min(15_000, next - Date.now())));
-      }
-    }
-  }
-
-  await prisma.optimizationJob.update({ where: { id: job.id }, data: { resumeStep: "TEST" } });
+  await setStep(job.id, `第 ${n} 輪：FAQ 開始學習`);
+  const learnCalledAt = Date.now();
+  await startFaqLearning(ctx.target, token);
+  await waitThenProbe(job, token, ctx, n, learnCalledAt);
 }
 
 // ---------------- 問機器人、算分、決定要不要繼續 ----------------
@@ -992,6 +1104,8 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
       ? [...blocks.slice(0, -1), { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } } as Anthropic.ContentBlockParam]
       : [];
   const urlText = urls.length > 0 ? `原始文件還包含以下網址，請抓取內容一起參考：\n${urls.map((u) => `- ${u}`).join("\n")}\n\n` : "";
+  // FAQ優化：改的是 FAQ 清單（答案、相似句），不是 md
+  if (job.optimizeType === "FAQ") return reviseFaq({ job, ctx, n, base, prioritized, cachedBlocks, urls, urlText });
   const splitByH1 = job.contentKind === "DOC";
   // 分類管理的分類樹與說明：AI 依分類說明把內容放進對應的段落
   const categories = tallyPathLines(tallyPathOptions(await prisma.tally.findMany({ where: { roleId: job.roleId }, orderBy: { order: "asc" } })));
@@ -1134,6 +1248,182 @@ async function stepRevise(job: OptimizationJob, ctx: JobContext) {
         note,
         createdById: job.createdById,
         markdown,
+        entries: base.entries ?? [],
+        entryCount: base.entryCount,
+        settings,
+        revisionLog,
+        jobId: job.id,
+        runIndex: n + 1,
+      },
+    }),
+    prisma.optimizationJob.update({ where: { id: job.id }, data: { currentRun: n + 1, resumeStep: "UPLOAD" } }),
+  ]);
+}
+
+// ---------------- FAQ優化：AI 依答錯清單修改 FAQ（答案、相似句）----------------
+// 跟 RAG 一樣一輪分兩批、每批最多 10 題，第二批接著第一批改好的 FAQ 清單修改。
+// 程式把關：答案不超過 1500 字；新增的相似句不能跟測試題目幾乎一樣（不能拿考題訓練）、不能跟現有的主問題或相似句重複。
+async function reviseFaq(p: {
+  job: OptimizationJob;
+  ctx: JobContext;
+  n: number;
+  base: { id: string; name: string; faqItems: Prisma.JsonValue | null; markdown: string; entries: Prisma.JsonValue; entryCount: number };
+  prioritized: EditFailure[];
+  cachedBlocks: Anthropic.ContentBlockParam[];
+  urls: string[];
+  urlText: string;
+}) {
+  const { job, ctx, n, base } = p;
+  const items = cleanFaqItems(base.faqItems);
+  if (items.length === 0) throw new Error(`${base.name} 沒有 FAQ 清單。`);
+  const testQuestions = (await prisma.optimizationQuestion.findMany({ where: { jobId: job.id }, select: { question: true } })).map((q) => q.question);
+  const reviseModel = findAiModel(job.reviseModel);
+  const groups = Array.from({ length: REVISE_BATCHES }, (_, i) => p.prioritized.slice(i * REVISE_BATCH_SIZE, (i + 1) * REVISE_BATCH_SIZE)).filter(
+    (g) => g.length > 0,
+  );
+  const leftover = p.prioritized.length - groups.reduce((sum, g) => sum + g.length, 0);
+
+  const diagnoses: RevisionLog["diagnoses"] = [];
+  const edits: RevisionLog["edits"] = [];
+  const done: EditFailure[] = [];
+  let proposed = 0;
+
+  for (const [gi, group] of groups.entries()) {
+    let failures: EditFailure[] = [];
+    let response: Anthropic.Message | null = null;
+    for (const size of [group.length, Math.ceil(group.length / 2)]) {
+      failures = group.slice(0, size);
+      await setStep(
+        job.id,
+        `第 ${n} 輪：AI 診斷答錯原因並修改 FAQ（第 ${gi + 1}／${groups.length} 批，${failures.length} 題，從 ${base.name} 改${leftover > 0 ? `，另有 ${leftover} 題留到下一輪` : ""}）`,
+      );
+      response = await anthropic.messages
+        .stream({
+          model: reviseModel.id,
+          max_tokens: 64000,
+          thinking: reviseModel.adaptiveThinking ? { type: "adaptive" } : { type: "enabled", budget_tokens: 8000 },
+          system: buildFaqEditSystemPrompt({ guidelines: ctx.guidelines, config: ctx.config }),
+          output_config: {
+            ...(reviseModel.effort ? { effort: "medium" as const } : {}),
+            format: { type: "json_schema", schema: FAQ_EDIT_SCHEMA },
+          },
+          ...(p.urls.length > 0
+            ? { tools: [{ type: "web_fetch_20260318" as const, name: "web_fetch" as const, max_uses: Math.max(3, p.urls.length + 1) }] }
+            : {}),
+          messages: [
+            {
+              role: "user",
+              content: [...p.cachedBlocks, { type: "text" as const, text: p.urlText + buildFaqEditUserText({ items, failures }) }],
+            },
+          ],
+        })
+        .finalMessage();
+      await recordApiUsage({ model: reviseModel.id, purpose: "km_optimize_revise", usage: response.usage, roleId: job.roleId });
+      if (response.stop_reason !== "max_tokens" || size === 1) break;
+    }
+    if (!response || response.stop_reason === "max_tokens") {
+      if (gi === 0) throw new Error("AI 的修改清單太長，減少題數後輸出仍被截斷，這一輪沒有保存。");
+      break;
+    }
+
+    const parsed = JSON.parse(
+      response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join(""),
+    ) as {
+      diagnoses: { index: number; cause: EditCause; note: string }[];
+      edits: { faq: number; answer: string; addSimilar: string[]; removeSimilar: string[]; reason: string; questions: number[] }[];
+    };
+    diagnoses.push(
+      ...parsed.diagnoses
+        .filter((d) => d.index >= 1 && d.index <= failures.length)
+        .map((d) => ({ question: failures[d.index - 1].question, cause: d.cause, note: d.note })),
+    );
+    for (const e of parsed.edits) {
+      proposed++;
+      const questions = e.questions.map((qi) => failures[qi - 1]?.question ?? `第 ${qi} 題`);
+      const item = items[e.faq - 1];
+      if (!item) {
+        edits.push({ action: "replace", anchor: `FAQ 第 ${e.faq} 題`, text: "", reason: e.reason, questions, applied: false, rejected: "FAQ 題號不存在" });
+        continue;
+      }
+      const label = `FAQ「${item.question.slice(0, 40)}」：${e.reason}`;
+      // 答案
+      const answer = e.answer.trim();
+      if (answer && answer !== item.answer) {
+        if (answer.length > FAQ_ANSWER_MAX) {
+          edits.push({ action: "replace", anchor: item.answer, text: answer, reason: label, questions, applied: false, rejected: `答案超過 ${FAQ_ANSWER_MAX} 字` });
+        } else {
+          edits.push({ action: "replace", anchor: item.answer, text: answer, reason: label, questions, applied: true });
+          item.answer = answer;
+        }
+      }
+      // 刪除相似句
+      for (const raw of e.removeSimilar) {
+        const target = raw.trim();
+        const idx = item.similar.findIndex((x) => x === target || looseQuestion(x) === looseQuestion(target));
+        if (idx >= 0) item.similar.splice(idx, 1);
+        edits.push({ action: "delete", anchor: target, text: "", reason: label, questions, applied: idx >= 0 });
+      }
+      // 新增相似句：不能跟測試題目幾乎一樣、不能跟現有的主問題或相似句重複
+      const accepted: string[] = [];
+      for (const raw of e.addSimilar) {
+        const sentence = raw.trim().slice(0, FAQ_LIMITS.similar);
+        if (!sentence) continue;
+        const leak = testQuestions.some((t) => nearlySameQuestion(t, sentence));
+        const dup = items.some((f) => nearlySameQuestion(f.question, sentence) || f.similar.some((x) => nearlySameQuestion(x, sentence))) || accepted.some((a) => nearlySameQuestion(a, sentence));
+        if (leak || dup) {
+          edits.push({
+            action: "insert_after",
+            anchor: `主問題：${item.question}`,
+            text: sentence,
+            reason: label,
+            questions,
+            applied: false,
+            rejected: leak ? "跟測試題目幾乎一樣（不能拿考題訓練機器人）" : "跟現有的主問題或相似句重複",
+          });
+          continue;
+        }
+        accepted.push(sentence);
+      }
+      if (accepted.length > 0) {
+        item.similar.push(...accepted);
+        edits.push({ action: "insert_after", anchor: `主問題：${item.question}`, text: accepted.join("\n"), reason: label, questions, applied: true });
+      }
+    }
+    done.push(...failures);
+  }
+
+  if (proposed === 0) {
+    const counts = Object.entries(diagnoses.reduce<Record<string, number>>((acc, d) => ({ ...acc, [d.cause]: (acc[d.cause] ?? 0) + 1 }), {}))
+      .map(([cause, count]) => `${EDIT_CAUSE_LABELS[cause as EditCause] ?? cause} ${count} 題`)
+      .join("、");
+    await finishJob(job.id, `剩下答錯的題目 FAQ 改不了（${counts || "AI 沒有提出修改"}）`);
+    return;
+  }
+  const applied = edits.filter((e) => e.applied).length;
+  if (applied === 0) {
+    await finishJob(job.id, "AI 提出的修改都沒有通過檢查（答案太長、相似句跟測試題目一樣或重複），這一輪沒有產生新版本");
+    return;
+  }
+
+  const source = job.sourceId ? await prisma.kmSource.findUnique({ where: { id: job.sourceId } }) : null;
+  const label = jobLabel(job, source);
+  const markdown = faqItemsToMarkdown(items, label);
+  const growthPct = base.markdown.length > 0 ? Math.round(((markdown.length - base.markdown.length) / base.markdown.length) * 100) : 0;
+  const revisionLog: RevisionLog = { mode: "edits", baseVersionId: base.id, baseVersionName: base.name, diagnoses, edits, growthPct };
+  const settings = await versionSettings(job, ctx, n + 1);
+  await prisma.$transaction([
+    prisma.kbVersion.deleteMany({ where: { jobId: job.id, runIndex: n + 1 } }),
+    prisma.kbVersion.create({
+      data: {
+        roleId: job.roleId,
+        name: versionName(job, label, n + 1),
+        note: `從 ${base.name} 修改 FAQ：診斷 ${done.length} 題，套用 ${applied} 項修改${edits.length > applied ? `（${edits.length - applied} 項沒有通過檢查）` : ""}`,
+        createdById: job.createdById,
+        markdown,
+        faqItems: items,
         entries: base.entries ?? [],
         entryCount: base.entryCount,
         settings,
