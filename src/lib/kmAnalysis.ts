@@ -520,9 +520,6 @@ function normalizeFieldKey(key: string): string {
 }
 
 export const MISSING_FIELD_TEXT = "文件未提及";
-// 這個欄位實體本身沒寫，但有對應的通用規則
-export const SHARED_FIELD_TEXT = "請見下方「通用規則」";
-
 // 由伺服器依範本樹組 markdown：維度順序照分類管理的排序，缺的欄位補「文件未提及」，不依賴 AI 自己排版。
 export function buildTallyDocumentMarkdown(
   template: TallyTemplate,
@@ -533,10 +530,19 @@ export function buildTallyDocumentMarkdown(
   for (const [key, value] of Object.entries(values)) {
     if (value) lookup.set(normalizeFieldKey(key), value);
   }
-  // 有通用規則對應的欄位：實體自己沒寫時指向下方的通用規則，而不是寫「文件未提及」
-  const sharedFields = new Set((extras.sharedRules ?? []).flatMap((r) => (r.field ? [normalizeFieldKey(r.field)] : [])));
-  const missing = (key: string) =>
-    sharedFields.has(normalizeFieldKey(key)) ? SHARED_FIELD_TEXT : (extras.missingText ?? MISSING_FIELD_TEXT);
+  // 有通用規則對應的欄位：實體自己沒寫時，直接寫出那幾條通用規則（不只寫「請見下方」）——
+  // 知識庫以段落切塊檢索時，只抓到這一段也看得到規則內容；文件最後的通用規則段落照樣保留
+  const rulesByField = new Map<string, string[]>();
+  for (const r of extras.sharedRules ?? []) {
+    if (!r.field) continue;
+    const key = normalizeFieldKey(r.field);
+    rulesByField.set(key, [...(rulesByField.get(key) ?? []), r.text]);
+  }
+  const missing = (key: string) => {
+    const rules = rulesByField.get(normalizeFieldKey(key));
+    if (!rules || rules.length === 0) return extras.missingText ?? MISSING_FIELD_TEXT;
+    return rules.length === 1 ? rules[0] : rules.map((t) => `- ${t}`).join("\n");
+  };
 
   const lines: string[] = [];
   for (const h2 of template.children) {
