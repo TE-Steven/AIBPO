@@ -1,4 +1,4 @@
-// 把一個來源的所有結構化文件組成「整份」markdown：每個實體一個 H1，底下是原本的 ## 維度 / ### 子維度。
+// 把一個來源的所有結構化文件組成「整份」markdown：每個實體一個 H1（「範本名稱 - 實體名稱」），底下是原本的 ## 維度 / ### 子維度。
 // 排序：先依範本（第一層分類）在分類管理的順序，同一範本內依建立時間。純函式，.md 與 PDF 下載共用。
 
 type DocEntry = { question: string; answer: string; tallyId: string | null; createdAt: Date };
@@ -18,10 +18,14 @@ export function buildTallyDocumentsMarkdown(
     const rb = b.tallyId ? (rank.get(b.tallyId) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
     return ra - rb || a.createdAt.getTime() - b.createdAt.getTime();
   });
+  // H1 寫成「範本（第一層分類）名稱 - 項目名稱」，切成單獨的 md 檔後也看得出屬於哪一類
+  const templateName = new Map(templates.map((t) => [t.id, t.name]));
   return sorted
     .map((e) => {
       const body = e.answer.trim();
-      return `# ${e.question}\n\n${selfContainedHeadings ? body.replace(/^(#{2,6})\s+(.+)$/gm, `$1 ${e.question}｜$2`) : body}`;
+      const category = e.tallyId ? templateName.get(e.tallyId) : undefined;
+      const h1 = category ? `${category} - ${e.question}` : e.question;
+      return `# ${h1}\n\n${selfContainedHeadings ? body.replace(/^(#{2,6})\s+(.+)$/gm, `$1 ${e.question}｜$2`) : body}`;
     })
     .join("\n\n");
 }

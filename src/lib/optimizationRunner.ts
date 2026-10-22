@@ -594,7 +594,8 @@ export async function uploadVersionToBackend(params: {
   const base = backendKnowledgeName(params.label, params.version.id, params.version.runIndex);
   const parts = params.splitByH1
     ? splitMarkdownByH1(params.version.markdown).map((p, i) => ({
-        name: `${base}-${String(i + 1).padStart(2, "0")}-${p.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 20)}`,
+        // H1 是「分類 - 項目」時，檔名用項目名稱（太長會被截斷）
+        name: `${base}-${String(i + 1).padStart(2, "0")}-${(p.title.split(" - ").pop() ?? p.title).replace(/[\\/:*?"<>|]/g, "_").slice(0, 20)}`,
         content: p.content,
       }))
     : [{ name: base, content: params.version.markdown }];
