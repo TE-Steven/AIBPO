@@ -31,7 +31,10 @@ const AGENT_CHILDREN = [
   { key: "agent-skills", label: "Skill 管理", path: "/skills", icon: "wrench", order: 1 },
   { key: "agent-list", label: "Agent 管理", path: "/agents", icon: "sparkles", order: 2 },
   { key: "agent-drafts", label: "Workflow 草稿", path: "/agents/drafts", icon: "sparkles", order: 3 },
+  { key: "agent-automation", label: "自動化管理", path: "/automations", icon: "wrench", order: 4 },
 ];
+// 後來才加的子選單：第一次建立時授權給已經看得到指定選單的角色（之後由公司管理員自己調整）
+const AGENT_CHILD_GRANT_FROM: Record<string, string> = { "agent-automation": "agent-drafts" };
 
 // 自動優化排在 AI Agent 下面，也是兩層選單：RAG優化（原本的自動優化功能）、FAQ優化。
 // 沿用原本的 key「optimize」當群組標題（path 留空），已經授權「自動優化」的角色第一次會自動拿到兩個子選單。
@@ -75,11 +78,17 @@ async function main() {
   });
 
   for (const m of AGENT_CHILDREN) {
-    await prisma.menu.upsert({
+    const existed = await prisma.menu.findUnique({ where: { key: m.key }, select: { id: true } });
+    const child = await prisma.menu.upsert({
       where: { key: m.key },
       update: { label: m.label, path: m.path, icon: m.icon, order: m.order, parentId: agentParentMenu.id },
       create: { ...m, parentId: agentParentMenu.id },
     });
+    const grantFrom = AGENT_CHILD_GRANT_FROM[m.key];
+    if (!existed && grantFrom) {
+      const roles = await prisma.roleMenu.findMany({ where: { menu: { key: grantFrom } }, select: { roleId: true } });
+      await prisma.roleMenu.createMany({ data: roles.map((r) => ({ roleId: r.roleId, menuId: child.id })), skipDuplicates: true });
+    }
   }
 
   // 自動優化群組：第一次建立時授權給已經看得到「來源管理」的角色（之後角色權限由公司管理員自己調整，不再自動加）

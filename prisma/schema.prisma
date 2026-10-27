@@ -49,6 +49,7 @@ model Role {
   versionTestRuns  VersionTestRun[]
   optimizationJobs OptimizationJob[]
   answerKeyPoints  AnswerKeyPoints[]
+  automationForms  AutomationForm[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -617,4 +618,57 @@ model AnswerKeyPoints {
 
   @@unique([roleId, answerHash])
   @@map("aibpo_answer_key_points")
+}
+
+// 自動化管理：登記的網頁表單。Worker 用瀏覽器打開分析欄位，整理成欄位清單（之後依清單產生 API、代為填寫送出）。
+// 只能登記公司自己的表單或已取得授權可自動填寫的表單（authorizedBy 記下確認的人）。
+model AutomationForm {
+  id           String    @id @default(cuid())
+  roleId       String
+  name         String
+  url          String    @db.Text
+  // 網址的主機名稱（網域白名單、顯示用）
+  domain       String
+  // DRAFT 剛登記 / ANALYZING 分析中 / READY 分析完成待確認 / ACTIVE 已啟用 / BLOCKED 偵測到驗證碼或登入等不支援的頁面 / FAILED 分析失敗
+  status       String    @default("DRAFT")
+  // 欄位清單 [{ key, label, type, required, options, constraints, description, hidden, defaultValue, locator }]
+  fields       Json?
+  // 分析時的頁面資訊：標題、說明、送出按鈕文字、偵測到的問題
+  pageInfo     Json?
+  // 分析時的整頁截圖（JPEG base64，限制大小）
+  screenshot   String?   @db.Text
+  errorMessage String?   @db.Text
+  analyzedAt   DateTime?
+  authorizedBy String
+  authorizedAt DateTime
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  role Role            @relation(fields: [roleId], references: [id])
+  jobs AutomationJob[]
+
+  @@index([roleId])
+  @@map("aibpo_automation_forms")
+}
+
+// 給瀏覽器 Worker 做的工作：ANALYZE 分析表單（之後還有 SUBMIT 代為填寫送出）。Worker 輪詢 PENDING 的工作來做。
+model AutomationJob {
+  id           String    @id @default(cuid())
+  formId       String
+  type         String // ANALYZE / SUBMIT
+  status       String    @default("PENDING") // PENDING / RUNNING / DONE / FAILED
+  input        Json?
+  result       Json?
+  errorMessage String?   @db.Text
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  form AutomationForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([formId])
+  @@map("aibpo_automation_jobs")
 }
