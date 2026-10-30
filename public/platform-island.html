@@ -86,7 +86,24 @@
   .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 2px solid var(--ink); background: #fff; cursor: pointer; display: grid; place-items: center; flex: none; box-shadow: var(--shadow-s); }
   .icon-btn:active { transform: translate(2px,2px); box-shadow: none; }
   .icon-btn svg { width: 16px; height: 16px; }
-  .panel-toggle { display: none; margin-left: auto; }
+  .panel-toggle { margin-left: auto; }
+  .panel-toggle svg, .min-btn svg { transition: transform .2s; }
+  .panel.collapsed .panel-toggle svg, .collapsed .min-btn svg { transform: rotate(180deg); }
+  .min-btn { width: 28px; height: 28px; flex: none; border-radius: 9px; border: 1.5px solid var(--line); background: #fff; color: var(--ink2); display: grid; place-items: center; cursor: pointer; margin-left: auto; }
+  .min-btn:hover { border-color: var(--ink); color: var(--ink); }
+  .min-btn svg { width: 14px; height: 14px; }
+  .brand.collapsed .stats { display: none; }
+  .log.collapsed ul { display: none; }
+  .log.collapsed .log-head { border-bottom: 0; }
+  .log-head .min-btn { margin-left: 6px; }
+  .log li.empty { cursor: default; color: var(--ink3); }
+  .log li.empty:hover { background: none; }
+  body.ui-off .brand, body.ui-off .panel, body.ui-off .log { display: none; }
+  @media (min-width: 761px) {
+    .panel.collapsed { bottom: auto; }
+    .panel.collapsed .panel-body { display: none; }
+    .panel.collapsed .panel-head { border-bottom: 0; }
+  }
   .panel-body { overflow-y: auto; padding: 12px 14px 18px; flex: 1; scrollbar-width: thin; }
   .list-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink2); padding: 0 4px 8px; }
   .list-head b { font-family: "Fredoka"; color: var(--ink); font-size: 14px; }
@@ -245,6 +262,7 @@
       <h1>AIBPO <span>ISLAND</span></h1>
       <div class="sub"><i class="live-dot"></i><span id="liveText">即時營運中</span>・<span id="clock" class="num"></span></div>
     </div>
+    <button class="min-btn" id="brandMin" type="button" aria-label="收合或展開數字" title="收合／展開"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
   </div>
   <div class="stats">
     <div class="stat" id="st-company"><b class="num">0</b><small>公司</small></div>
@@ -266,7 +284,7 @@
 </aside>
 
 <section class="log card" id="log">
-  <div class="log-head"><i class="live-dot"></i>即時日誌<small id="logCount"></small></div>
+  <div class="log-head"><i class="live-dot"></i>即時日誌<small id="logCount"></small><button class="min-btn" id="logMin" type="button" aria-label="收合或展開日誌" title="收合／展開"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button></div>
   <ul id="logList"></ul>
 </section>
 
@@ -276,6 +294,7 @@
   <button class="tb" id="tb-pause" type="button"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><span>暫停</span></button>
   <button class="tb" id="tb-home" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12v9M12 12l8-4.5M12 12 4 7.5"/></svg>鳥瞰</button>
   <button class="tb on" id="tb-log" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>日誌</button>
+  <button class="tb on" id="tb-ui" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 20V9"/></svg><span>介面</span></button>
   <button class="tb" id="tb-tour" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg>導覽</button>
   <span class="tb-sep"></span>
   <select id="companySel" aria-label="公司篩選"></select>
@@ -1214,7 +1233,7 @@ function addLog(e, fresh = true) {
 const todayEvents = () => state.log.filter((e) => e.t >= DATA.todayStart && inScope(e)).length;
 function renderLog(fresh) {
   const list = state.log.filter((e) => state.company === "all" || !e.company || e.company === state.company).slice(0, 30);
-  $("#logList").innerHTML = list.map((e, i) => `<li class="${i === 0 && fresh ? "new" : ""}" data-key="${e.mod}" style="--c:${byKey[e.mod].color}"><span class="dot"></span><span style="flex:1">${esc(e.text)}</span><time>${hhmm(e.t)}</time></li>`).join("");
+  $("#logList").innerHTML = list.length ? list.map((e, i) => `<li class="${i === 0 && fresh ? "new" : ""}" data-key="${e.mod}" style="--c:${byKey[e.mod].color}"><span class="dot"></span><span style="flex:1">${esc(e.text)}</span><time>${hhmm(e.t)}</time></li>`).join("") : `<li class="empty">${MODE === "live" ? "近 48 小時沒有動態，有新動態會即時出現在這裡" : "等待動態…"}</li>`;
   $("#logCount").textContent = `今日 ${todayEvents()} 則`;
 }
 $("#logList").addEventListener("click", (e) => { const k = e.target.closest("li")?.dataset.key; if (k) select(k); });
@@ -1351,6 +1370,18 @@ $("#tb-pause").addEventListener("click", (e) => {
 $("#tb-home").addEventListener("click", () => { select(null); goHome(); });
 $("#tb-log").addEventListener("click", (e) => { $("#log").classList.toggle("hide"); e.currentTarget.classList.toggle("on", !$("#log").classList.contains("hide")); });
 $("#tb-tour").addEventListener("click", () => openTour(0));
+// 卡片收合：記住每個人的偏好（瀏覽器儲存不能用時就不記）
+function collapsible(el, btn, key) {
+  if (store.get(key) === "1") el.classList.add("collapsed");
+  btn.addEventListener("click", (e) => { e.stopPropagation(); el.classList.toggle("collapsed"); store.set(key, el.classList.contains("collapsed") ? "1" : "0"); });
+}
+collapsible($(".brand"), $("#brandMin"), "aibpo-island-brand-min");
+collapsible($("#log"), $("#logMin"), "aibpo-island-log-min");
+$("#tb-ui").addEventListener("click", (e) => {
+  const off = document.body.classList.toggle("ui-off");
+  e.currentTarget.classList.toggle("on", !off);
+  e.currentTarget.querySelector("span").textContent = off ? "顯示介面" : "介面";
+});
 if (innerWidth <= 760) { $("#log").classList.add("hide"); $("#tb-log").classList.remove("on"); $("#panel").classList.add("collapsed"); }
 
 const TOUR = [
