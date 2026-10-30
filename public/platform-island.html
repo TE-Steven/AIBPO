@@ -1,0 +1,1470 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIBPO 營運島</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #2b2a33;
+    --ink2: #5d5a69;
+    --ink3: #8e8a99;
+    --paper: #fffaf2;
+    --paper2: #fff1de;
+    --line: rgba(43, 42, 51, .12);
+    --teal: #0d9488;
+    --teal2: #14b8a6;
+    --cyan: #06b6d4;
+    --warm: #f97316;
+    --shadow: 4px 4px 0 var(--ink);
+    --shadow-s: 2px 2px 0 var(--ink);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: linear-gradient(180deg, #f9c592 0%, #fcdcbc 30%, #f7e6d3 58%, #f7e6d3 100%);
+    font-family: "Noto Sans TC", system-ui, sans-serif; color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; }
+  .num { font-family: "Fredoka", "Noto Sans TC", sans-serif; }
+  #scene { position: fixed; inset: 0; }
+  #scene canvas { display: block; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-weight: 700; color: var(--ink2); z-index: 1; }
+
+  /* 微縮模型的移軸景深：上下邊緣輕微模糊 */
+  .tilt { position: fixed; left: 0; right: 0; pointer-events: none; z-index: 2;
+    backdrop-filter: blur(2.5px); -webkit-backdrop-filter: blur(2.5px); }
+  .tilt.top { top: 0; height: 26vh; -webkit-mask-image: linear-gradient(180deg, #000 10%, transparent); mask-image: linear-gradient(180deg, #000 10%, transparent); }
+  .tilt.bottom { bottom: 0; height: 20vh; -webkit-mask-image: linear-gradient(0deg, #000 10%, transparent); mask-image: linear-gradient(0deg, #000 10%, transparent); }
+
+  .card { background: rgba(255, 250, 242, .93); border: 2px solid var(--ink); border-radius: 18px; box-shadow: var(--shadow);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+  /* 左上：品牌＋即時數字＋搜尋 */
+  .brand { position: fixed; top: 16px; left: 16px; z-index: 10; width: 340px; padding: 14px 16px 12px; }
+  .brand-top { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 40px; height: 40px; flex: none; }
+  .brand h1 { margin: 0; font: 700 22px/1 "Fredoka", sans-serif; letter-spacing: .5px; }
+  .brand h1 span { color: var(--teal); }
+  .brand .sub { margin-top: 3px; font-size: 12px; color: var(--ink2); display: flex; align-items: center; gap: 6px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,.6); animation: ping 1.6s infinite; }
+  .paused .live-dot { background: var(--ink3); animation: none; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); } 80%,100% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  .stat { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 6px 8px; }
+  .stat b { display: block; font: 600 20px/1.1 "Fredoka", sans-serif; }
+  .stat small { font-size: 11px; color: var(--ink2); }
+  .stat.bump b { animation: bump .6s; }
+  @keyframes bump { 30% { transform: scale(1.25); color: var(--teal); } }
+
+  .search { position: relative; margin-top: 10px; }
+  .search input { width: 100%; height: 38px; border: 2px solid var(--ink); border-radius: 12px; padding: 0 12px 0 34px; font: inherit; font-size: 14px; background: #fff; outline: none; }
+  .search input:focus { box-shadow: 0 0 0 4px rgba(20,184,166,.25); }
+  .search svg { position: absolute; left: 11px; top: 11px; width: 16px; height: 16px; color: var(--ink2); }
+  .search kbd { position: absolute; right: 10px; top: 9px; font: 600 11px "Fredoka"; border: 1.5px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--ink3); background: var(--paper); }
+  .results { position: absolute; left: 0; right: 0; top: 44px; max-height: 50vh; overflow: auto; padding: 6px; display: none; z-index: 20; }
+  .results.open { display: block; }
+  .results .grp { font-size: 11px; color: var(--ink3); padding: 6px 8px 2px; font-weight: 700; }
+  .results button { display: flex; width: 100%; text-align: left; gap: 8px; align-items: center; border: 0; background: none; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
+  .results button:hover, .results button.act { background: var(--paper2); }
+  .results .dot { width: 10px; height: 10px; border-radius: 3px; transform: rotate(30deg); flex: none; background: var(--c); }
+  .results .t { flex: 1; min-width: 0; }
+  .results .t b { display: block; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .results .t small { color: var(--ink3); font-size: 11px; }
+  .results mark { background: #fde68a; color: inherit; border-radius: 3px; }
+  .results .empty { padding: 12px; font-size: 13px; color: var(--ink2); }
+
+  /* 右側：模組清單／細部資訊 */
+  .panel { position: fixed; top: 16px; right: 16px; bottom: 88px; width: 380px; z-index: 10; display: flex; flex-direction: column; overflow: hidden; }
+  .panel-head { padding: 14px 16px 10px; border-bottom: 2px dashed var(--line); display: flex; align-items: center; gap: 10px; flex: none; }
+  .panel-head .eyebrow { font: 600 11px "Fredoka"; letter-spacing: 1.5px; color: var(--teal); }
+  .panel-head h2 { margin: 2px 0 0; font-size: 18px; font-weight: 900; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 2px solid var(--ink); background: #fff; cursor: pointer; display: grid; place-items: center; flex: none; box-shadow: var(--shadow-s); }
+  .icon-btn:active { transform: translate(2px,2px); box-shadow: none; }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .panel-toggle { display: none; margin-left: auto; }
+  .panel-body { overflow-y: auto; padding: 12px 14px 18px; flex: 1; scrollbar-width: thin; }
+  .list-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink2); padding: 0 4px 8px; }
+  .list-head b { font-family: "Fredoka"; color: var(--ink); font-size: 14px; }
+  .mod { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: #fff; border: 1.5px solid var(--line); border-radius: 14px; padding: 9px 10px; margin-bottom: 7px; cursor: pointer; transition: transform .15s, border-color .15s; }
+  .mod:hover { transform: translateX(-3px); border-color: var(--c); }
+  .mod.dim { opacity: .4; }
+  .no { width: 30px; height: 30px; flex: none; display: grid; place-items: center; font: 600 12px "Fredoka"; color: #fff; background: var(--c);
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+  .mod .nm { flex: 1; min-width: 0; }
+  .mod .nm b { display: block; font-size: 14px; }
+  .mod .nm small { font: 500 11px "Fredoka"; color: var(--ink3); letter-spacing: .3px; }
+  .mod .cnt { font: 600 18px "Fredoka"; }
+  .mod .arr { color: var(--ink3); font-size: 13px; }
+  i.live { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; flex: none; animation: ping 1.6s infinite; }
+
+  .d-hero { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .d-hero .no { width: 46px; height: 46px; font-size: 16px; }
+  .d-hero h2 { margin: 0; font-size: 20px; font-weight: 900; }
+  .d-hero .en { margin: 1px 0 0; font: 500 12px "Fredoka"; color: var(--ink3); }
+  .d-hero .pill { margin-left: auto; }
+  .desc { margin: 0 0 12px; font-size: 13px; line-height: 1.65; color: var(--ink2); }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .kpi { background: #fff; border: 1.5px solid var(--line); border-radius: 14px; padding: 9px 11px; }
+  .kpi .kl { font-size: 11.5px; color: var(--ink2); display: flex; align-items: center; gap: 3px; }
+  .kpi b { display: block; margin-top: 2px; font: 600 22px/1.15 "Fredoka", sans-serif; }
+  .kpi b small { font: 500 12px "Noto Sans TC"; color: var(--ink2); margin-left: 3px; }
+  .kpi.bump b { animation: bump .6s; }
+  .tip { width: 14px; height: 14px; border-radius: 50%; border: 1.3px solid var(--ink3); color: var(--ink3); font: 700 9px/11px "Fredoka"; font-style: normal; display: inline-grid; place-items: center; cursor: help; }
+  .tip:hover, .tip:focus { color: var(--teal); border-color: var(--teal); outline: none; }
+  #tooltip { position: fixed; z-index: 100; max-width: 260px; background: var(--ink); color: #fff; font-size: 12px; line-height: 1.55; padding: 8px 10px; border-radius: 10px; pointer-events: none; display: none; }
+
+  .collab { background: var(--paper2); border-radius: 14px; padding: 10px 12px; margin-bottom: 14px; font-size: 12px; }
+  .collab .ln { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0; }
+  .collab .lbl { color: var(--ink2); width: 34px; flex: none; }
+  .chip { border: 1.5px solid var(--c); color: var(--ink); background: #fff; border-radius: 999px; padding: 2px 9px 2px 7px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: var(--c); transform: rotate(30deg); }
+  .chip small { color: var(--ink3); }
+  h3 { font-size: 13px; margin: 16px 2px 8px; display: flex; align-items: center; gap: 6px; }
+  h3 span { font: 600 12px "Fredoka"; color: var(--ink3); }
+  .rows { background: #fff; border: 1.5px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .row { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row .rt { flex: 1; min-width: 0; }
+  .row .rt b { display: block; font-size: 13px; font-weight: 500; }
+  .row .rt small { display: block; color: var(--ink3); font-size: 11.5px; margin-top: 1px; }
+  .row .rr { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+  .row .rr small { color: var(--ink3); font-size: 11px; }
+  .row.flash { animation: flash 2.2s; }
+  @keyframes flash { 0%, 40% { background: #fef3c7; } 100% { background: transparent; } }
+  .bar { position: relative; height: 7px; border-radius: 99px; background: #f1ece4; margin-top: 6px; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; background: var(--c, var(--teal2)); transition: width .6s; }
+  .bar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); border-radius: 2px; }
+  .pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1.5px solid; }
+  .pill.run { color: #0f766e; background: #ccfbf1; border-color: #5eead4; }
+  .pill.done { color: #166534; background: #dcfce7; border-color: #86efac; }
+  .pill.warn { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
+  .pill.bad { color: #9f1239; background: #ffe4e6; border-color: #fda4af; }
+  .pill.idle { color: var(--ink2); background: #f4f1ec; border-color: #ddd6cb; }
+  .pill.run::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 4px; vertical-align: 1px; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .more { font-size: 12px; color: var(--ink3); padding: 8px 12px; border-top: 1px solid var(--line); }
+
+  /* 左下：即時日誌 */
+  .log { position: fixed; left: 16px; bottom: 88px; width: 340px; max-height: 236px; z-index: 9; display: flex; flex-direction: column; overflow: hidden; }
+  .log.hide { display: none; }
+  .log-head { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 2px dashed var(--line); font-size: 13px; font-weight: 700; }
+  .log-head small { margin-left: auto; font: 500 11px "Fredoka"; color: var(--ink3); }
+  .log ul { list-style: none; margin: 0; padding: 4px 8px 8px; overflow-y: auto; }
+  .log li { display: flex; gap: 8px; align-items: flex-start; padding: 6px; border-radius: 10px; font-size: 12.5px; line-height: 1.45; cursor: pointer; }
+  .log li:hover { background: var(--paper2); }
+  .log li.new { animation: slidein .5s; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-8px); background: #fef3c7; } }
+  .log li .dot { width: 9px; height: 9px; border-radius: 3px; transform: rotate(30deg); background: var(--c); flex: none; margin-top: 5px; }
+  .log li time { font: 500 11px "Fredoka"; color: var(--ink3); flex: none; margin-top: 1px; }
+
+  /* 底部工具列 */
+  .toolbar { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 11; display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: 18px; }
+  .tb { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 54px; padding: 5px 6px; border: 0; background: none; border-radius: 12px; cursor: pointer; font-size: 11px; color: var(--ink2); }
+  .tb svg { width: 18px; height: 18px; color: var(--ink); }
+  .tb:hover { background: var(--paper2); }
+  .tb.on { background: var(--ink); color: #fff; }
+  .tb.on svg { color: #fff; }
+  .tb-sep { width: 2px; align-self: stretch; background: var(--line); margin: 4px 2px; }
+  .toolbar select { height: 38px; border: 2px solid var(--ink); border-radius: 12px; padding: 0 8px; font: inherit; font-size: 13px; background: #fff; cursor: pointer; max-width: 150px; }
+
+  /* 島上名牌 */
+  .tags-off .tag { display: none; }
+  .tag { pointer-events: auto; cursor: pointer; }
+  .tag > div { display: flex; align-items: center; gap: 6px; background: #fff; border: 2px solid var(--ink); border-radius: 999px; padding: 3px 10px 3px 3px; box-shadow: var(--shadow-s); font-size: 12.5px; white-space: nowrap; transition: transform .2s, opacity .2s; }
+  .tag .no { width: 22px; height: 22px; font-size: 10px; }
+  .tag b { font-weight: 700; }
+  .tag .n { font: 600 13px "Fredoka"; color: var(--ink2); }
+  .tag:hover > div, .tag.hover > div { transform: translateY(-3px) scale(1.06); }
+  .tag.sel > div { background: var(--ink); color: #fff; }
+  .tag.sel .n { color: #fde68a; }
+  .tag.dim > div { opacity: .3; }
+  .tag.match > div { box-shadow: 0 0 0 4px #fde68a, var(--shadow-s); }
+  .tag.pop > div { animation: pop .7s; }
+  @keyframes pop { 30% { transform: translateY(-6px) scale(1.15); } }
+
+  /* 導覽 */
+  .tour { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(43,42,51,.28); }
+  .tour.hide { display: none; }
+  .tour .card { width: min(400px, calc(100vw - 32px)); padding: 22px 22px 18px; }
+  .tour .eyebrow { font: 600 11px "Fredoka"; letter-spacing: 1.5px; color: var(--teal); }
+  .tour h2 { margin: 6px 0 8px; font-size: 22px; font-weight: 900; }
+  .tour p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--ink2); }
+  .tour .acts { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; }
+  .tour .dots { display: flex; gap: 5px; }
+  .tour .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+  .tour .dots i.on { background: var(--ink); width: 18px; border-radius: 9px; }
+  .btn { border: 2px solid var(--ink); border-radius: 12px; padding: 7px 14px; background: #fff; cursor: pointer; font-weight: 700; font-size: 13px; box-shadow: var(--shadow-s); }
+  .btn.pri { background: var(--ink); color: #fff; }
+  .btn.ghost { border-color: transparent; box-shadow: none; background: none; color: var(--ink2); }
+
+  @media (max-width: 760px) {
+    .brand { left: 8px; right: 8px; top: 8px; width: auto; padding: 10px 12px; }
+    .brand h1 { font-size: 18px; }
+    .logo { width: 32px; height: 32px; }
+    .stats { margin-top: 8px; }
+    .stat { padding: 4px 6px; }
+    .stat b { font-size: 16px; }
+    .panel { top: auto; left: 8px; right: 8px; bottom: 76px; width: auto; height: 52vh; }
+    .panel.collapsed { height: 62px; }
+    .panel.collapsed .panel-body { display: none; }
+    .panel-toggle { display: grid; }
+    .log { left: 8px; right: 8px; width: auto; bottom: 76px; max-height: 30vh; }
+    .toolbar { bottom: 8px; left: 8px; right: 8px; transform: none; overflow-x: auto; justify-content: flex-start; }
+    .tb { min-width: 48px; }
+    .toolbar select { max-width: 120px; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="loading">正在搭建營運島…</div>
+<div id="scene"></div>
+<div class="tilt top"></div>
+<div class="tilt bottom"></div>
+
+<header class="brand card">
+  <div class="brand-top">
+    <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+      <polygon points="20,2 36,11 36,29 20,38 4,29 4,11" fill="#14b8a6" stroke="#2b2a33" stroke-width="2.5" stroke-linejoin="round"/>
+      <polygon points="20,10 28,14.5 28,23.5 20,28 12,23.5 12,14.5" fill="#fffaf2" stroke="#2b2a33" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="20" cy="19" r="3.2" fill="#f97316"/>
+    </svg>
+    <div>
+      <h1>AIBPO <span>ISLAND</span></h1>
+      <div class="sub"><i class="live-dot"></i><span id="liveText">即時營運中</span>・<span id="clock" class="num"></span></div>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat" id="st-company"><b class="num">0</b><small>公司</small></div>
+    <div class="stat" id="st-users"><b class="num">0</b><small>帳號</small></div>
+    <div class="stat" id="st-running"><b class="num">0</b><small>進行中作業</small></div>
+    <div class="stat" id="st-events"><b class="num">0</b><small>今日事件</small></div>
+  </div>
+  <div class="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="搜尋模組、公司、帳號、作業…" autocomplete="off" aria-label="關鍵字搜尋">
+    <kbd>/</kbd>
+    <div class="results card" id="results"></div>
+  </div>
+</header>
+
+<aside class="panel card" id="panel">
+  <div class="panel-head" id="panelHead"></div>
+  <div class="panel-body" id="panelBody"></div>
+</aside>
+
+<section class="log card" id="log">
+  <div class="log-head"><i class="live-dot"></i>即時日誌<small id="logCount"></small></div>
+  <ul id="logList"></ul>
+</section>
+
+<nav class="toolbar card" aria-label="工具列">
+  <button class="tb on" id="tb-tags" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8" r="1.5"/></svg>名牌</button>
+  <button class="tb on" id="tb-links" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M6.5 16C9 7 15 7 17.5 16"/></svg>協作線</button>
+  <button class="tb" id="tb-pause" type="button"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><span>暫停</span></button>
+  <button class="tb" id="tb-home" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12v9M12 12l8-4.5M12 12 4 7.5"/></svg>鳥瞰</button>
+  <button class="tb on" id="tb-log" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>日誌</button>
+  <button class="tb" id="tb-tour" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg>導覽</button>
+  <span class="tb-sep"></span>
+  <select id="companySel" aria-label="公司篩選"></select>
+</nav>
+
+<div class="tour hide" id="tour">
+  <div class="card">
+    <div class="eyebrow" id="tourEyebrow"></div>
+    <h2 id="tourTitle"></h2>
+    <p id="tourText"></p>
+    <div class="acts">
+      <div class="dots" id="tourDots"></div>
+      <div><button class="btn ghost" id="tourSkip" type="button">略過</button> <button class="btn pri" id="tourNext" type="button">下一步 →</button></div>
+    </div>
+  </div>
+</div>
+<div id="tooltip" role="tooltip"></div>
+
+<script>
+  // CDN 載不到時給提示（module script 失敗不會丟到 try/catch）
+  setTimeout(() => { if (!window.__islandStarted) { const el = document.getElementById("loading"); if (el) el.textContent = "無法載入 Three.js，請確認可以連到 cdn.jsdelivr.net"; } }, 10000);
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+
+window.__islandStarted = true;
+document.getElementById("loading")?.remove();
+
+/* =========================================================
+   工具
+   ========================================================= */
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rand = mulberry32(20261030);
+const pick = (r, a) => a[Math.floor(r() * a.length)];
+const randInt = (r, a, b) => a + Math.floor(r() * (b - a + 1));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const MIN = 60_000;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmt = (n) => Number(n).toLocaleString("zh-TW");
+const ago = (t) => { const m = Math.max(0, Math.round((Date.now() - t) / MIN)); return m < 1 ? "剛剛" : m < 60 ? `${m} 分鐘前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
+const hhmm = (t) => new Date(t).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+let uid = 1;
+const nid = (p) => `${p}${uid++}`;
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* 無痕或封鎖儲存時忽略 */ } },
+};
+
+/* =========================================================
+   資料：正式環境抓 /api/platform/island（只有平台超級管理員讀得到），
+   直接用檔案打開或抓不到 API 時，改用下面的範例資料（形狀跟 API 一樣）
+   ========================================================= */
+const API_URL = "/api/platform/island";
+const POLL_MS = 15_000;
+let DATA = null;
+let MODE = "sample";
+
+const SEED = [
+  { id: "c1", name: "星河家電", since: "2026-03", domain: "xinghe.example", bot: "星河客服小星", cat: "售後",
+    topics: ["冰箱維修手冊", "洗衣機保固條款", "冷氣安裝須知", "吸塵器常見問題", "售後服務據點"],
+    entities: ["R-560 雙門冰箱", "W-90 滾筒洗衣機", "A-12 變頻冷氣", "S60 吸塵器", "D-30 除濕機"],
+    skills: ["查詢保固狀態", "建立維修單", "預約安裝"], forms: [["維修申請單", "ACTIVE"], ["安裝預約表", "READY"]],
+    dims: ["產品線", "服務類型", "通路"], drafts: ["維修派工流程", "保固到期提醒"] },
+  { id: "c2", name: "日光生活百貨", since: "2026-05", domain: "sunlife.example", bot: "日光導購小光", cat: "會員",
+    topics: ["會員點數辦法", "退換貨政策", "週年慶活動說明", "停車優惠", "樓層專櫃指南"],
+    entities: ["金卡會員", "一般會員", "APP 會員"], skills: ["查詢點數", "查詢訂單進度"], forms: [["會員資料更新", "ANALYZING"]],
+    dims: ["會員等級", "館別"], drafts: ["退貨退款流程"] },
+  { id: "c3", name: "藍灣電信", since: "2026-06", domain: "bluebay.example", bot: "藍灣客服藍藍", cat: "資費",
+    topics: ["資費方案總表", "攜碼流程", "網路故障排除", "手機分期說明", "國際漫遊"],
+    entities: ["5G 吃到飽", "4G 輕量", "家用光纖", "預付卡"], skills: ["資費試算", "查詢門市", "報修網路"],
+    forms: [["攜碼申請", "BLOCKED"], ["網路報修單", "ACTIVE"]], dims: ["方案類型", "客群"], drafts: ["斷線報修流程", "續約挽留話術"] },
+  { id: "c4", name: "森野保險", since: "2026-09", domain: "forestins.example", bot: "森野理賠森森", cat: "理賠", small: true,
+    topics: ["理賠申請流程", "保單變更須知", "旅平險條款", "醫療險給付項目"],
+    entities: ["醫療險", "旅平險", "意外險"], skills: ["理賠進度查詢"], forms: [["理賠預約", "READY"]], dims: ["險種"], drafts: [] },
+];
+const SURNAMES = ["陳", "林", "黃", "張", "李", "王", "吳", "劉", "蔡", "楊", "許", "鄭", "謝", "郭"];
+const GIVEN = ["怡君", "冠廷", "雅婷", "承翰", "思妤", "柏宇", "佳穎", "宥辰", "品妍", "家豪", "欣怡", "俊傑", "語彤", "子晴"];
+
+function sampleUser(s, joinedAt, admin) {
+  const n = uid;
+  return { id: nid("u"), companyId: s.id, name: pick(rand, SURNAMES) + pick(rand, GIVEN), email: `u***${String(n).padStart(2, "0").slice(-2)}@${s.domain}`,
+    role: admin ? "管理員" : pick(rand, ["編輯", "編輯", "檢視"]), active: rand() > 0.08, joinedAt };
+}
+
+function sampleData() {
+  const now = Date.now();
+  const D = { generatedAt: now, todayStart: new Date().setHours(0, 0, 0, 0), companies: [], users: [], sources: [], docs: [], docTotals: {}, dims: [], cats: {}, skills: [], agents: [], drafts: [],
+    jobs: [], forms: [], tests: [], usage: [], lineGroups: [], notices: [], activity: [] };
+  for (const s of SEED) {
+    D.companies.push({ id: s.id, name: s.name, since: s.since, roles: randInt(rand, 2, 4) });
+    const userCount = s.small ? 3 : randInt(rand, 5, 8);
+    for (let i = 0; i < userCount; i++) D.users.push(sampleUser(s, now - randInt(rand, 1, 200) * 1440 * MIN, i === 0));
+    s.topics.forEach((t, i) => D.sources.push({ id: nid("k"), companyId: s.id, title: t, files: randInt(rand, 1, 6), fields: randInt(rand, 8, 40),
+      status: i === s.topics.length - 1 && !s.small ? "ANALYZING" : "ANALYZED", updatedAt: now - randInt(rand, 5, 4000) * MIN }));
+    s.entities.forEach((e) => D.docs.push({ id: nid("t"), companyId: s.id, template: `${s.cat}產品`, entity: e, updatedAt: now - randInt(rand, 30, 6000) * MIN }));
+    D.docTotals[s.id] = s.entities.length;
+    s.dims.forEach((n) => D.dims.push({ id: nid("d"), companyId: s.id, name: n, description: "" }));
+    D.cats[s.id] = randInt(rand, 4, 12);
+    s.skills.forEach((n) => D.skills.push({ id: nid("s"), companyId: s.id, name: n, usedBy: randInt(rand, 0, 2) }));
+    D.agents.push({ id: nid("a"), companyId: s.id, name: s.bot, status: "ONLINE", skills: s.skills.length });
+    if (!s.small) D.agents.push({ id: nid("a"), companyId: s.id, name: `${s.name.slice(0, 2)}內部助理`, status: rand() < 0.5 ? "ONLINE" : "DRAFT", skills: 1 });
+    s.drafts.forEach((n) => D.drafts.push({ id: nid("w"), companyId: s.id, name: n, confirmed: rand() < 0.3, updatedAt: now - randInt(rand, 60, 9000) * MIN }));
+    for (const type of ["RAG", "FAQ"]) {
+      for (let i = 0; i < (s.small ? 1 : 2); i++) {
+        const running = i === 0 && (type === "RAG" ? s.id !== "c2" : s.id === "c1" || s.id === "c3");
+        const round = running ? randInt(rand, 1, 6) : 10;
+        D.jobs.push({ id: nid("j"), companyId: s.id, type, name: `${s.topics[i]}（v${i + 1}）`, status: running ? "RUNNING" : rand() < 0.75 ? "DONE" : "STOPPED",
+          round, maxRounds: 10, score: running ? randInt(rand, 64, 82) : randInt(rand, 80, 93), target: 90, versions: round + randInt(rand, 0, 3), step: running ? "TEST" : null,
+          startedAt: now - randInt(rand, 20, 3000) * MIN, updatedAt: now - randInt(rand, 1, 60) * MIN });
+      }
+    }
+    s.forms.forEach(([n, st]) => D.forms.push({ id: nid("f"), companyId: s.id, name: n, domain: `service.${s.domain}`, status: st, fields: randInt(rand, 6, 19), updatedAt: now - randInt(rand, 30, 3000) * MIN }));
+    D.usage.push({ companyId: s.id, tokensToday: randInt(rand, 300, 2400) * 1000, costToday: randInt(rand, 40, 420), costMonth: randInt(rand, 1500, 9800), chatsToday: randInt(rand, 20, 300) });
+    if (!s.small) D.lineGroups.push({ id: nid("g"), companyId: s.id, name: `${s.name.slice(0, 2)} AI 營運群` });
+  }
+  for (const j of D.jobs.filter((x) => x.status === "RUNNING")) D.tests.push({ id: nid("r"), companyId: j.companyId, name: `${j.name}・第 ${j.round + 1} 輪`, questions: randInt(rand, 80, 160), completed: randInt(rand, 10, 70), pass: null, status: "RUNNING", at: now - randInt(rand, 1, 20) * MIN });
+  for (let i = 0; i < 6; i++) { const j = pick(rand, D.jobs); const q = randInt(rand, 80, 160); D.tests.push({ id: nid("r"), companyId: j.companyId, name: `${j.name}・第 ${randInt(rand, 1, 9)} 輪`, questions: q, completed: q, pass: randInt(rand, 62, 92), status: "DONE", at: now - randInt(rand, 30, 900) * MIN }); }
+  D.tests.sort((a, b) => b.at - a.at);
+  D.notices.push({ id: nid("n"), companyId: "c3", text: "FAQ優化「資費方案總表（v1）」完成通知", status: "SENT", failed: false, at: now - 30 * MIN });
+  return D;
+}
+
+class FetchError extends Error { constructor(message, auth) { super(message); this.auth = auth; } }
+async function fetchSnapshot() {
+  let res;
+  try { res = await fetch(API_URL, { cache: "no-store", credentials: "same-origin" }); }
+  catch { throw new FetchError("連不到伺服器", false); }
+  if (res.status === 401 || res.status === 403) throw new FetchError("只有平台超級管理員可以查看營運島。", true);
+  if (!res.ok) throw new FetchError(`讀取資料失敗（${res.status}）`, false);
+  try { return await res.json(); }
+  catch { throw new FetchError("登入已過期，請重新登入後台。", true); }
+}
+
+/* =========================================================
+   模組（每座島）
+   ========================================================= */
+const MODULES = [
+  { key: "company", name: "公司與帳號", en: "Companies & Accounts", q: 0, r: 0, color: "#14b8a6", theme: "townhall",
+    desc: "所有開通的公司與它們的帳號、角色。每間公司的資料彼此隔離，管理員可以調整角色能看到哪些選單。" },
+  { key: "km", name: "來源管理", en: "Knowledge Sources", q: 1, r: 0, color: "#0ea5e9", theme: "library",
+    desc: "上傳產品手冊、政策文件等原始資料，AI 會分析內容、抽取成可以用的欄位，作為結構化文件與知識庫的來源。" },
+  { key: "tally", name: "結構化文件", en: "Structured Docs", q: 1, r: -1, color: "#6366f1", theme: "archive",
+    desc: "依範本把來源整理成一份份「產品／對象」的 md 文件，通用規則會自動補進每份文件，之後上傳到知識庫。" },
+  { key: "rag", name: "RAG優化", en: "RAG Optimizer", q: 0, r: -1, color: "#f97316", theme: "lab",
+    desc: "自動上傳 md → 問機器人 → AI 比對答案 → 修改 md，一輪一輪把答對率往目標推，完成或失敗都會推 LINE。" },
+  { key: "faq", name: "FAQ優化", en: "FAQ Optimizer", q: -1, r: 0, color: "#ec4899", theme: "lighthouse",
+    desc: "跟 RAG 優化同樣的流程，但改的是 FAQ 題庫（問題、相似句、答案），用另一組渠道與機器人同時進行。" },
+  { key: "usage", name: "AI 用量", en: "AI Usage", q: -1, r: 1, color: "#eab308", theme: "power",
+    desc: "所有模組呼叫 Claude 的 token 與費用，依公司與用途統計，方便控管成本。" },
+  { key: "agent", name: "Agent 管理", en: "Agents", q: 0, r: 1, color: "#8b5cf6", theme: "robot",
+    desc: "把 Skill 組成具名的 AI 助手，上線後直接在對話中回答客戶、呼叫工具。" },
+  { key: "dimension", name: "維度管理", en: "Dimensions", q: 2, r: -1, color: "#84cc16", theme: "garden",
+    desc: "產品線、服務類型、通路等分類維度，讓結構化文件與知識庫能依維度切分、比對。" },
+  { key: "bottest", name: "機器人測試", en: "Bot Testing", q: 1, r: -2, color: "#ef4444", theme: "arena",
+    desc: "用測試題庫實際去問機器人，AI 依重點逐題判斷答對、答錯或衝突，算出每一版的答對率。" },
+  { key: "line", name: "LINE 通知", en: "Alerts", q: -1, r: -1, color: "#22c55e", theme: "radio",
+    desc: "任何自動化作業完成、失敗都會推播到綁定的 LINE 群組。" },
+  { key: "automation", name: "自動化管理", en: "Form Automation", q: -2, r: 1, color: "#64748b", theme: "factory",
+    desc: "登記網頁表單，背景 Worker 用瀏覽器分析欄位，產生 API 讓機器人代為填寫送出。" },
+  { key: "skill", name: "Skill 管理", en: "Skills", q: -1, r: 2, color: "#0d9488", theme: "workshop",
+    desc: "可重複使用的工具（查詢保固、建立維修單…），由 Agent 在對話中呼叫。" },
+  { key: "draft", name: "Workflow 草稿", en: "Workflow Drafts", q: 1, r: 1, color: "#a855f7", theme: "construction",
+    desc: "用對話或畫布設計流程草稿，確認後轉成正式的 Agent。" },
+];
+const LINKS = [
+  ["company", "km", "角色權限"], ["km", "tally", "抽取欄位"], ["dimension", "tally", "維度分類"], ["tally", "rag", "上傳 md"],
+  ["tally", "faq", "產生 FAQ"], ["rag", "bottest", "比對測試"], ["faq", "bottest", "比對測試"], ["rag", "line", "完成通知"],
+  ["faq", "line", "完成通知"], ["automation", "line", "執行通知"], ["automation", "skill", "匯成 Skill"], ["skill", "agent", "組裝工具"],
+  ["draft", "agent", "轉成 Agent"], ["km", "draft", "知識引用"], ["agent", "usage", "Claude 用量"], ["rag", "usage", "Claude 用量"], ["automation", "usage", "表單分析"],
+];
+const BRIDGES = [
+  ["company", "km"], ["company", "tally"], ["company", "rag"], ["company", "faq"], ["company", "usage"], ["company", "agent"],
+  ["dimension", "tally"], ["bottest", "rag"], ["line", "rag"], ["line", "faq"], ["automation", "usage"], ["skill", "agent"], ["draft", "agent"], ["km", "tally"], ["tally", "rag"],
+];
+
+const state = { company: "all", selected: null, hover: null, paused: false, log: [], query: "" };
+
+function view() {
+  const c = state.company;
+  const f = (a) => (c === "all" ? a : a.filter((x) => x.companyId === c));
+  const total = (obj) => (c === "all" ? Object.values(obj).reduce((a, n) => a + n, 0) : obj[c] ?? 0);
+  return {
+    companies: c === "all" ? DATA.companies : DATA.companies.filter((x) => x.id === c),
+    users: f(DATA.users), sources: f(DATA.sources), docs: f(DATA.docs), docTotal: total(DATA.docTotals), dims: f(DATA.dims), catTotal: total(DATA.cats),
+    skills: f(DATA.skills), agents: f(DATA.agents), drafts: f(DATA.drafts), jobs: f(DATA.jobs), forms: f(DATA.forms), tests: f(DATA.tests),
+    usage: f(DATA.usage), lineGroups: f(DATA.lineGroups), notices: f(DATA.notices),
+  };
+}
+const cname = (id) => (id === "platform" ? "平台（超級管理員）" : DATA.companies.find((c) => c.id === id)?.name ?? "");
+const recent = (t, minutes) => Date.now() - t < minutes * MIN;
+
+const ST = {
+  RUNNING: ["進行中", "run"], DONE: ["已完成", "done"], STOPPED: ["已停止", "idle"], PAUSED_TOKEN: ["等待 token", "warn"], FAILED: ["失敗", "bad"],
+  ANALYZING: ["分析中", "run"], ANALYZED: ["已分析", "done"], UPLOADED: ["已上傳", "idle"], READY: ["待確認", "warn"], ACTIVE: ["已啟用", "done"], BLOCKED: ["不支援", "bad"],
+  ONLINE: ["上線中", "done"], DRAFT: ["草稿", "idle"], SENT: ["已推播", "done"], DISABLED: ["已停用", "idle"], CONFIRMED: ["已轉 Agent", "done"], REVIEW: ["待審核", "warn"],
+};
+const STEP = { PREPARE: "準備中", UPLOAD: "上傳知識", TEST: "測試中", REVISE: "AI 修改中" };
+
+// 每個模組的統計：total（清單數字）、running（>0 時島上亮燈冒煙）、units（島上建築數）、kpis、sections
+const STATS = {
+  company(D) {
+    const admins = D.users.filter((u) => u.role === "管理員").length;
+    return { total: D.users.length, running: D.users.filter((u) => recent(u.joinedAt, 10)).length, units: clamp(D.users.length, 2, 16),
+      kpis: [["公司", D.companies.length, "間", "目前在 AIBPO 開通的公司（租戶）數。"], ["帳號", D.users.length, "個", "所有公司的成員帳號數；同一個人加入多間公司會分別計算。"],
+        ["啟用中", D.users.filter((u) => u.active).length, "個", "在該公司沒有被停用的帳號。"], ["管理員", admins, "人", "公司管理員：可以管理自己公司的帳號、角色與參數。"]],
+      sections: [
+        { title: "公司", items: D.companies.map((c) => ({ id: c.id, title: c.name, sub: `${c.roles} 個角色・${DATA.users.filter((u) => u.companyId === c.id).length} 個帳號・${c.since} 開通` })) },
+        { title: "帳號", items: D.users.slice().sort((a, b) => b.joinedAt - a.joinedAt).map((u) => ({ id: u.id, title: u.name, sub: `${cname(u.companyId)}・${u.role}・${u.email}`, right: `${ago(u.joinedAt)}加入`, status: u.active ? null : "DISABLED" })) },
+      ] };
+  },
+  km(D) {
+    const run = D.sources.filter((s) => s.status === "ANALYZING").length;
+    return { total: D.sources.length, running: run, units: clamp(D.sources.length, 2, 15),
+      kpis: [["來源", D.sources.length, "份", "已上傳的原始資料（一份來源可以包含多個檔案或網址）。"], ["處理中", run, "份", "AI 正在分析、產生 RAG 內容、結構化文件或 Workflow 的來源。"],
+        ["檔案與網址", D.sources.reduce((a, s) => a + s.files, 0), "個", "所有來源包含的檔案與網址數。"], ["知識條目", D.sources.reduce((a, s) => a + s.fields, 0), "則", "從來源產生的 FAQ 與結構化文件條目數。"]],
+      sections: [{ title: "來源", items: D.sources.slice().sort((a, b) => b.updatedAt - a.updatedAt).map((s) => ({ id: s.id, title: s.title, sub: `${cname(s.companyId)}・${s.files} 個檔案・${s.fields} 則條目`, status: s.status, right: ago(s.updatedAt) })) }] };
+  },
+  tally(D) {
+    return { total: D.docTotal, running: D.docs.filter((t) => recent(t.updatedAt, 10)).length, units: clamp(Math.ceil(D.docTotal / 3), 2, 14),
+      kpis: [["文件", D.docTotal, "份", "依分類範本產生的結構化文件（每個產品／對象一份）。"], ["本週更新", D.docs.filter((t) => recent(t.updatedAt, 7 * 1440)).length, "份", "最近 7 天新產生或修改的文件（以最近 300 份計算）。"],
+        ["範本", new Set(D.docs.map((t) => t.companyId + t.template)).size, "個", "文件使用的第一層分類範本數。"], ["涵蓋公司", new Set(D.docs.map((t) => t.companyId)).size, "間", "有結構化文件的公司數。"]],
+      sections: [{ title: "最近的文件", items: D.docs.slice().sort((a, b) => b.updatedAt - a.updatedAt).map((t) => ({ id: t.id, title: `${t.template} - ${t.entity}`, sub: cname(t.companyId), right: ago(t.updatedAt) })) }] };
+  },
+  rag(D) { return optimizeStats(D, "RAG"); },
+  faq(D) { return optimizeStats(D, "FAQ"); },
+  usage(D) {
+    const tokens = D.usage.reduce((a, u) => a + u.tokensToday, 0), cost = D.usage.reduce((a, u) => a + u.costToday, 0), month = D.usage.reduce((a, u) => a + u.costMonth, 0);
+    const max = Math.max(1, ...D.usage.map((u) => u.costMonth));
+    return { total: cost, running: tokens > 0 ? 1 : 0, units: clamp(Math.round(month / 600), 2, 12),
+      kpis: [["今日 tokens", `${(tokens / 1e6).toFixed(2)}M`, "", "今天（台灣時間）所有模組呼叫 Claude 的 token，含快取讀寫。"], ["今日費用", `NT$${fmt(cost)}`, "", "依各模型單價換算的今日費用；快取寫入以 1.25 倍、讀取以 0.1 倍計。"],
+        ["本月費用", `NT$${fmt(month)}`, "", "本月（台灣時間）累計費用。"], ["本月有用量", D.usage.filter((u) => u.costMonth > 0).length, "間", "本月有呼叫 Claude 的公司數。"]],
+      sections: [{ title: "本月費用（依公司）", items: D.usage.filter((u) => u.costMonth > 0 || u.tokensToday > 0).sort((a, b) => b.costMonth - a.costMonth).map((u) => ({ id: `u-${u.companyId}`, title: cname(u.companyId), sub: `今日 ${(u.tokensToday / 1e6).toFixed(2)}M tokens・NT$${fmt(u.costToday)}`, right: `NT$${fmt(u.costMonth)}`, bar: { value: u.costMonth / max } })) }] };
+  },
+  agent(D) {
+    const online = D.agents.filter((a) => a.status === "ONLINE");
+    return { total: D.agents.length, running: online.length, units: clamp(D.agents.length * 2, 2, 12),
+      kpis: [["Agent", D.agents.length, "個", "已建立的 AI 助手數。"], ["上線中", online.length, "個", "狀態為上線（ACTIVE）的 Agent。"],
+        ["掛載工具", D.agents.reduce((a, x) => a + x.skills, 0), "個", "所有 Agent 掛載的 Skill 數。"], ["今日對話", D.usage.reduce((a, u) => a + u.chatsToday, 0), "則", "今天 Agent 對話呼叫 Claude 的次數。"]],
+      sections: [{ title: "Agent", items: D.agents.map((a) => ({ id: a.id, title: a.name, sub: `${cname(a.companyId)}・${a.skills} 個工具`, status: a.status })) }] };
+  },
+  dimension(D) {
+    return { total: D.dims.length, running: 0, units: clamp(Math.round((D.dims.length + D.catTotal) / 2), 2, 12),
+      kpis: [["維度", D.dims.length, "個", "常用的分析維度（例如產品線、服務類型）。"], ["分類", D.catTotal, "個", "大中小分類樹的節點數，結構化文件依第一層分類當範本。"]],
+      sections: [{ title: "維度", items: D.dims.map((d) => ({ id: d.id, title: d.name, sub: [cname(d.companyId), d.description].filter(Boolean).join("・") })) }] };
+  },
+  bottest(D) {
+    const run = D.tests.filter((t) => t.status === "RUNNING").length;
+    const scored = D.tests.filter((t) => t.pass != null);
+    return { total: D.tests.length, running: run, units: clamp(D.tests.length, 2, 12),
+      kpis: [["近 7 天測試", D.tests.length, "次", "最近 7 天的機器人測試（來源測試＋版本測試）。"], ["比對題數", D.tests.reduce((a, t) => a + t.questions, 0), "題", "這些測試總共問機器人的題數。"],
+        ["平均答對率", scored.length ? Math.round(scored.reduce((a, t) => a + t.pass, 0) / scored.length) : "—", scored.length ? "%" : "", "已完成且有分數的版本測試的平均答對率。"], ["測試中", run, "次", "正在問機器人、比對中的測試。"]],
+      sections: [{ title: "測試紀錄", items: D.tests.map((t) => ({ id: t.id, title: t.name, sub: `${cname(t.companyId)}・${t.completed}/${t.questions} 題${t.pass != null ? `・答對率 ${t.pass}%` : ""}`, status: t.status, right: ago(t.at) })) }] };
+  },
+  line(D) {
+    return { total: D.notices.length, running: D.notices.filter((n) => recent(n.at, 3)).length, units: clamp(D.lineGroups.length * 2, 2, 10),
+      kpis: [["綁定群組", D.lineGroups.length, "個", "已綁定通知的 LINE 群組。"], ["近 48 小時", D.notices.length, "則", "依自動優化任務結束時間推算的推播通知數。"], ["失敗通知", D.notices.filter((n) => n.failed).length, "則", "任務失敗時推出的通知數。"]],
+      sections: [{ title: "最近推播", items: D.notices.slice().sort((a, b) => b.at - a.at).map((n) => ({ id: n.id, title: n.text, sub: cname(n.companyId), status: n.failed ? "FAILED" : n.status, right: ago(n.at) })) },
+        { title: "群組", items: D.lineGroups.map((g) => ({ id: g.id, title: g.name, sub: cname(g.companyId) })) }] };
+  },
+  automation(D) {
+    const run = D.forms.filter((f) => f.status === "ANALYZING").length;
+    return { total: D.forms.length, running: run, units: clamp(D.forms.length * 2, 2, 10),
+      kpis: [["表單", D.forms.length, "張", "已登記的網頁表單數。"], ["已啟用", D.forms.filter((f) => f.status === "ACTIVE").length, "張", "已產生 API、可以代為送出的表單。"],
+        ["分析中", run, "張", "排隊中或背景 Worker 正在用瀏覽器分析欄位。"], ["欄位", D.forms.reduce((a, f) => a + f.fields, 0), "個", "所有表單分析出來的欄位數。"]],
+      sections: [{ title: "表單", items: D.forms.map((f) => ({ id: f.id, title: f.name, sub: `${cname(f.companyId)}・${f.domain}・${f.fields} 個欄位`, status: f.status })) }] };
+  },
+  skill(D) {
+    return { total: D.skills.length, running: 0, units: clamp(D.skills.length * 2, 2, 12),
+      kpis: [["Skill", D.skills.length, "個", "可被 Agent 呼叫的工具數。"], ["已掛到 Agent", D.skills.filter((s) => s.usedBy > 0).length, "個", "至少被一個 Agent 使用的 Skill。"]],
+      sections: [{ title: "Skill", items: D.skills.map((s) => ({ id: s.id, title: s.name, sub: cname(s.companyId), right: `${s.usedBy} 個 Agent` })) }] };
+  },
+  draft(D) {
+    const review = D.drafts.filter((d) => !d.confirmed).length;
+    return { total: D.drafts.length, running: D.drafts.filter((d) => recent(d.updatedAt, 10)).length, units: clamp(D.drafts.length * 2, 2, 10),
+      kpis: [["草稿", D.drafts.length, "份", "Workflow 從來源辨識出的情境草稿。"], ["待審核", review, "份", "還沒確認轉成 Agent 的草稿。"], ["已轉 Agent", D.drafts.length - review, "份", "已確認並建立成正式 Agent 的草稿。"]],
+      sections: [{ title: "草稿", items: D.drafts.slice().sort((a, b) => b.updatedAt - a.updatedAt).map((d) => ({ id: d.id, title: d.name, sub: cname(d.companyId), status: d.confirmed ? "CONFIRMED" : "REVIEW", right: ago(d.updatedAt) })) }] };
+  },
+};
+function optimizeStats(D, type) {
+  const jobs = D.jobs.filter((j) => j.type === type);
+  const run = jobs.filter((j) => j.status === "RUNNING");
+  const scores = jobs.map((j) => j.score).filter((s) => s != null);
+  const versions = jobs.reduce((a, j) => a + j.versions, 0);
+  return { total: jobs.length, running: run.length, units: clamp(Math.ceil(versions / 4), 2, 12),
+    kpis: [["進行中", run.length, "個", `正在自動跑的 ${type}優化任務。`], ["最佳分數", scores.length ? Math.max(...scores) : "—", scores.length ? "%" : "", "各任務最新一版答對率中最高的。"],
+      ["累計版本", versions, "版", "每跑一輪產生一個版本，可以預覽、比較或從某版繼續。"], ["達標任務", jobs.filter((j) => j.score != null && j.score >= j.target).length, "個", "最新一版答對率達到目標分數的任務。"]],
+    sections: [{ title: `${type} 優化任務`, items: jobs.slice().sort((a, b) => (b.status === "RUNNING") - (a.status === "RUNNING") || b.updatedAt - a.updatedAt).map((j) => ({
+      id: j.id, title: j.name, sub: `${cname(j.companyId)}・第 ${j.round}/${j.maxRounds} 輪・${j.score ?? "—"}%（目標 ${j.target}%）${j.status === "RUNNING" && STEP[j.step] ? `・${STEP[j.step]}` : ""}`,
+      status: j.status, progress: j.score != null ? { value: j.score, target: j.target } : null })) }] };
+}
+
+/* =========================================================
+   3D 場景
+   ========================================================= */
+const host = $("#scene");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
+host.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth, innerHeight);
+Object.assign(labelRenderer.domElement.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "3" });
+document.body.appendChild(labelRenderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog("#f7e6d3", 120, 260);
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.5, 400);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 14;
+controls.maxDistance = 120;
+controls.minPolarAngle = 0.25;
+controls.maxPolarAngle = 1.18;
+controls.screenSpacePanning = false;
+
+function homePose() {
+  const aspect = innerWidth / innerHeight;
+  const dist = aspect < 1 ? 96 / Math.max(aspect, 0.5) * 0.62 : 74;
+  const dir = new THREE.Vector3(0.52, 0.62, 0.59).normalize();
+  return { target: new THREE.Vector3(innerWidth > 760 ? 2 : 0, 0, aspect < 1 ? 3 : 0), pos: dir.multiplyScalar(dist) };
+}
+{ const h = homePose(); camera.position.copy(h.pos).add(h.target); controls.target.copy(h.target); }
+
+scene.add(new THREE.HemisphereLight("#fff4e4", "#9ccfbf", 1.35));
+const sun = new THREE.DirectionalLight("#ffe1b8", 2.4);
+sun.position.set(26, 42, 18);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 1, far: 130 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+scene.add(sun);
+
+// 共用幾何／材質
+const GEO = new Map();
+const geo = (k, make) => { if (!GEO.has(k)) GEO.set(k, make()); return GEO.get(k); };
+const MAT = new Map();
+const mat = (color, o = {}) => { const k = color + JSON.stringify(o); if (!MAT.has(k)) MAT.set(k, new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0.02, ...o })); return MAT.get(k); };
+const r2 = (v) => Math.round(v * 100) / 100;
+const rbox = (w, h, d, rad = 0.06) => geo(`rb${r2(w)}_${r2(h)}_${r2(d)}_${rad}`, () => new RoundedBoxGeometry(r2(w), r2(h), r2(d), 3, Math.min(rad, r2(w) / 2.2, r2(h) / 2.2, r2(d) / 2.2)));
+const cyl = (rt, rb, h, s = 16) => geo(`cy${rt}_${rb}_${h}_${s}`, () => new THREE.CylinderGeometry(rt, rb, h, s));
+const sph = (r, ws = 14, hs = 10) => geo(`sp${r}_${ws}_${hs}`, () => new THREE.SphereGeometry(r, ws, hs));
+const cone = (r, h, s = 16) => geo(`co${r}_${h}_${s}`, () => new THREE.ConeGeometry(r, h, s));
+const dome = (r) => geo(`dm${r}`, () => new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2));
+const pyramid = (r, h) => geo(`py${r}_${h}`, () => { const g = new THREE.ConeGeometry(r, h, 4); g.rotateY(Math.PI / 4); return g; });
+// 三角柱（屋頂）：沿 x 軸、尖端朝上、底面在 y = -r/2
+const prism = (r, len) => geo(`pr${r}_${len}`, () => { const g = new THREE.CylinderGeometry(r, r, len, 3); g.rotateY(Math.PI / 2); g.rotateZ(Math.PI / 2); return g; });
+function mk(g, m, x = 0, y = 0, z = 0) { const me = new THREE.Mesh(g, m); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; return me; }
+
+const PASTELS = ["#fde2c4", "#fbd0d9", "#d5e8f7", "#e6defa", "#fff1b8", "#d8f0dc", "#ffd8b8", "#ffe9e0"];
+const ROOFS = ["#e76f51", "#f4a261", "#2a9d8f", "#e9c46a", "#8ab17d", "#d1495b", "#577590"];
+const GREENS = ["#6fbf73", "#7ccf8a", "#5aa469", "#94d08c", "#83c98a"];
+const BOOKS = ["#e76f51", "#f4a261", "#2a9d8f", "#e9c46a", "#577590", "#b5838d", "#6d9dc5"];
+const SMOKE_MAT = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 1, transparent: true, opacity: 0.85 });
+const EYE_MAT = new THREE.MeshStandardMaterial({ color: "#5eead4", emissive: "#2dd4bf", emissiveIntensity: 1.4 });
+
+// 六角島尺寸：頂點朝 z（pointy-top），S 是排列間距
+const R = 3.6, APO = R * Math.sqrt(3) / 2, TOP = 0.42, S = (2 * APO + 1.5) / Math.sqrt(3);
+const axial = (q, r) => new THREE.Vector3(S * Math.sqrt(3) * (q + r / 2), 0, S * 1.5 * r);
+function hexShape(rad) { const s = new THREE.Shape(); for (let i = 0; i < 6; i++) { const a = Math.PI / 2 + (i * Math.PI) / 3; const x = Math.cos(a) * rad, y = Math.sin(a) * rad; i ? s.lineTo(x, y) : s.moveTo(x, y); } s.closePath(); return s; }
+const GRASS_GEO = (() => { const g = new THREE.ExtrudeGeometry(hexShape(R - 0.12), { depth: 0.3, bevelEnabled: true, bevelThickness: 0.12, bevelSize: 0.12, bevelSegments: 3, curveSegments: 1 }); g.rotateX(-Math.PI / 2); return g; })();
+const DIRT_GEO = new THREE.CylinderGeometry(R - 0.05, R - 0.2, 0.95, 6);
+const SAND_GEO = (() => { const g = new THREE.ExtrudeGeometry(hexShape(R + 0.12), { depth: 0.2, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.18, bevelSegments: 2, curveSegments: 1 }); g.rotateX(-Math.PI / 2); return g; })();
+const hexRing = (inner, outer) => { const g = new THREE.RingGeometry(inner, outer, 6, 1, Math.PI / 2); g.rotateX(-Math.PI / 2); return g; };
+
+// 島上可以放建築的格位（排除中央地標區）
+const SLOTS = (() => { const out = [], s = 0.95, lim = APO - 0.42; for (let j = -6; j <= 6; j++) for (let i = -6; i <= 6; i++) { const x = (i + j / 2) * s, z = (j * s * Math.sqrt(3)) / 2; if (Math.abs(x) <= lim && 0.5 * Math.abs(x) + 0.866 * Math.abs(z) <= lim && Math.hypot(x, z) > 1.5) out.push([x, z]); } return out; })();
+
+/* ---------- 海面與雲 ---------- */
+const waterGeo = new THREE.PlaneGeometry(260, 260, 90, 90);
+waterGeo.rotateX(-Math.PI / 2);
+const wBase = Float32Array.from(waterGeo.attributes.position.array);
+const water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({ color: "#5cc6c9", roughness: 0.35, metalness: 0.02, flatShading: true }));
+water.position.y = -0.3;
+water.receiveShadow = true;
+scene.add(water);
+function updateWater(t) {
+  const p = waterGeo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = wBase[i * 3], z = wBase[i * 3 + 2]; p.array[i * 3 + 1] = Math.sin(x * 0.17 + t * 0.9) * 0.09 + Math.cos(z * 0.15 + t * 0.7) * 0.09; }
+  p.needsUpdate = true;
+}
+
+const clouds = [];
+for (let i = 0; i < 8; i++) {
+  const g = new THREE.Group();
+  const n = randInt(rand, 3, 5);
+  for (let k = 0; k < n; k++) { const s = 0.9 + rand() * 1.1; const p = mk(sph(1, 10, 8), mat("#ffffff", { flatShading: true }), (k - n / 2) * 1.3, rand() * 0.4, (rand() - 0.5) * 1.2); p.scale.set(s * 1.2, s * 0.7, s); p.receiveShadow = false; g.add(p); }
+  g.position.set(-60 + rand() * 120, 13 + rand() * 5, -40 + rand() * 80);
+  g.userData.speed = 0.6 + rand() * 0.8;
+  scene.add(g); clouds.push(g);
+}
+
+/* ---------- 島 ---------- */
+const ISLANDS = [];
+const byKey = {};
+const pickers = [];
+const glowTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.35, "rgba(255,255,255,.55)"); g.addColorStop(1, "rgba(255,255,255,0)"); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+
+MODULES.forEach((m, idx) => {
+  const group = new THREE.Group();
+  const pos = axial(m.q, m.r);
+  group.position.copy(pos);
+  scene.add(group);
+  const grass = ["#a6d79b", "#b2dc9a", "#9fd3a6", "#b8e0a0"][idx % 4];
+  const sand = mk(SAND_GEO, mat("#f2dfb4"), 0, -0.45, 0); sand.castShadow = false;
+  const dirt = mk(DIRT_GEO, mat("#b98d64"), 0, -0.42, 0);
+  const band = mk(cyl(R - 0.08, R - 0.1, 0.12, 6), mat("#9c7350"), 0, -0.2, 0);
+  const top = mk(GRASS_GEO, mat(grass), 0, 0, 0);
+  group.add(sand, dirt, band, top);
+  const foam = new THREE.Mesh(hexRing(R + 0.35, R + 0.9), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, depthWrite: false }));
+  foam.position.y = -0.2; group.add(foam);
+  const picker = new THREE.Mesh(cyl(R, R, 4.6, 6), new THREE.MeshBasicMaterial({ visible: false }));
+  picker.position.y = 2.1; picker.userData.key = m.key; group.add(picker); pickers.push(picker);
+
+  const el = document.createElement("div");
+  el.className = "tag";
+  el.innerHTML = `<div style="--c:${m.color}"><span class="no">${String(idx + 1).padStart(2, "0")}</span><b>${m.name}</b><span class="n num">0</span><i class="live" hidden></i></div>`;
+  el.addEventListener("click", (e) => { e.stopPropagation(); select(m.key); });
+  el.addEventListener("pointerenter", () => setHover(m.key));
+  el.addEventListener("pointerleave", () => setHover(null));
+  const label = new CSS2DObject(el);
+  label.position.set(0, 4.5, 0);
+  group.add(label);
+
+  const island = { ...m, idx, group, pos, foam, el, anims: [], decor: null, units: -1, stats: null, active: false, lift: 0, pulse: 0,
+    glow: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 0.3, roughness: 0.4 }),
+    glass: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 0.1, roughness: 0.15, transparent: true, opacity: 0.82 }),
+    slotOrder: (() => { const r = mulberry32(1000 + idx * 77); return SLOTS.map((s) => [s, r()]).sort((a, b) => a[1] - b[1]).map((x) => x[0]); })() };
+  ISLANDS.push(island);
+  byKey[m.key] = island;
+});
+
+function unit(g, x, z, rot = 0) { const u = new THREE.Group(); u.position.set(x, TOP, z); u.rotation.y = rot; g.add(u); return u; }
+function tree(g, x, z, r) {
+  const u = unit(g, x, z, r() * 6); u.scale.setScalar(0.7 + r() * 0.5);
+  u.add(mk(cyl(0.06, 0.08, 0.35, 6), mat("#8d6e53"), 0, 0.175, 0));
+  if (r() < 0.55) { u.add(mk(cone(0.32, 0.7, 7), mat(pick(r, GREENS), { flatShading: true }), 0, 0.62, 0)); u.add(mk(cone(0.24, 0.5, 7), mat(pick(r, GREENS), { flatShading: true }), 0, 0.92, 0)); }
+  else u.add(mk(sph(0.32, 8, 6), mat(pick(r, GREENS), { flatShading: true }), 0, 0.6, 0));
+}
+function lamp(g, x, z, island) { const u = unit(g, x, z); u.add(mk(cyl(0.025, 0.03, 0.6, 6), mat("#4b4b58"), 0, 0.3, 0)); u.add(mk(sph(0.07, 8, 6), island.glow, 0, 0.63, 0)); }
+
+/* ---------- 各模組的地標與單元建築 ---------- */
+function house(u, r) {
+  const h = 0.42 + r() * 0.3;
+  u.add(mk(rbox(0.62, h, 0.52, 0.05), mat(pick(r, PASTELS)), 0, h / 2, 0));
+  u.add(mk(prism(0.36, 0.68), mat(pick(r, ROOFS)), 0, h + 0.18, 0));
+  u.add(mk(rbox(0.14, 0.22, 0.03, 0.01), mat("#8d6e53"), 0, 0.11, 0.27));
+}
+function bookstack(u, r) { let y = 0; for (let i = 0, k = randInt(r, 3, 5); i < k; i++) { const h = 0.1 + r() * 0.05; const b = mk(rbox(0.6 - r() * 0.12, h, 0.42, 0.02), mat(pick(r, BOOKS)), 0, y + h / 2, 0); b.rotation.y = (r() - 0.5) * 0.5; u.add(b); y += h; } }
+function docs(u, r, isl) { for (const x of [-0.13, 0.13]) { const h = 0.45 + r() * 0.35; u.add(mk(rbox(0.22, h, 0.06, 0.02), mat("#ffffff"), x, h / 2, 0)); u.add(mk(rbox(0.22, 0.06, 0.07, 0.02), mat(isl.color), x, h - 0.03, 0)); } }
+function miniLab(u, r, isl) { u.add(mk(rbox(0.56, 0.4, 0.56, 0.06), mat("#ffffff"), 0, 0.2, 0)); u.add(mk(dome(0.22), mat(isl.color), 0, 0.4, 0)); }
+function kiosk(u, r, isl) { u.add(mk(rbox(0.42, 0.36, 0.42, 0.05), mat(pick(r, PASTELS)), 0, 0.18, 0)); u.add(mk(cyl(0.02, 0.02, 0.4, 6), mat("#4b4b58"), 0, 0.55, 0)); u.add(mk(cone(0.42, 0.22, 8), mat(r() < 0.5 ? isl.color : "#ffffff"), 0, 0.82, 0)); }
+function solar(u) { u.add(mk(cyl(0.03, 0.03, 0.25, 6), mat("#4b4b58"), 0, 0.12, 0)); const p = mk(rbox(0.62, 0.04, 0.42, 0.01), mat("#3b5b92", { roughness: 0.3 }), 0, 0.27, 0); p.rotation.x = -0.45; u.add(p); }
+function miniBot(u, r, isl) {
+  const b = new THREE.Group(); u.add(b);
+  b.add(mk(geo("cap", () => new THREE.CapsuleGeometry(0.14, 0.2, 4, 10)), mat(isl.color), 0, 0.25, 0));
+  b.add(mk(sph(0.14, 12, 10), mat("#ffffff"), 0, 0.56, 0));
+  b.add(mk(sph(0.035, 8, 6), EYE_MAT, 0.05, 0.58, 0.12), mk(sph(0.035, 8, 6), EYE_MAT, -0.05, 0.58, 0.12));
+  const ph = r() * 6; isl.anims.push((t) => { b.position.y = Math.abs(Math.sin(t * 3 + ph)) * 0.1; b.rotation.y = Math.sin(t * 0.7 + ph) * 0.8; });
+}
+function hedge(u, r) { u.add(mk(rbox(0.6, 0.26, 0.6, 0.1), mat(pick(r, GREENS)), 0, 0.13, 0)); for (let i = 0; i < 3; i++) u.add(mk(sph(0.06, 8, 6), mat(pick(r, ["#f472b6", "#facc15", "#fb923c", "#ffffff", "#a78bfa"])), (r() - 0.5) * 0.4, 0.29, (r() - 0.5) * 0.4)); }
+function flag(u, r, isl) { u.add(mk(cyl(0.02, 0.02, 0.8, 6), mat("#4b4b58"), 0, 0.4, 0)); const f = mk(geo("pennant", () => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute([0, 0.12, 0, 0, -0.12, 0, 0.36, 0, 0], 3)); g.computeVertexNormals(); return g; }), mat(isl.color, { side: THREE.DoubleSide }), 0, 0.68, 0); u.add(f); const ph = r() * 6; isl.anims.push((t) => { f.rotation.y = Math.sin(t * 2.5 + ph) * 0.4; }); }
+function mast(u, r, isl) { u.add(mk(cyl(0.03, 0.05, 0.9, 6), mat("#e5e7eb"), 0, 0.45, 0)); u.add(mk(sph(0.07, 8, 6), isl.glow, 0, 0.93, 0)); }
+function tank(u, r) { u.add(mk(cyl(0.24, 0.24, 0.55, 14), mat(r() < 0.5 ? "#cfd8dc" : "#e3d5c3"), 0, 0.28, 0)); u.add(mk(dome(0.24), mat("#b0bec5"), 0, 0.55, 0)); }
+function toolbox(u, r, isl) { u.add(mk(rbox(0.46, 0.26, 0.3, 0.05), mat(r() < 0.5 ? isl.color : "#f4a261"), 0, 0.13, 0)); const h = mk(geo("handle", () => new THREE.TorusGeometry(0.1, 0.02, 6, 12, Math.PI)), mat("#4b4b58"), 0, 0.26, 0); u.add(h); }
+function scaffold(u, r, isl) {
+  const h = 0.6 + r() * 0.5;
+  const lines = new THREE.LineSegments(geo(`edge${r2(h)}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(0.55, h, 0.45))), new THREE.LineBasicMaterial({ color: isl.color }));
+  lines.position.y = h / 2; u.add(lines);
+  u.add(mk(rbox(0.4, 0.3, 0.32, 0.04), mat(pick(r, PASTELS)), 0, 0.15, 0));
+  const c = mk(cone(0.09, 0.24, 10), mat("#fb923c"), 0.35, 0.12, 0.25); u.add(c);
+}
+
+const LANDMARK = {
+  townhall(u, isl) {
+    u.add(mk(rbox(1.9, 0.9, 1.3, 0.08), mat("#fff3df"), 0, 0.45, 0));
+    for (const x of [-0.6, -0.2, 0.2, 0.6]) u.add(mk(cyl(0.06, 0.06, 0.7, 8), mat("#ffffff"), x, 0.35, 0.72));
+    u.add(mk(rbox(2.0, 0.1, 0.36, 0.03), mat("#ffffff"), 0, 0.74, 0.7));
+    const roof = mk(pyramid(1.25, 0.6), mat(isl.color), 0, 1.2, 0); roof.scale.z = 0.72; u.add(roof);
+    u.add(mk(rbox(0.5, 1.0, 0.5, 0.06), mat("#fff3df"), 0, 1.4, -0.1));
+    u.add(mk(pyramid(0.4, 0.45), mat(isl.color), 0, 2.12, -0.1));
+    const clock = mk(cyl(0.15, 0.15, 0.04, 20), mat("#ffffff"), 0, 1.62, 0.16); clock.rotation.x = Math.PI / 2; u.add(clock);
+    const hand = mk(rbox(0.02, 0.12, 0.02, 0.005), mat("#2b2a33"), 0, 1.62, 0.19); u.add(hand);
+    u.add(mk(cyl(0.016, 0.016, 0.9, 6), mat("#4b4b58"), 0, 2.75, -0.1));
+    const f = mk(geo("flag", () => { const g = new THREE.PlaneGeometry(0.45, 0.28); g.translate(0.225, 0, 0); return g; }), mat(isl.color, { side: THREE.DoubleSide }), 0, 3.05, -0.1);
+    u.add(f);
+    isl.anims.push((t) => { f.rotation.y = Math.sin(t * 2.2) * 0.35; hand.rotation.z = -t * 0.5; });
+  },
+  library(u, isl) {
+    u.add(mk(cyl(0.7, 0.8, 2.0, 20), mat("#fff5e6"), 0, 1.0, 0));
+    for (const y of [0.45, 1.0, 1.55]) u.add(mk(cyl(0.83 - 0.05 * y, 0.83 - 0.05 * y, 0.08, 20), mat(isl.color), 0, y, 0));
+    u.add(mk(dome(0.72), mat(isl.color), 0, 2.0, 0));
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; const w = mk(rbox(0.16, 0.26, 0.05, 0.02), isl.glow, Math.sin(a) * 0.77, 1.28, Math.cos(a) * 0.77); w.rotation.y = a; u.add(w); }
+    u.add(mk(cyl(0.03, 0.03, 0.5, 6), mat("#4b4b58"), 0, 2.9, 0)); u.add(mk(sph(0.08, 8, 6), isl.glow, 0, 3.17, 0));
+    const book = new THREE.Group(); book.position.set(0, 3.7, 0); u.add(book);
+    const l = mk(rbox(0.36, 0.48, 0.05, 0.02), mat("#ffffff"), -0.17, 0, 0); l.rotation.y = 0.35; const rr = mk(rbox(0.36, 0.48, 0.05, 0.02), mat("#ffffff"), 0.17, 0, 0); rr.rotation.y = -0.35;
+    book.add(l, rr, mk(rbox(0.06, 0.5, 0.08, 0.02), mat(isl.color), 0, 0, -0.06));
+    isl.anims.push((t) => { book.rotation.y = t * 0.7; book.position.y = 3.7 + Math.sin(t * 1.6) * 0.1; });
+  },
+  archive(u, isl) {
+    u.add(mk(rbox(1.6, 1.5, 1.1, 0.08), mat("#f7f4ee"), 0, 0.75, 0));
+    for (const y of [0.42, 0.82, 1.22]) u.add(mk(rbox(1.64, 0.05, 1.14, 0.02), mat(isl.color), 0, y, 0));
+    for (const x of [-0.45, 0, 0.45]) for (const y of [0.22, 0.62, 1.02]) u.add(mk(rbox(0.22, 0.05, 0.03, 0.01), mat("#9aa0a6"), x, y, 0.57));
+    u.add(mk(rbox(1.0, 0.45, 0.7, 0.06), mat("#ffffff"), 0, 1.72, 0));
+    const doc = mk(rbox(0.55, 0.75, 0.05, 0.03), mat("#ffffff"), 0, 2.5, 0); u.add(doc);
+    for (const y of [-0.2, 0, 0.2]) { doc.add(mk(rbox(0.38, 0.05, 0.02, 0.01), mat(isl.color), 0, y, 0.03)); doc.add(mk(rbox(0.38, 0.05, 0.02, 0.01), mat(isl.color), 0, y, -0.03)); }
+    isl.anims.push((t) => { doc.position.y = 2.5 + Math.sin(t * 1.5) * 0.1; doc.rotation.y = t * 0.6; });
+  },
+  lab(u, isl, c) {
+    u.add(mk(cyl(1.0, 1.05, 0.55, 24), mat("#ffffff"), 0, 0.275, 0));
+    u.add(mk(dome(0.92), isl.glass, 0, 0.55, 0));
+    u.add(mk(cyl(0.96, 0.96, 0.08, 24), mat(isl.color), 0, 0.58, 0));
+    const flask = mk(geo("flask", () => new THREE.LatheGeometry([[0, 0], [0.22, 0], [0.24, 0.05], [0.24, 0.18], [0.08, 0.42], [0.08, 0.55], [0, 0.55]].map(([x, y]) => new THREE.Vector2(x, y)), 16)), mat("#ffffff"), 0, 0.8, 0);
+    u.add(flask);
+    u.add(mk(cyl(0.13, 0.16, 1.5, 10), mat("#e9e4dc"), 0.82, 0.75, -0.52));
+    u.add(mk(cyl(0.17, 0.17, 0.12, 10), mat(isl.color), 0.82, 1.46, -0.52));
+    c.smoke(u, 0.82, 1.56, -0.52);
+    isl.anims.push((t) => { flask.rotation.y = t; });
+  },
+  lighthouse(u, isl) {
+    u.add(mk(cyl(0.55, 0.62, 0.3, 16), mat("#fff3df"), 0, 0.15, 0));
+    u.add(mk(cyl(0.38, 0.55, 2.0, 16), mat("#ffffff"), 0, 1.3, 0));
+    for (const y of [0.75, 1.55]) u.add(mk(cyl(0.53 - (y - 0.3) * 0.085, 0.55 - (y - 0.4) * 0.085, 0.22, 16), mat(isl.color), 0, y, 0));
+    u.add(mk(cyl(0.48, 0.48, 0.06, 16), mat("#4b4b58"), 0, 2.32, 0));
+    u.add(mk(cyl(0.3, 0.3, 0.36, 12), isl.glass, 0, 2.53, 0));
+    u.add(mk(cone(0.42, 0.38, 12), mat(isl.color), 0, 2.9, 0));
+    const beam = mk(cone(0.5, 2.2, 12, true), new THREE.MeshBasicMaterial({ color: "#fff7c2", transparent: true, opacity: 0.22, depthWrite: false }), 0, 2.53, 0);
+    beam.geometry = geo("beam", () => { const g = new THREE.ConeGeometry(0.5, 2.4, 12, 1, true); g.rotateZ(Math.PI / 2); g.translate(1.2, 0, 0); return g; }); beam.castShadow = false; u.add(beam);
+    const bubble = new THREE.Group(); bubble.position.set(1.05, 2.6, 0.3); u.add(bubble);
+    bubble.add(mk(sph(0.34, 16, 12), mat("#ffffff")));
+    bubble.add(mk(cone(0.12, 0.25, 8), mat("#ffffff"), -0.2, -0.32, 0));
+    const q = mk(geo("qmark", () => new THREE.TorusGeometry(0.1, 0.04, 8, 14, Math.PI * 1.4)), mat(isl.color), 0, 0.06, 0.32); q.rotation.z = -0.6; bubble.add(q);
+    bubble.add(mk(sph(0.045, 8, 6), mat(isl.color), 0, -0.15, 0.32));
+    isl.anims.push((t) => { beam.rotation.y = t * 1.2; beam.visible = isl.active; bubble.position.y = 2.6 + Math.sin(t * 1.8) * 0.12; });
+  },
+  power(u, isl, c) {
+    const tower = mk(geo("cool", () => { const pts = []; for (let i = 0; i <= 12; i++) { const y = (i / 12) * 1.7; pts.push(new THREE.Vector2(0.45 + 0.33 * ((y - 1.05) / 1.05) ** 2, y)); } return new THREE.LatheGeometry(pts, 24); }), mat("#efe8dc", { side: THREE.DoubleSide }), -0.45, 0, 0.25);
+    u.add(tower);
+    u.add(mk(cyl(0.62, 0.62, 0.07, 24), mat(isl.color), -0.45, 1.25, 0.25));
+    c.smoke(u, -0.45, 1.7, 0.25, true);
+    for (const [x, z, s] of [[0.75, -0.55, 1], [0.95, 0.65, 0.85]]) {
+      const t = new THREE.Group(); t.position.set(x, 0, z); t.scale.setScalar(s); u.add(t);
+      t.add(mk(cyl(0.04, 0.07, 2.3, 8), mat("#ffffff"), 0, 1.15, 0));
+      t.add(mk(rbox(0.14, 0.12, 0.26, 0.04), mat("#ffffff"), 0, 2.32, 0));
+      const blades = new THREE.Group(); blades.position.set(0, 2.32, 0.15); t.add(blades);
+      blades.add(mk(sph(0.07, 8, 6), mat(isl.color)));
+      for (let k = 0; k < 3; k++) { const b = mk(rbox(0.08, 0.95, 0.02, 0.01), mat("#ffffff"), 0, 0.47, 0); const p = new THREE.Group(); p.rotation.z = (k * Math.PI * 2) / 3; p.add(b); blades.add(p); }
+      isl.anims.push((tt, dt) => { blades.rotation.z -= dt * (1.2 + (isl.stats?.total ?? 0) / 300); });
+    }
+  },
+  robot(u, isl) {
+    u.add(mk(cyl(0.7, 0.78, 0.18, 20), mat("#e5e7eb"), 0, 0.09, 0));
+    u.add(mk(cyl(0.5, 0.6, 1.1, 20), mat(isl.color), 0, 0.73, 0));
+    u.add(mk(rbox(0.5, 0.42, 0.1, 0.04), mat("#ffffff"), 0, 0.8, 0.53));
+    u.add(mk(sph(0.07, 10, 8), isl.glow, 0, 0.8, 0.6));
+    for (const s of [-1, 1]) { const a = mk(geo("arm", () => new THREE.CapsuleGeometry(0.11, 0.55, 4, 10)), mat("#ffffff"), s * 0.68, 0.85, 0); a.rotation.z = s * 0.35; u.add(a); }
+    const head = new THREE.Group(); head.position.y = 1.62; u.add(head);
+    head.add(mk(rbox(0.95, 0.62, 0.75, 0.18), mat("#ffffff")));
+    head.add(mk(rbox(0.74, 0.32, 0.05, 0.08), mat("#2b2a33"), 0, 0.02, 0.37));
+    for (const x of [-0.17, 0.17]) head.add(mk(sph(0.075, 10, 8), EYE_MAT, x, 0.03, 0.4));
+    head.add(mk(cyl(0.025, 0.025, 0.4, 6), mat("#4b4b58"), 0, 0.5, 0));
+    const ball = mk(sph(0.09, 10, 8), isl.glow, 0, 0.74, 0); head.add(ball);
+    isl.anims.push((t) => { head.rotation.y = Math.sin(t * 0.8) * 0.55; ball.scale.setScalar(1 + Math.max(0, Math.sin(t * 6)) * 0.4); });
+  },
+  garden(u, isl) {
+    u.add(mk(cyl(0.85, 0.85, 0.1, 6), mat("#f3e7d3"), 0, 0.05, 0));
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + Math.PI / 6; u.add(mk(cyl(0.05, 0.05, 1.0, 8), mat("#ffffff"), Math.sin(a) * 0.65, 0.6, Math.cos(a) * 0.65)); }
+    u.add(mk(cone(1.0, 0.55, 6), mat(isl.color, { flatShading: true }), 0, 1.38, 0));
+    u.add(mk(sph(0.09, 8, 6), mat("#facc15"), 0, 1.72, 0));
+    const ring = new THREE.Group(); u.add(ring);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; ring.add(mk(sph(0.1, 8, 6), mat(["#f472b6", "#facc15", "#fb923c", "#a78bfa"][i % 4]), Math.sin(a) * 1.15, 0.15, Math.cos(a) * 1.15)); }
+    isl.anims.push((t) => { ring.rotation.y = t * 0.25; });
+  },
+  arena(u, isl) {
+    u.add(mk(geo("bowl", () => new THREE.CylinderGeometry(1.3, 1.08, 0.55, 28, 1, true)), mat("#ffffff", { side: THREE.DoubleSide }), 0, 0.28, 0));
+    u.add(mk(cyl(1.32, 1.32, 0.07, 28), mat(isl.color), 0, 0.56, 0));
+    u.add(mk(cyl(1.08, 1.08, 0.06, 28), mat("#7cc576"), 0, 0.04, 0));
+    const target = new THREE.Group(); target.position.y = 0.08; u.add(target);
+    [[0.62, "#ef4444"], [0.45, "#ffffff"], [0.28, "#ef4444"], [0.12, "#ffffff"]].forEach(([r, c], i) => target.add(mk(cyl(r, r, 0.03, 24), mat(c), 0, i * 0.012, 0)));
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + Math.PI / 4; const x = Math.sin(a) * 1.35, z = Math.cos(a) * 1.35; u.add(mk(cyl(0.03, 0.04, 1.4, 6), mat("#4b4b58"), x, 0.7, z)); u.add(mk(rbox(0.22, 0.14, 0.08, 0.03), isl.glow, x, 1.45, z)); }
+    const arrow = new THREE.Group(); u.add(arrow);
+    arrow.add(mk(cyl(0.02, 0.02, 0.7, 6), mat("#8d6e53"), 0, 0, 0)); arrow.add(mk(cone(0.05, 0.12, 8), mat("#4b4b58"), 0, -0.4, 0));
+    isl.anims.push((t) => { const k = (t * 0.5) % 1; arrow.visible = isl.active; arrow.position.set(0, 2.4 - k * 2.1, 0); });
+  },
+  radio(u, isl) {
+    u.add(mk(rbox(0.9, 0.5, 0.9, 0.08), mat("#fff3df"), 0, 0.25, 0));
+    [[0.32, 0.4, 1.0, "#ffffff"], [0.24, 0.32, 0.9, isl.color], [0.15, 0.24, 0.8, "#ffffff"]].reduce((y, [rt, rb, h, c]) => { u.add(mk(cyl(rt, rb, h, 8), mat(c), 0, y + h / 2, 0)); return y + h; }, 0.5);
+    u.add(mk(sph(0.11, 10, 8), isl.glow, 0, 3.28, 0));
+    const dish = mk(geo("dish", () => new THREE.SphereGeometry(0.42, 16, 8, 0, Math.PI * 2, 0, 0.9)), mat("#ffffff", { side: THREE.DoubleSide }), 0.42, 1.4, 0.2);
+    dish.rotation.set(-0.6, 0, -1.1); u.add(dish);
+    const bub = mk(rbox(0.6, 0.38, 0.14, 0.14), mat(isl.color), -0.75, 2.3, 0.2); u.add(bub);
+    for (const x of [-0.13, 0, 0.13]) bub.add(mk(sph(0.04, 8, 6), mat("#ffffff"), x, 0, 0.08));
+    const rings = [0, 1, 2].map(() => { const m = new THREE.Mesh(geo("pulse", () => new THREE.TorusGeometry(0.35, 0.025, 6, 32)), new THREE.MeshBasicMaterial({ color: isl.color, transparent: true, opacity: 0, depthWrite: false })); m.rotation.x = Math.PI / 2; m.position.y = 3.28; u.add(m); return m; });
+    isl.anims.push((t) => { bub.position.y = 2.3 + Math.sin(t * 2) * 0.1; rings.forEach((m, i) => { const k = (t * 0.7 + i / 3) % 1; const on = isl.active || isl.pulse > 0.05; m.scale.setScalar(1 + k * 3.5); m.material.opacity = on ? (1 - k) * 0.7 : 0; }); });
+  },
+  factory(u, isl, c) {
+    u.add(mk(rbox(1.8, 0.7, 1.2, 0.06), mat("#ece6dc"), 0, 0.35, 0));
+    for (const x of [-0.55, 0, 0.55]) { const p = mk(prism(0.33, 1.18), mat(isl.color), x, 0.7 + 0.165, 0); p.rotation.y = Math.PI / 2; u.add(p); }
+    for (const x of [-0.6, -0.2, 0.2, 0.6]) u.add(mk(rbox(0.22, 0.18, 0.03, 0.01), isl.glow, x, 0.36, 0.61));
+    u.add(mk(cyl(0.15, 0.19, 1.7, 10), mat("#d9d2c7"), -0.65, 0.85, -0.4));
+    u.add(mk(cyl(0.2, 0.2, 0.1, 10), mat("#ef4444"), -0.65, 1.3, -0.4));
+    c.smoke(u, -0.65, 1.72, -0.4);
+    u.add(mk(rbox(1.6, 0.1, 0.28, 0.03), mat("#4b4b58"), 0, 0.22, 0.88));
+    for (const x of [-0.6, 0, 0.6]) u.add(mk(cyl(0.03, 0.03, 0.18, 6), mat("#4b4b58"), x, 0.09, 0.88));
+    const crates = [0, 1, 2].map(() => { const m = mk(rbox(0.18, 0.16, 0.18, 0.03), mat("#e9c46a"), 0, 0.35, 0.88); u.add(m); return m; });
+    const arm = new THREE.Group(); arm.position.set(0.95, 0.7, 0.4); u.add(arm);
+    arm.add(mk(rbox(0.08, 0.5, 0.08, 0.03), mat("#f4a261"), 0, 0.25, 0));
+    const fore = new THREE.Group(); fore.position.y = 0.5; arm.add(fore); fore.add(mk(rbox(0.07, 0.4, 0.07, 0.03), mat("#f4a261"), 0, 0.2, 0));
+    isl.anims.push((t) => { crates.forEach((m, i) => { const k = (t * (isl.active ? 0.35 : 0.08) + i / 3) % 1; m.position.x = -0.75 + k * 1.5; }); arm.rotation.z = Math.sin(t * 1.5) * 0.4; fore.rotation.z = Math.sin(t * 1.5 + 1) * 0.6; });
+  },
+  workshop(u, isl) {
+    u.add(mk(rbox(1.4, 0.8, 1.0, 0.06), mat("#e7c9a0"), 0, 0.4, 0));
+    u.add(mk(prism(0.6, 1.5), mat(isl.color), 0, 0.8 + 0.3, 0));
+    u.add(mk(rbox(0.4, 0.5, 0.04, 0.02), mat("#8d6e53"), -0.3, 0.25, 0.51));
+    const gear = new THREE.Group(); gear.position.set(0.35, 1.0, 0.62); u.add(gear);
+    gear.add(mk(geo("gear", () => new THREE.TorusGeometry(0.34, 0.1, 8, 20)), mat("#9ca3af", { metalness: 0.4, roughness: 0.4 })));
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2; const tth = mk(rbox(0.13, 0.14, 0.14, 0.03), mat("#9ca3af", { metalness: 0.4, roughness: 0.4 }), Math.cos(a) * 0.46, Math.sin(a) * 0.46, 0); tth.rotation.z = a; gear.add(tth); }
+    gear.add(mk(cyl(0.1, 0.1, 0.14, 12), mat(isl.color), 0, 0, 0)).rotation.x = Math.PI / 2;
+    const gear2 = gear.clone(); gear2.scale.setScalar(0.55); gear2.position.set(-0.25, 1.62, 0.25); u.add(gear2);
+    isl.anims.push((t, dt) => { gear.rotation.z -= dt * 0.8; gear2.rotation.z += dt * 1.45; });
+  },
+  construction(u, isl) {
+    u.add(mk(rbox(0.6, 0.15, 0.6, 0.04), mat("#9ca3af"), 0, 0.075, 0));
+    for (let i = 0; i < 6; i++) u.add(mk(rbox(0.26, 0.5, 0.26, 0.02), mat(i % 2 ? "#f6c445" : "#2b2a33"), 0, 0.4 + i * 0.5, 0));
+    const jib = new THREE.Group(); jib.position.y = 3.2; u.add(jib);
+    jib.add(mk(rbox(0.3, 0.3, 0.3, 0.05), mat("#ffffff"), 0, 0.05, 0));
+    jib.add(mk(rbox(2.6, 0.14, 0.16, 0.03), mat("#f6c445"), 0.6, 0.25, 0));
+    jib.add(mk(rbox(0.36, 0.3, 0.3, 0.05), mat("#6b7280"), -0.55, 0.12, 0));
+    const line = mk(cyl(0.01, 0.01, 1, 4), mat("#2b2a33"), 1.6, 0, 0); jib.add(line);
+    const hook = mk(rbox(0.3, 0.24, 0.3, 0.05), mat(isl.color), 1.6, 0, 0); jib.add(hook);
+    isl.anims.push((t) => { jib.rotation.y = Math.sin(t * 0.3) * 1.2; const len = 1.3 + Math.sin(t * 0.9) * 0.6; line.scale.y = len; line.position.y = 0.2 - len / 2; hook.position.y = 0.2 - len - 0.12; });
+  },
+};
+const UNIT = { townhall: house, library: bookstack, archive: docs, lab: miniLab, lighthouse: kiosk, power: solar, robot: miniBot, garden: hedge, arena: flag, radio: mast, factory: tank, workshop: toolbox, construction: scaffold };
+
+function buildDecor(island) {
+  if (island.decor) island.group.remove(island.decor);
+  const g = new THREE.Group();
+  island.decor = g; island.anims = []; island.group.add(g);
+  const r = mulberry32(500 + island.idx * 31);
+  const c = {
+    smoke(parent, x, y, z, always) {
+      const ps = []; for (let i = 0; i < 6; i++) { const p = mk(sph(0.13, 8, 6), SMOKE_MAT); p.castShadow = false; parent.add(p); ps.push(p); }
+      island.anims.push((t) => { const on = always || island.active; ps.forEach((p, i) => { const k = (t * 0.45 + i / 6) % 1; p.visible = on; p.position.set(x + Math.sin(k * 5 + i) * 0.14 * k, y + k * 1.6, z + k * 0.3); p.scale.setScalar(Math.sin(k * Math.PI) * (0.7 + k * 1.3)); }); });
+    },
+  };
+  LANDMARK[island.theme](unit(g, 0, 0), island, c);
+  const n = island.stats.units;
+  island.slotOrder.forEach(([x, z], i) => {
+    if (i < n) UNIT[island.theme](unit(g, x, z, Math.round(r() * 5) * (Math.PI / 3)), r, island);
+    else if (r() < 0.5) tree(g, x, z, r);
+    else if (r() < 0.12) lamp(g, x, z, island);
+  });
+  island.units = n;
+}
+
+/* ---------- 橋、車、協作線 ---------- */
+const bridges = [];
+for (const [a, b] of BRIDGES) {
+  const A = byKey[a].pos, B = byKey[b].pos;
+  const mid = A.clone().add(B).multiplyScalar(0.5);
+  const len = A.distanceTo(B) - 2 * APO + 1.2;
+  const g = new THREE.Group(); g.position.set(mid.x, 0.28, mid.z); g.rotation.y = -Math.atan2(B.z - A.z, B.x - A.x); scene.add(g);
+  g.add(mk(rbox(len, 0.12, 0.8, 0.04), mat("#d9b48a"), 0, 0, 0));
+  for (const z of [-0.36, 0.36]) { g.add(mk(rbox(len, 0.06, 0.06, 0.02), mat("#fff3df"), 0, 0.26, z)); for (const x of [-len / 2 + 0.3, 0, len / 2 - 0.3]) g.add(mk(cyl(0.03, 0.03, 0.26, 6), mat("#fff3df"), x, 0.13, z)); }
+  const car = new THREE.Group(); g.add(car);
+  const col = pick(rand, ["#ef4444", "#3b82f6", "#facc15", "#14b8a6", "#f97316", "#a855f7"]);
+  car.add(mk(rbox(0.42, 0.16, 0.24, 0.05), mat(col), 0, 0.15, 0)); car.add(mk(rbox(0.22, 0.12, 0.2, 0.04), mat("#ffffff"), -0.03, 0.28, 0));
+  bridges.push({ a, b, len, car, lane: rand() < 0.5 ? -0.17 : 0.17, phase: rand() * 10, speed: 0.15 + rand() * 0.15 });
+}
+
+const linkGroup = new THREE.Group(); scene.add(linkGroup);
+const links = LINKS.map(([a, b, label]) => {
+  const A = byKey[a].pos.clone().setY(2.3), B = byKey[b].pos.clone().setY(2.3);
+  const mid = A.clone().add(B).multiplyScalar(0.5); mid.y += 2.2 + A.distanceTo(B) * 0.22;
+  const curve = new THREE.QuadraticBezierCurve3(A, mid, B);
+  const matl = new THREE.MeshBasicMaterial({ color: byKey[a].color, transparent: true, opacity: 0.5, depthWrite: false });
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.045, 6, false), matl);
+  linkGroup.add(tube);
+  const dots = [0, 1, 2].map(() => { const d = new THREE.Mesh(sph(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: byKey[a].color, transparent: true })); linkGroup.add(d); return d; });
+  return { a, b, label, curve, tube, matl, dots, speed: 0.12 + rand() * 0.08, phase: rand() };
+});
+
+const packets = [];
+function sendPacket(a, b, onArrive) {
+  const l = links.find((x) => x.a === a && x.b === b) || links.find((x) => x.a === b && x.b === a);
+  if (!l) { onArrive?.(); return; }
+  const reverse = l.a !== a;
+  const color = byKey[a].color;
+  const core = new THREE.Mesh(sph(0.16, 12, 10), new THREE.MeshBasicMaterial({ color: "#ffffff" }));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.scale.setScalar(1.6);
+  core.add(halo); scene.add(core);
+  packets.push({ l, reverse, core, t: 0, onArrive, to: b });
+  byKey[a].pulse = 1;
+}
+const ripples = [];
+function ripple(island) {
+  const m = new THREE.Mesh(hexRing(R + 0.1, R + 0.35), new THREE.MeshBasicMaterial({ color: island.color, transparent: true, opacity: 0.8, depthWrite: false }));
+  m.position.copy(island.pos).setY(TOP + 0.05); scene.add(m); ripples.push({ m, t: 0 });
+}
+
+const selRing = new THREE.Mesh(hexRing(R + 0.05, R + 0.28), new THREE.MeshBasicMaterial({ color: "#2b2a33", transparent: true, opacity: 0.9, depthWrite: false }));
+selRing.position.y = TOP + 0.04; selRing.visible = false;
+
+/* =========================================================
+   互動：hover／點選／飛鏡頭
+   ========================================================= */
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let downAt = null;
+function hit(e) {
+  pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  return raycaster.intersectObjects(pickers, false)[0]?.object.userData.key ?? null;
+}
+renderer.domElement.addEventListener("pointermove", (e) => { if (e.buttons) return; setHover(hit(e)); });
+renderer.domElement.addEventListener("pointerdown", (e) => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
+  const k = hit(e); k ? select(k) : select(null);
+});
+renderer.domElement.addEventListener("pointerleave", () => setHover(null));
+function setHover(k) {
+  if (state.hover === k) return;
+  state.hover = k;
+  renderer.domElement.style.cursor = k ? "pointer" : "";
+  ISLANDS.forEach((is) => is.el.classList.toggle("hover", is.key === k));
+}
+
+let fly = null;
+controls.addEventListener("start", () => { fly = null; });
+function flyTo(target, pos, dur = 1100) { fly = { t0: performance.now(), dur, fromT: controls.target.clone(), toT: target, fromP: camera.position.clone(), toP: pos }; }
+function flyToIsland(is) {
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  if (dir.y < 0.55) { dir.y = 0.55; dir.normalize(); }
+  const target = is.pos.clone().setY(0.8);
+  // 桌機右側有面板：把注視點往右推一點，讓島落在畫面左半
+  if (innerWidth > 760) { const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(-4.2); target.add(right); }
+  else target.z += 3;
+  flyTo(target, target.clone().add(dir.multiplyScalar(innerWidth > 760 ? 30 : 40)));
+}
+function goHome() { const h = homePose(); flyTo(h.target, h.pos.clone().add(h.target)); }
+
+function select(key, highlightId) {
+  state.selected = key;
+  ISLANDS.forEach((is) => is.el.classList.toggle("sel", is.key === key));
+  if (key) {
+    const is = byKey[key];
+    is.group.add(selRing); selRing.visible = true; selRing.material.color.set(is.color);
+    flyToIsland(is);
+    renderDetail(key, highlightId);
+    $("#panel").classList.remove("collapsed");
+  } else {
+    selRing.visible = false;
+    renderList();
+  }
+  updateLinkFocus();
+}
+function updateLinkFocus() {
+  const k = state.selected;
+  links.forEach((l) => { const on = !k || l.a === k || l.b === k; l.matl.opacity = on ? (k ? 0.85 : 0.5) : 0.08; l.dots.forEach((d) => (d.material.opacity = on ? 1 : 0.1)); });
+}
+
+/* =========================================================
+   右側面板
+   ========================================================= */
+const ICON_BACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+const ICON_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>';
+const togglePanelBtn = `<button class="icon-btn panel-toggle" type="button" aria-label="展開或收合" data-act="toggle">${ICON_UP}</button>`;
+const no2 = (is) => String(is.idx + 1).padStart(2, "0");
+const pill = (s) => { const [t, c] = ST[s] ?? [s, "idle"]; return `<span class="pill ${c}">${t}</span>`; };
+
+function renderList() {
+  $("#panelHead").innerHTML = `<div><div class="eyebrow">THE MODULE INDEX</div><h2>把營運，連起來。</h2></div>${togglePanelBtn}`;
+  const q = state.query;
+  $("#panelBody").innerHTML = `<div class="list-head"><span>功能模組 <b>${ISLANDS.length}</b></span><span>協作關係 <b>${LINKS.length}</b></span></div>` +
+    ISLANDS.map((is) => `<button class="mod${q && !matchKeys.has(is.key) ? " dim" : ""}" type="button" data-key="${is.key}" style="--c:${is.color}">
+      <span class="no">${no2(is)}</span><span class="nm"><b>${is.name}</b><small>${is.en}</small></span>${is.active ? '<i class="live" title="運作中"></i>' : ""}
+      <span class="cnt">${is.key === "usage" ? `$${fmt(is.stats.total)}` : fmt(is.stats.total)}</span><span class="arr">↗</span></button>`).join("");
+}
+
+function rowHtml(it, color) {
+  const prog = it.progress ? `<div class="bar" style="--c:${color}"><i style="width:${clamp(it.progress.value, 0, 100)}%"></i><u style="left:${it.progress.target}%"></u></div>` : "";
+  const bar = it.bar ? `<div class="bar" style="--c:${color}"><i style="width:${Math.round(it.bar.value * 100)}%"></i></div>` : "";
+  return `<div class="row" data-id="${esc(it.id)}"><div class="rt"><b>${esc(it.title)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ""}${prog}${bar}</div>
+    <div class="rr">${it.status ? pill(it.status) : ""}${it.right ? `<small>${esc(it.right)}</small>` : ""}</div></div>`;
+}
+
+function renderDetail(key, highlightId) {
+  const is = byKey[key], s = is.stats;
+  const body = $("#panelBody");
+  const keepScroll = !highlightId && body.dataset.key === key ? body.scrollTop : 0;
+  $("#panelHead").innerHTML = `<button class="icon-btn" type="button" aria-label="回到清單" data-act="back">${ICON_BACK}</button>
+    <div><div class="eyebrow">MODULE ${no2(is)} / ${is.en.toUpperCase()}</div><h2>${is.name}</h2></div>${togglePanelBtn}`;
+  const ups = LINKS.filter((l) => l[1] === key), downs = LINKS.filter((l) => l[0] === key);
+  const chip = (k, label) => `<button class="chip" type="button" data-key="${k}" style="--c:${byKey[k].color}">${byKey[k].name}<small>${label}</small></button>`;
+  const logs = state.log.filter((e) => e.mod === key || e.flows?.some((f) => f.includes(key))).slice(0, 6);
+  body.dataset.key = key;
+  body.innerHTML = `
+    <div class="d-hero" style="--c:${is.color}"><span class="no">${no2(is)}</span><div><h2>${is.name}</h2><p class="en">${is.en}</p></div>${is.active ? '<span class="pill run">運作中</span>' : '<span class="pill idle">待命</span>'}</div>
+    <p class="desc">${is.desc}</p>
+    <div class="kpis">${s.kpis.map(([l, v, u, tip], i) => `<div class="kpi" data-i="${i}"><span class="kl">${l}<i class="tip" tabindex="0" data-tip="${esc(tip)}">i</i></span><b class="num">${typeof v === "number" ? fmt(v) : v}<small>${u}</small></b></div>`).join("")}</div>
+    <div class="collab">
+      <div class="ln"><span class="lbl">上游</span>${ups.length ? ups.map((l) => chip(l[0], l[2])).join("") : '<small style="color:var(--ink3)">無</small>'}</div>
+      <div class="ln"><span class="lbl">下游</span>${downs.length ? downs.map((l) => chip(l[1], l[2])).join("") : '<small style="color:var(--ink3)">無</small>'}</div>
+    </div>
+    ${s.sections.map((sec) => `<h3>${sec.title}<span>${sec.items.length}</span></h3><div class="rows">${sec.items.length ? sec.items.slice(0, 40).map((it) => rowHtml(it, is.color)).join("") : '<div class="more">目前沒有資料</div>'}${sec.items.length > 40 ? `<div class="more">還有 ${sec.items.length - 40} 筆</div>` : ""}</div>`).join("")}
+    <h3>最近動態<span>${logs.length}</span></h3>
+    <div class="rows">${logs.length ? logs.map((e) => `<div class="row"><div class="rt"><b>${esc(e.text)}</b><small>${e.company ? esc(cname(e.company)) + "・" : ""}${hhmm(e.t)}</small></div></div>`).join("") : '<div class="more">還沒有動態，稍等一下就會出現</div>'}</div>`;
+  if (highlightId) {
+    const el = body.querySelector(`.row[data-id="${CSS.escape(highlightId)}"]`);
+    if (el) { el.classList.add("flash"); setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 350); }
+  } else body.scrollTop = keepScroll;
+}
+
+$("#panel").addEventListener("click", (e) => {
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (act === "back") return select(null);
+  if (act === "toggle") return $("#panel").classList.toggle("collapsed");
+  const k = e.target.closest("[data-key]")?.dataset.key;
+  if (k) select(k);
+});
+
+// ⓘ 浮動說明（fixed 定位，不會被面板捲動區切掉）
+const tooltip = $("#tooltip");
+function showTip(el) { tooltip.textContent = el.dataset.tip; tooltip.style.display = "block"; const r = el.getBoundingClientRect(); const w = tooltip.offsetWidth; tooltip.style.left = `${clamp(r.left + r.width / 2 - w / 2, 8, innerWidth - w - 8)}px`; tooltip.style.top = `${r.bottom + 8}px`; }
+document.addEventListener("mouseover", (e) => { const t = e.target.closest(".tip"); t ? showTip(t) : (tooltip.style.display = "none"); });
+document.addEventListener("focusin", (e) => { if (e.target.classList?.contains("tip")) showTip(e.target); });
+document.addEventListener("focusout", () => { tooltip.style.display = "none"; });
+
+/* =========================================================
+   搜尋
+   ========================================================= */
+let matchKeys = new Set();
+function searchIndex() {
+  const out = [];
+  ISLANDS.forEach((is) => out.push({ type: "模組", key: is.key, id: null, label: is.name, sub: `${is.en}・${is.desc}` }));
+  DATA.companies.forEach((c) => out.push({ type: "公司", key: "company", id: c.id, label: c.name, sub: `${c.roles} 個角色・${c.since} 開通`, company: c.id }));
+  DATA.users.forEach((u) => out.push({ type: "帳號", key: "company", id: u.id, label: u.name, sub: `${cname(u.companyId)}・${u.role}・${u.email}`, company: u.companyId }));
+  DATA.sources.forEach((x) => out.push({ type: "來源", key: "km", id: x.id, label: x.title, sub: cname(x.companyId), company: x.companyId }));
+  DATA.docs.forEach((x) => out.push({ type: "文件", key: "tally", id: x.id, label: `${x.template} - ${x.entity}`, sub: cname(x.companyId), company: x.companyId }));
+  DATA.dims.forEach((x) => out.push({ type: "維度", key: "dimension", id: x.id, label: x.name, sub: cname(x.companyId), company: x.companyId }));
+  DATA.skills.forEach((x) => out.push({ type: "Skill", key: "skill", id: x.id, label: x.name, sub: cname(x.companyId), company: x.companyId }));
+  DATA.agents.forEach((x) => out.push({ type: "Agent", key: "agent", id: x.id, label: x.name, sub: cname(x.companyId), company: x.companyId }));
+  DATA.drafts.forEach((x) => out.push({ type: "草稿", key: "draft", id: x.id, label: x.name, sub: cname(x.companyId), company: x.companyId }));
+  DATA.jobs.forEach((x) => out.push({ type: `${x.type} 任務`, key: x.type === "RAG" ? "rag" : "faq", id: x.id, label: x.name, sub: `${cname(x.companyId)}・${(ST[x.status] ?? [x.status])[0]}・${x.score ?? "—"}%`, company: x.companyId }));
+  DATA.forms.forEach((x) => out.push({ type: "表單", key: "automation", id: x.id, label: x.name, sub: `${cname(x.companyId)}・${x.domain}`, company: x.companyId }));
+  DATA.lineGroups.forEach((x) => out.push({ type: "LINE 群組", key: "line", id: x.id, label: x.name, sub: cname(x.companyId), company: x.companyId }));
+  return out;
+}
+const hl = (s, q) => { const i = s.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(s) : `${esc(s.slice(0, i))}<mark>${esc(s.slice(i, i + q.length))}</mark>${esc(s.slice(i + q.length))}`; };
+let results = [], activeIdx = 0;
+function runSearch() {
+  const q = $("#q").value.trim();
+  state.query = q;
+  const box = $("#results");
+  if (!q) { box.classList.remove("open"); matchKeys = new Set(); applyMatch(); return; }
+  const ql = q.toLowerCase();
+  results = searchIndex().filter((x) => (x.label + " " + x.sub + " " + (x.hay ?? "")).toLowerCase().includes(ql)).slice(0, 14);
+  matchKeys = new Set(results.map((x) => x.key));
+  activeIdx = 0;
+  if (!results.length) box.innerHTML = '<div class="empty">找不到符合的模組、公司、帳號或作業</div>';
+  else {
+    let last = "";
+    box.innerHTML = results.map((x, i) => { const head = x.type !== last ? `<div class="grp">${x.type}</div>` : ""; last = x.type;
+      return `${head}<button type="button" data-i="${i}" class="${i === 0 ? "act" : ""}" style="--c:${byKey[x.key].color}"><span class="dot"></span><span class="t"><b>${hl(x.label, q)}</b><small>${hl(x.sub.slice(0, 60), q)}</small></span><small style="color:var(--ink3)">${byKey[x.key].name}</small></button>`; }).join("");
+  }
+  box.classList.add("open");
+  applyMatch();
+}
+function applyMatch() {
+  const q = state.query;
+  ISLANDS.forEach((is) => { is.el.classList.toggle("match", !!q && matchKeys.has(is.key)); is.el.classList.toggle("dim", !!q && !matchKeys.has(is.key)); });
+  if (!state.selected) renderList();
+}
+function chooseResult(x) {
+  if (!x) return;
+  if (state.company !== "all" && x.company && x.company !== state.company) setCompany("all");
+  $("#results").classList.remove("open");
+  select(x.key, x.id);
+}
+$("#q").addEventListener("input", runSearch);
+$("#q").addEventListener("focus", () => { if ($("#q").value.trim()) runSearch(); });
+$("#q").addEventListener("keydown", (e) => {
+  const btns = [...$("#results").querySelectorAll("button")];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!btns.length) return; activeIdx = (activeIdx + (e.key === "ArrowDown" ? 1 : -1) + btns.length) % btns.length; btns.forEach((b, i) => b.classList.toggle("act", i === activeIdx)); btns[activeIdx].scrollIntoView({ block: "nearest" }); }
+  else if (e.key === "Enter") { e.preventDefault(); chooseResult(results[activeIdx]); }
+  else if (e.key === "Escape") { $("#q").value = ""; runSearch(); $("#q").blur(); }
+});
+$("#results").addEventListener("click", (e) => { const b = e.target.closest("button[data-i]"); if (b) chooseResult(results[+b.dataset.i]); });
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".search")) $("#results").classList.remove("open"); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $("#q")) { e.preventDefault(); $("#q").focus(); }
+  if (e.key === "Escape" && document.activeElement !== $("#q") && state.selected) select(null);
+});
+
+/* =========================================================
+   統計刷新、日誌、即時事件模擬
+   ========================================================= */
+function refreshStats(changed = []) {
+  const D = view();
+  for (const is of ISLANDS) {
+    is.stats = STATS[is.key](D);
+    is.active = is.stats.running > 0;
+    is.el.querySelector(".n").textContent = is.key === "usage" ? `$${fmt(is.stats.total)}` : fmt(is.stats.total);
+    is.el.querySelector(".live").hidden = !is.active;
+    is.glass.emissiveIntensity = is.active ? 0.5 : 0.08;
+    if (is.units !== is.stats.units) buildDecor(is);
+  }
+  const running = D.jobs.filter((j) => j.status === "RUNNING").length + D.sources.filter((s) => s.status === "ANALYZING").length +
+    D.forms.filter((f) => f.status === "ANALYZING").length + D.tests.filter((t) => t.status === "RUNNING").length;
+  setStat("st-company", D.companies.length); setStat("st-users", D.users.length); setStat("st-running", running); setStat("st-events", todayEvents());
+  if (state.selected) renderDetail(state.selected);
+  else renderList();
+  changed.forEach((k) => { const el = byKey[k]?.el; if (el) { el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop"); } });
+}
+function setStat(id, v) { const el = document.getElementById(id); const b = el.querySelector("b"); if (b.textContent !== String(fmt(v))) { b.textContent = fmt(v); el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump"); } }
+
+function addLog(e, fresh = true) {
+  state.log.unshift(e);
+  state.log.length = Math.min(state.log.length, 80);
+  renderLog(fresh);
+}
+const todayEvents = () => state.log.filter((e) => e.t >= DATA.todayStart && inScope(e)).length;
+function renderLog(fresh) {
+  const list = state.log.filter((e) => state.company === "all" || !e.company || e.company === state.company).slice(0, 30);
+  $("#logList").innerHTML = list.map((e, i) => `<li class="${i === 0 && fresh ? "new" : ""}" data-key="${e.mod}" style="--c:${byKey[e.mod].color}"><span class="dot"></span><span style="flex:1">${esc(e.text)}</span><time>${hhmm(e.t)}</time></li>`).join("");
+  $("#logCount").textContent = `今日 ${todayEvents()} 則`;
+}
+$("#logList").addEventListener("click", (e) => { const k = e.target.closest("li")?.dataset.key; if (k) select(k); });
+
+const inScope = (ev) => state.company === "all" || !ev.company || ev.company === state.company;
+function runFlows(flows, i = 0) {
+  if (i >= flows.length) return;
+  const [a, b] = flows[i];
+  sendPacket(a, b, () => { const t = byKey[b]; t.pulse = 1; ripple(t); runFlows(flows, i + 1); });
+}
+// 播放一則動態：寫進日誌、島跳一下、光點沿協作線跑
+function playEvent(ev) {
+  addLog(ev, true);
+  if (inScope(ev)) { byKey[ev.mod].pulse = 1; ripple(byKey[ev.mod]); runFlows(ev.flows ?? []); }
+  refreshStats([ev.mod, ...(ev.flows ?? []).map((f) => f[1])]);
+}
+
+/* ---------- 正式資料：每 15 秒抓一次快照，用 activity 的 id 找出新動態 ---------- */
+const seenActivity = new Set();
+async function poll() {
+  if (!state.paused) {
+    try {
+      const snap = await fetchSnapshot();
+      DATA = snap;
+      const fresh = snap.activity.filter((a) => !seenActivity.has(a.id)).sort((a, b) => a.t - b.t);
+      fresh.forEach((a) => seenActivity.add(a.id));
+      buildCompanyOptions();
+      refreshStats();
+      fresh.forEach((a, i) => setTimeout(() => playEvent(a), i * 1400));
+      setLiveText();
+    } catch (e) {
+      $("#liveText").textContent = e.auth ? e.message : `${e.message}，稍後重試`;
+    }
+  }
+  setTimeout(poll, POLL_MS);
+}
+
+/* ---------- 範例資料：模擬即時事件 ---------- */
+function notify(companyId, text, failed = false) { DATA.notices.unshift({ id: nid("n"), companyId, text, status: "SENT", failed, at: Date.now() }); DATA.notices.length = Math.min(DATA.notices.length, 60); }
+const pickC = () => pick(rand, DATA.companies);
+const seedOf = (id) => SEED.find((x) => x.id === id);
+const EVENTS = [
+  [4, () => {
+    const j = pick(rand, DATA.jobs.filter((x) => x.status === "RUNNING")); if (!j) return null;
+    const mod = j.type === "RAG" ? "rag" : "faq"; const before = j.score ?? 60;
+    j.round++; j.versions++; j.updatedAt = Date.now(); j.score = clamp(before + randInt(rand, -2, 6), 40, 99); j.step = pick(rand, ["UPLOAD", "TEST", "REVISE"]);
+    const t = DATA.tests.find((x) => x.status === "RUNNING" && x.name.startsWith(j.name)); if (t) { t.status = "DONE"; t.completed = t.questions; t.pass = j.score; }
+    const done = j.score >= j.target || j.round >= j.maxRounds;
+    if (done) { j.status = "DONE"; notify(j.companyId, `${j.type}優化「${j.name}」完成通知`); }
+    else DATA.tests.unshift({ id: nid("r"), companyId: j.companyId, name: `${j.name}・第 ${j.round + 1} 輪`, questions: randInt(rand, 80, 160), completed: 0, pass: null, status: "RUNNING", at: Date.now() });
+    const u = DATA.usage.find((x) => x.companyId === j.companyId); u.tokensToday += randInt(rand, 40, 160) * 1000; u.costToday += randInt(rand, 4, 18); u.costMonth += randInt(rand, 4, 18);
+    return { mod, company: j.companyId, text: done ? `${j.type}優化「${j.name}」完成，最後答對率 ${j.score}%` : `${j.type}優化「${j.name}」第 ${j.round} 輪完成，答對率 ${before}% → ${j.score}%`,
+      flows: done ? [[mod, "bottest"], ["bottest", mod], [mod, "line"]] : [[mod, "bottest"], ["bottest", mod], [mod, "usage"]] };
+  }],
+  [2, () => {
+    if (DATA.jobs.filter((x) => x.status === "RUNNING").length >= 6) return null;
+    const c = pickC(); const type = rand() < 0.55 ? "RAG" : "FAQ";
+    const j = { id: nid("j"), companyId: c.id, type, name: `${pick(rand, seedOf(c.id).topics)}（v${randInt(rand, 2, 9)}）`, status: "RUNNING", round: 0, maxRounds: 10, score: null, target: 90, versions: 0, step: "PREPARE", startedAt: Date.now(), updatedAt: Date.now() };
+    DATA.jobs.push(j);
+    const mod = type === "RAG" ? "rag" : "faq";
+    return { mod, company: c.id, text: `開始 ${type}優化「${j.name}」`, flows: [["tally", mod]] };
+  }],
+  [2, () => {
+    const s = pick(rand, DATA.sources.filter((x) => x.status === "ANALYZING"));
+    if (s && rand() < 0.6) { s.status = "ANALYZED"; s.fields += randInt(rand, 3, 12); s.updatedAt = Date.now(); return { mod: "km", company: s.companyId, text: `來源「${s.title}」分析完成，產生 ${s.fields} 則條目`, flows: [["km", "tally"]] }; }
+    const c = pickC(); const t = `${pick(rand, ["2026 新版", "補充", "門市版", "常見問答"])}${pick(rand, seedOf(c.id).topics)}`;
+    DATA.sources.unshift({ id: nid("k"), companyId: c.id, title: t, files: randInt(rand, 1, 4), fields: 0, status: "ANALYZING", updatedAt: Date.now() });
+    return { mod: "km", company: c.id, text: `上傳來源「${t}」`, flows: [["company", "km"]] };
+  }],
+  [2, () => {
+    const c = pickC(); const sd = seedOf(c.id); const e = pick(rand, sd.entities);
+    const t = DATA.docs.find((x) => x.companyId === c.id && x.entity === e);
+    if (t) t.updatedAt = Date.now(); else { DATA.docs.unshift({ id: nid("t"), companyId: c.id, template: `${sd.cat}產品`, entity: e, updatedAt: Date.now() }); DATA.docTotals[c.id] = (DATA.docTotals[c.id] ?? 0) + 1; }
+    return { mod: "tally", company: c.id, text: `結構化文件「${e}」已更新`, flows: [["km", "tally"], ["tally", "rag"]] };
+  }],
+  [1.5, () => {
+    const f = pick(rand, DATA.forms.filter((x) => x.status === "ANALYZING"));
+    if (f) { f.status = "READY"; f.updatedAt = Date.now(); return { mod: "automation", company: f.companyId, text: `表單「${f.name}」分析完成，${f.fields} 個欄位`, flows: [["automation", "usage"]] }; }
+    const c = pickC(); const n = pick(rand, ["預約到府服務", "發票重開申請", "客訴登記表", "活動報名表"]);
+    DATA.forms.push({ id: nid("f"), companyId: c.id, name: n, domain: `service.${seedOf(c.id).domain}`, status: "ANALYZING", fields: randInt(rand, 5, 16), updatedAt: Date.now() });
+    return { mod: "automation", company: c.id, text: `登記表單「${n}」`, flows: [] };
+  }],
+  [3, () => {
+    const a = pick(rand, DATA.agents.filter((x) => x.status === "ONLINE")); if (!a) return null;
+    const n = randInt(rand, 3, 18);
+    const u = DATA.usage.find((x) => x.companyId === a.companyId); u.chatsToday += n; u.tokensToday += n * 3200; u.costToday += Math.ceil(n * 0.6); u.costMonth += Math.ceil(n * 0.6);
+    return { mod: "agent", company: a.companyId, text: `${a.name} 處理了 ${n} 則對話`, flows: [["skill", "agent"], ["agent", "usage"]] };
+  }],
+  [1, () => {
+    const c = pick(rand, DATA.companies.filter((x) => DATA.users.filter((u) => u.companyId === x.id).length < 12)); if (!c) return null;
+    const u = sampleUser(seedOf(c.id), Date.now(), false); DATA.users.push(u);
+    return { mod: "company", company: c.id, text: `${c.name} 新增帳號 ${u.name}（${u.role}）`, flows: [] };
+  }],
+  [1, () => {
+    const c = pickC(); const n = pick(rand, ["換貨流程", "會員升等", "預約提醒", "滿意度回訪"]);
+    DATA.drafts.unshift({ id: nid("w"), companyId: c.id, name: n, confirmed: false, updatedAt: Date.now() });
+    return { mod: "draft", company: c.id, text: `產生 Workflow 草稿「${n}」`, flows: [["km", "draft"]] };
+  }],
+];
+function simulate() {
+  if (!state.paused) {
+    const total = EVENTS.reduce((a, [w]) => a + w, 0);
+    let x = rand() * total, ev = null;
+    for (const [w, fn] of EVENTS) { x -= w; if (x <= 0) { ev = fn(); break; } }
+    if (ev) { ev.t = Date.now(); ev.id = nid("e"); playEvent(ev); }
+  }
+  setTimeout(simulate, 2200 + rand() * 2200);
+}
+
+/* =========================================================
+   工具列、公司篩選、導覽
+   ========================================================= */
+function setCompany(id) {
+  state.company = id;
+  $("#companySel").value = id;
+  refreshStats();
+  renderLog(false);
+}
+function buildCompanyOptions() {
+  const sel = $("#companySel");
+  sel.innerHTML = `<option value="all">全部公司</option>` + DATA.companies.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  if (state.company !== "all" && !DATA.companies.some((c) => c.id === state.company)) state.company = "all";
+  sel.value = state.company;
+}
+$("#companySel").addEventListener("change", (e) => setCompany(e.target.value));
+$("#tb-tags").addEventListener("click", (e) => { document.body.classList.toggle("tags-off"); e.currentTarget.classList.toggle("on"); });
+$("#tb-links").addEventListener("click", (e) => { linkGroup.visible = !linkGroup.visible; e.currentTarget.classList.toggle("on"); });
+$("#tb-pause").addEventListener("click", (e) => {
+  state.paused = !state.paused; const b = e.currentTarget; b.classList.toggle("on", state.paused);
+  b.querySelector("span").textContent = state.paused ? "繼續" : "暫停";
+  document.body.classList.toggle("paused", state.paused);
+  setLiveText();
+});
+$("#tb-home").addEventListener("click", () => { select(null); goHome(); });
+$("#tb-log").addEventListener("click", (e) => { $("#log").classList.toggle("hide"); e.currentTarget.classList.toggle("on", !$("#log").classList.contains("hide")); });
+$("#tb-tour").addEventListener("click", () => openTour(0));
+if (innerWidth <= 760) { $("#log").classList.add("hide"); $("#tb-log").classList.remove("on"); $("#panel").classList.add("collapsed"); }
+
+const TOUR = [
+  ["HELLO, AIBPO / 01", "每座島是一個功能模組", "13 座六角小島拼成 AIBPO 的營運城市。島上建築越多，代表那個模組的資料越多；亮燈、冒煙、跑動的島表示正在作業。點一座島，或用右側清單查看細節。"],
+  ["COLLABORATION / 02", "協作線是資料流向", "島與島之間的拱線代表模組之間的協作：來源 → 結構化文件 → RAG優化 → 機器人測試 → LINE 通知……有事件發生時，光點會沿著協作線跑過去。"],
+  ["LIVE / 03", "即時更新與搜尋", "左下日誌即時顯示各公司正在發生的事；按 / 可以搜尋模組、公司、帳號、任務或表單，選了會飛到對應的島。底部可以切換公司、暫停更新、回到鳥瞰。"],
+];
+let tourStep = 0;
+function openTour(i) {
+  tourStep = i; const [eb, t, p] = TOUR[i];
+  $("#tourEyebrow").textContent = eb; $("#tourTitle").textContent = t; $("#tourText").textContent = p;
+  $("#tourDots").innerHTML = TOUR.map((_, k) => `<i class="${k === i ? "on" : ""}"></i>`).join("");
+  $("#tourNext").textContent = i === TOUR.length - 1 ? "開始探索" : "下一步 →";
+  $("#tour").classList.remove("hide");
+}
+function closeTour() { $("#tour").classList.add("hide"); store.set("aibpo-island-tour", "1"); }
+$("#tourNext").addEventListener("click", () => (tourStep < TOUR.length - 1 ? openTour(tourStep + 1) : closeTour()));
+$("#tourSkip").addEventListener("click", closeTour);
+
+/* =========================================================
+   動畫迴圈
+   ========================================================= */
+const clock = new THREE.Clock();
+const tmpV = new THREE.Vector3();
+let frame = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  frame++;
+  if (frame % 2 === 0) updateWater(t);
+
+  if (fly) {
+    const k = clamp((performance.now() - fly.t0) / fly.dur, 0, 1);
+    const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    controls.target.lerpVectors(fly.fromT, fly.toT, e);
+    camera.position.lerpVectors(fly.fromP, fly.toP, e);
+    if (k >= 1) fly = null;
+  }
+  controls.update();
+
+  for (const is of ISLANDS) {
+    const target = is.key === state.selected ? 0.45 : is.key === state.hover ? 0.28 : 0;
+    is.lift += (target - is.lift) * Math.min(1, dt * 8);
+    is.pulse = Math.max(0, is.pulse - dt * 1.4);
+    is.group.position.y = is.lift + Math.sin(is.pulse * Math.PI) * 0.18;
+    is.glow.emissiveIntensity = is.active ? 0.55 + Math.sin(t * 4 + is.idx) * 0.35 : 0.12;
+    is.foam.material.opacity = 0.22 + Math.sin(t * 1.3 + is.idx) * 0.1;
+    for (const a of is.anims) a(t, dt);
+  }
+  selRing.material.opacity = 0.55 + Math.sin(t * 4) * 0.35;
+
+  for (const b of bridges) {
+    const busy = byKey[b.a].active || byKey[b.b].active;
+    const k = Math.sin(t * b.speed * (busy ? 2.2 : 1) + b.phase);
+    b.car.position.set(k * (b.len / 2 - 0.35), 0, b.lane);
+    b.car.rotation.y = Math.cos(t * b.speed * (busy ? 2.2 : 1) + b.phase) > 0 ? 0 : Math.PI;
+  }
+  if (linkGroup.visible) for (const l of links) l.dots.forEach((d, i) => { l.curve.getPoint((t * l.speed + l.phase + i / 3) % 1, tmpV); d.position.copy(tmpV); });
+
+  for (let i = packets.length - 1; i >= 0; i--) {
+    const p = packets[i]; p.t += dt / 1.3;
+    const k = clamp(p.t, 0, 1); p.l.curve.getPoint(p.reverse ? 1 - k : k, tmpV); p.core.position.copy(tmpV);
+    if (p.t >= 1) { scene.remove(p.core); p.core.material.dispose(); p.core.children[0].material.dispose(); packets.splice(i, 1); p.onArrive?.(); }
+  }
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i]; r.t += dt;
+    r.m.scale.setScalar(1 + r.t * 0.45); r.m.material.opacity = Math.max(0, 0.8 - r.t * 0.8);
+    if (r.t > 1) { scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); ripples.splice(i, 1); }
+  }
+  for (const c of clouds) { c.position.x += c.userData.speed * dt; if (c.position.x > 70) c.position.x = -70; }
+
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); labelRenderer.setSize(innerWidth, innerHeight);
+});
+setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("zh-TW", { hour12: false }); }, 1000);
+$("#clock").textContent = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+
+function setLiveText() {
+  $("#liveText").textContent = state.paused ? "已暫停更新" : MODE === "live" ? "即時資料・每 15 秒更新" : "範例資料（未連線）";
+}
+function showFatal(message) {
+  document.body.insertAdjacentHTML("beforeend", `<div class="tour"><div class="card"><div class="eyebrow">AIBPO ISLAND</div><h2>無法顯示營運島</h2><p>${esc(message)}</p></div></div>`);
+}
+
+// 開場：先抓資料（正式環境），抓不到 API 就用範例資料
+async function boot() {
+  if (location.protocol !== "file:") {
+    try { DATA = await fetchSnapshot(); MODE = "live"; }
+    catch (e) { if (e.auth) { showFatal(e.message); return; } }
+  }
+  if (!DATA) {
+    DATA = sampleData();
+    [["rag", "c1", "RAG優化「冰箱維修手冊（v1）」第 3 輪完成，答對率 71% → 76%"], ["automation", "c3", "表單「網路報修單」分析完成，12 個欄位"], ["km", "c2", "來源「退換貨政策」分析完成，產生 24 則條目"],
+      ["agent", "c1", "星河客服小星 處理了 12 則對話"], ["line", "c3", "FAQ優化「資費方案總表（v1）」完成通知"], ["tally", "c1", "結構化文件「S60 吸塵器」已更新"]]
+      .forEach(([mod, company, text], i) => state.log.push({ id: `seed${i}`, mod, company, text, t: Date.now() - (i + 1) * 4 * MIN, flows: [] }));
+  } else {
+    for (const a of DATA.activity) { seenActivity.add(a.id); state.log.push(a); }
+    state.log.sort((x, y) => y.t - x.t);
+  }
+  buildCompanyOptions();
+  setLiveText();
+  refreshStats();
+  renderLog(false);
+  animate();
+  if (MODE === "live") setTimeout(poll, POLL_MS);
+  else setTimeout(simulate, 1800);
+  if (!store.get("aibpo-island-tour")) openTour(0);
+}
+boot();
+</script>
+</body>
+</html>

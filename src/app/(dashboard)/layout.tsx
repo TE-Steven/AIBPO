@@ -44,12 +44,13 @@ export default async function DashboardLayout({ children }: { children: ReactNod
           })
           .filter((item): item is NavItem => item !== null);
 
-  // 超級管理員是平台維運角色，不碰租戶業務資料，側欄只留平台總覽跟全站共用的選單管理。
+  // 超級管理員是平台維運角色，不碰租戶業務資料，側欄只留平台總覽、全站共用的選單管理、營運島（各公司運作狀況的 3D 總覽，只有名稱與數量）。
   const systemItems: NavItem[] =
     session.kind === "superadmin"
       ? [
           { href: "/platform/companies", label: "平台總覽", icon: "menu-list" },
           { href: "/settings/menus", label: "選單管理", icon: "menu-list" },
+          { href: "/platform/island", label: "營運島", icon: "sparkles" },
         ]
       : session.isCompanyAdmin
         ? [
